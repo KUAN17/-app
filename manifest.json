@@ -1,0 +1,20 @@
+{
+  "name": "阿熊 & 綺綺 家庭財務",
+  "short_name": "家庭財務",
+  "description": "家庭財務管理系統",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#4361EE",
+  "orientation": "portrait-primary",
+  "lang": "zh-TW",
+  "icons": [
+    {
+      "src": "icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

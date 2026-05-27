@@ -1,0 +1,156 @@
+window.Store = (() => {
+  let _data = {
+    ledger: [],
+    projects: [],
+    investments: [],
+    accounts: {},       // { '阿熊': [{name, balance, baseDate}], ... }
+    categories: {},     // overrides from Backend
+    activeProjects: []  // names only
+  };
+  let _sheetMeta = [];
+  let _dirty = true;
+
+  // ── Ledger row → object ──────────────────────────────────────────────────
+  function parseLedgerRow(row, idx) {
+    return {
+      _row: idx + 2, // 1-indexed, header is row 1
+      id: row[0] || '',
+      roleOut: row[1] || '',
+      dimension: row[2] || '',
+      projectTag: row[3] || '',
+      type: row[4] || '',
+      category: row[5] || '',
+      memo: row[6] || '',
+      date: row[7] || '',
+      amount: Utils.parseAmount(row[8]),
+      accountOut: row[9] || '',
+      roleIn: row[10] || '',
+      accountIn: row[11] || ''
+    };
+  }
+
+  // ── Projects row → object ────────────────────────────────────────────────
+  function parseProjectRow(row) {
+    return {
+      status: row[0] || '',
+      name: row[1] || '',
+      budget: Utils.parseAmount(row[2]),
+      spent: Utils.parseAmount(row[3]),
+      remaining: Utils.parseAmount(row[4]),
+      allocated: Utils.parseAmount(row[5]),
+      gap: Utils.parseAmount(row[6])
+    };
+  }
+
+  // ── Investments row → object ─────────────────────────────────────────────
+  function parseInvestRow(row) {
+    return {
+      role: row[0] || '',
+      ticker: row[1] || '',
+      name: row[2] || '',
+      shares: Utils.parseAmount(row[3]),
+      avgCost: Utils.parseAmount(row[4]),
+      totalCost: Utils.parseAmount(row[5]),
+      price: Utils.parseAmount(row[6]),
+      marketValue: Utils.parseAmount(row[7]),
+      unrealized: Utils.parseAmount(row[8]),
+      returnRate: parseFloat(row[9]) || 0
+    };
+  }
+
+  // ── Account initial balances from Backend L:O ────────────────────────────
+  function parseAccountConfig(rows) {
+    const map = {};
+    rows.forEach(row => {
+      if (!row[0] || !row[1]) return;
+      const role = row[0];
+      if (!map[role]) map[role] = [];
+      map[role].push({
+        name: row[1],
+        balance: Utils.parseAmount(row[2]),
+        baseDate: row[3] || ''
+      });
+    });
+    return map;
+  }
+
+  async function load(force = false) {
+    const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID);
+    if (!sid) return;
+
+    if (!force) {
+      const ts = parseInt(localStorage.getItem(CFG.LS_KEYS.CACHE_TS) || '0');
+      if (Date.now() - ts < CFG.CACHE_TTL) {
+        const cached = localStorage.getItem(CFG.LS_KEYS.CACHE_DATA);
+        if (cached) { _data = JSON.parse(cached); _dirty = false; return; }
+      }
+    }
+
+    Utils.showLoading(true);
+    try {
+      const ranges = [
+        'Ledger!A2:L',
+        'Projects!A2:G',
+        'Investments!A2:J',
+        'Backend!L2:O'
+      ];
+      const [ledgerRows, projRows, invRows, acctRows] = await API.batchGet(sid, ranges);
+
+      _data.ledger = ledgerRows.filter(r => r[0]).map(parseLedgerRow);
+      _data.projects = projRows.filter(r => r[1]).map(parseProjectRow);
+      _data.investments = invRows.filter(r => r[1]).map(parseInvestRow);
+      _data.accounts = parseAccountConfig(acctRows);
+      _data.activeProjects = _data.projects.filter(p => p.status === '進行中').map(p => p.name);
+
+      _sheetMeta = await API.getSheetMeta(sid);
+      _dirty = false;
+
+      localStorage.setItem(CFG.LS_KEYS.CACHE_DATA, JSON.stringify(_data));
+      localStorage.setItem(CFG.LS_KEYS.CACHE_TS, String(Date.now()));
+    } finally {
+      Utils.showLoading(false);
+    }
+  }
+
+  function invalidate() {
+    _dirty = true;
+    localStorage.removeItem(CFG.LS_KEYS.CACHE_TS);
+  }
+
+  // ── Account balance calculation ──────────────────────────────────────────
+  function calcBalance(role, accountName) {
+    const cfg = (_data.accounts[role] || []).find(a => a.name === accountName);
+    const initial = cfg ? cfg.balance : 0;
+    const baseDate = cfg ? cfg.baseDate : '';
+
+    let balance = initial;
+    _data.ledger.forEach(tx => {
+      if (baseDate && tx.date < baseDate) return;
+      if (tx.type === '收入' && tx.roleOut === role && tx.accountOut === accountName) {
+        balance += tx.amount;
+      } else if (tx.type === '支出' && tx.roleOut === role && tx.accountOut === accountName) {
+        balance -= tx.amount;
+      } else if ((tx.type === '轉帳' || tx.type === '公積金提撥')) {
+        if (tx.roleOut === role && tx.accountOut === accountName) balance -= tx.amount;
+        if (tx.roleIn === role && tx.accountIn === accountName) balance += tx.amount;
+      }
+    });
+    return balance;
+  }
+
+  function accountsForRole(role) {
+    const saved = (_data.accounts[role] || []).map(a => a.name);
+    if (saved.length > 0) return saved;
+    return CFG.DEFAULT_ACCOUNTS[role] || [];
+  }
+
+  function getSheetId(sheetName) {
+    const s = _sheetMeta.find(m => m.name === sheetName);
+    return s ? s.id : null;
+  }
+
+  function get() { return _data; }
+  function isDirty() { return _dirty; }
+
+  return { load, invalidate, calcBalance, accountsForRole, getSheetId, get, isDirty };
+})();
