@@ -58,10 +58,11 @@ function showScreen(name) {
 function waitForGSI(timeout = 8000) {
   return new Promise((resolve, reject) => {
     if (typeof google !== 'undefined') { resolve(); return; }
+    if (window._gsiFailed) { reject(); return; }
     const start = Date.now();
     const t = setInterval(() => {
       if (typeof google !== 'undefined') { clearInterval(t); resolve(); }
-      else if (Date.now() - start > timeout) { clearInterval(t); reject(); }
+      else if (window._gsiFailed || Date.now() - start > timeout) { clearInterval(t); reject(); }
     }, 100);
   });
 }

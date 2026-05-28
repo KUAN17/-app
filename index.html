@@ -131,7 +131,10 @@
 </div>
 
 <!-- Google Identity Services -->
-<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="https://accounts.google.com/gsi/client"
+  async defer
+  onload="window._gsiOk=true"
+  onerror="window._gsiFailed=true"></script>
 
 <!-- App -->
 <script src="js/config.js"></script>
