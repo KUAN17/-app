@@ -38,12 +38,7 @@ window.Auth = (() => {
     if (isValid()) return _token;
     return new Promise((resolve, reject) => {
       _resolveToken = { resolve, reject };
-      _client.requestAccessToken({ prompt: isValid() ? '' : 'none' });
-    }).catch(() => {
-      return new Promise((resolve, reject) => {
-        _resolveToken = { resolve, reject };
-        _client.requestAccessToken();
-      });
+      _client.requestAccessToken();
     });
   }
 
