@@ -23,8 +23,10 @@ async function boot() {
     return;
   }
 
-  // Init Google OAuth
-  if (typeof google === 'undefined') {
+  // Wait for Google Identity Services to load (it's async)
+  try {
+    await waitForGSI();
+  } catch (e) {
     document.getElementById('gsi-error').classList.remove('hidden');
     showScreen('auth');
     return;
@@ -51,6 +53,17 @@ function launchApp() {
 function showScreen(name) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.getElementById(`screen-${name}`).classList.add('active');
+}
+
+function waitForGSI(timeout = 8000) {
+  return new Promise((resolve, reject) => {
+    if (typeof google !== 'undefined') { resolve(); return; }
+    const start = Date.now();
+    const t = setInterval(() => {
+      if (typeof google !== 'undefined') { clearInterval(t); resolve(); }
+      else if (Date.now() - start > timeout) { clearInterval(t); reject(); }
+    }, 100);
+  });
 }
 
 window.addEventListener('DOMContentLoaded', boot);
