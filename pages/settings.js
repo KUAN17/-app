@@ -102,17 +102,24 @@ Router.register('settings', (() => {
 
   const APPS_SCRIPT = `function buildAppSheetDatabase() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
+
   // Projects
   var ps = ss.getSheetByName('Projects') || ss.insertSheet('Projects');
   ps.clear();
   ps.getRange('A1:H1').setValues([['狀態','專案名稱','目標預算','已花費金額','預算剩餘額度','已提撥準備金','資金缺口警示','預算消耗圖']]).setFontWeight('bold');
-  ps.getRange('D2').setFormula('=IF(B2="","",SUMIFS(Ledger!I:I,Ledger!D:D,B2,Ledger!E:E,"支出"))');
-  ps.getRange('E2').setFormula('=IF(B2="","",C2-D2)');
-  ps.getRange('F2').setFormula('=IF(B2="","",SUMIFS(Ledger!I:I,Ledger!D:D,B2,Ledger!E:E,"公積金提撥",Ledger!F:F,"專案預備金"))');
-  ps.getRange('G2').setFormula('=IF(B2="","",IF(D2>F2,D2-F2,0))');
-  ps.getRange('H2').setFormula('=IF(OR(B2="",C2=0),"",SPARKLINE(D2,{"charttype","bar";"max",C2;"color1",IF(D2>C2,"red","green")}))');
-  ps.getRange('D2:H2').copyTo(ps.getRange('D3:H100'),SpreadsheetApp.CopyPasteType.PASTE_FORMULA,false);
+  var pf = [];
+  for (var i = 2; i <= 51; i++) {
+    pf.push([
+      '=IF(B'+i+'="","",SUMIFS(Ledger!I:I,Ledger!D:D,B'+i+',Ledger!E:E,"支出"))',
+      '=IF(B'+i+'="","",C'+i+'-D'+i+')',
+      '=IF(B'+i+'="","",SUMIFS(Ledger!I:I,Ledger!D:D,B'+i+',Ledger!E:E,"公積金提撥",Ledger!F:F,"專案預備金"))',
+      '=IF(B'+i+'="","",IF(D'+i+'>F'+i+',D'+i+'-F'+i+',0))',
+      '=IF(OR(B'+i+'="",C'+i+'=0),"",SPARKLINE(D'+i+',{"charttype","bar";"max",C'+i+';"color1",IF(D'+i+'>C'+i+',"red","green")}))'
+    ]);
+  }
+  ps.getRange(2,4,pf.length,5).setFormulas(pf);
   ps.getRange('A2:C4').setValues([['進行中','[家] 範例專案',500000],['進行中','[熊] 範例保養',15000],['已結案','[家] 舊專案',100000]]);
+
   // Backend
   var bs = ss.getSheetByName('Backend') || ss.insertSheet('Backend');
   bs.clear();
@@ -126,21 +133,29 @@ Router.register('settings', (() => {
   bs.getRange('G2:G3').setValues([['ATM領現'],['轉帳']]);
   bs.getRange('H2:H3').setValues([['常態家用'],['專案預備金']]);
   bs.getRange('L1:O1').setValues([['角色','帳戶名稱','期初餘額','基準日期']]).setFontWeight('bold');
+
   // Investments
   var inv = ss.getSheetByName('Investments') || ss.insertSheet('Investments');
   inv.clear();
   inv.getRange('A1:J1').setValues([['角色歸屬','標的代號','標的名稱','持有股數','持有均價','總成本','即時現價','總市值','未實現損益','報酬率']]).setFontWeight('bold');
-  inv.getRange('F2').setFormula('=IF(B2="","",D2*E2)');
-  inv.getRange('G2').setFormula('=IF(B2="","",GOOGLEFINANCE(B2,"price"))');
-  inv.getRange('H2').setFormula('=IF(B2="","",D2*G2)');
-  inv.getRange('I2').setFormula('=IF(B2="","",H2-F2)');
-  inv.getRange('J2').setFormula('=IF(OR(B2="",F2=0),"",I2/F2)');
-  inv.getRange('J2:J100').setNumberFormat('0.00%');
-  inv.getRange('F2:J2').copyTo(inv.getRange('F3:J100'),SpreadsheetApp.CopyPasteType.PASTE_FORMULA,false);
+  var ivf = [];
+  for (var j = 2; j <= 51; j++) {
+    ivf.push([
+      '=IF(B'+j+'="","",D'+j+'*E'+j+')',
+      '=IF(B'+j+'="","",GOOGLEFINANCE(B'+j+',"price"))',
+      '=IF(B'+j+'="","",D'+j+'*G'+j+')',
+      '=IF(B'+j+'="","",H'+j+'-F'+j+')',
+      '=IF(OR(B'+j+'="",F'+j+'=0),"",I'+j+'/F'+j+')'
+    ]);
+  }
+  inv.getRange(2,6,ivf.length,5).setFormulas(ivf);
+  inv.getRange('J2:J51').setNumberFormat('0.00%');
+
   // Ledger
   var ld = ss.getSheetByName('Ledger') || ss.insertSheet('Ledger');
   ld.clear();
   ld.getRange('A1:L1').setValues([['記帳 ID','角色 (出)','開銷維度','專案標籤','類型','主分類','項目/明細','日期','金額','付款帳戶','角色 (入)','對象帳戶']]).setFontWeight('bold');
+
   SpreadsheetApp.getUi().alert('建置完成！');
 }`;
 
