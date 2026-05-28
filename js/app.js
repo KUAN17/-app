@@ -43,6 +43,12 @@ async function boot() {
       Utils.toast('登入失敗：' + e.message, 'error');
     }
   });
+  document.getElementById('btn-reconfig').addEventListener('click', e => {
+    e.preventDefault();
+    localStorage.removeItem(CFG.LS_KEYS.CLIENT_ID);
+    localStorage.removeItem(CFG.LS_KEYS.SHEET_ID);
+    location.reload();
+  });
 }
 
 function launchApp() {
