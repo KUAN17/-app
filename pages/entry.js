@@ -18,21 +18,18 @@ Router.register('entry', (() => {
 
   function initState() {
     const last = loadLast();
-    const role = CFG.ROLES.includes(last.roleOut) ? last.roleOut : CFG.ROLES[0];
-    const type = CFG.TX_TYPES.includes(last.type) ? last.type : '支出';
-
-    const accts = Store.accountsForRole(role);
+    const role    = CFG.ROLES.includes(last.roleOut) ? last.roleOut : CFG.ROLES[0];
+    const type    = CFG.TX_TYPES.includes(last.type) ? last.type : '支出';
+    const accts   = Store.accountsForRole(role);
     const acctOut = accts.includes(last.accountOut) ? last.accountOut : (accts[0] || '');
-
-    const roleIn = CFG.ROLES.includes(last.roleIn) ? last.roleIn : CFG.ROLES[0];
+    const roleIn  = CFG.ROLES.includes(last.roleIn) ? last.roleIn : CFG.ROLES[0];
     const acctsIn = Store.accountsForRole(roleIn);
-    const acctIn = acctsIn.includes(last.accountIn) ? last.accountIn : (acctsIn[0] || '');
+    const acctIn  = acctsIn.includes(last.accountIn) ? last.accountIn : (acctsIn[0] || '');
 
     _s = {
       roleOut: role, type, dimension: '日常', projectTag: '',
       category: '', accountOut: acctOut, roleIn, accountIn: acctIn,
-      amount: '', date: new Date().toISOString().slice(0, 10),
-      memo: '', showMemo: false
+      date: new Date().toISOString().slice(0, 10), memo: '', showMemo: false
     };
 
     if (type === '公積金提撥') {
@@ -61,51 +58,39 @@ Router.register('entry', (() => {
     renderAll();
   }
 
-  function renderAll() {
+  function renderAll(keepFocus) {
     _el.removeEventListener('click', handleClick);
     _el.innerHTML = buildHTML();
     _el.addEventListener('click', handleClick);
 
-    document.getElementById('inp-date-hidden')?.addEventListener('change', e => {
+    // Date input change
+    document.getElementById('inp-date')?.addEventListener('change', e => {
       _s.date = e.target.value;
-      renderAll();
+      const today = new Date().toISOString().slice(0, 10);
+      const label = document.getElementById('date-chip-label');
+      if (label) label.textContent = '📅 ' + (_s.date === today ? '今天' : _s.date.replace(/-/g, '/'));
     });
-    const memoInp = document.getElementById('inp-memo');
-    if (memoInp) {
-      memoInp.addEventListener('input', e => { _s.memo = e.target.value; });
-      if (_s.showMemo) { memoInp.focus(); memoInp.setSelectionRange(999, 999); }
+
+    // Memo input
+    document.getElementById('inp-memo')?.addEventListener('input', e => { _s.memo = e.target.value; });
+
+    // Project select
+    document.getElementById('sel-project')?.addEventListener('change', e => { _s.projectTag = e.target.value; });
+
+    // Auto-focus amount (unless keepFocus flag set for memo)
+    if (!keepFocus) {
+      setTimeout(() => document.getElementById('inp-amount')?.focus(), 80);
+    } else {
+      setTimeout(() => document.getElementById('inp-memo')?.focus(), 80);
     }
-    document.getElementById('sel-project')?.addEventListener('change', e => {
-      _s.projectTag = e.target.value;
-    });
   }
 
   function handleClick(e) {
-    const btn = e.target.closest('[data-key],[data-action]');
+    const btn = e.target.closest('[data-action]');
     if (!btn || btn.disabled) return;
-    if (btn.dataset.key !== undefined) handleKey(btn.dataset.key);
-    else handleAction(btn.dataset.action, btn.dataset.val);
-  }
-
-  // ── Keypad ────────────────────────────────────────────────────────────────
-  function handleKey(k) {
-    if (k === 'del') {
-      _s.amount = _s.amount.slice(0, -1);
-    } else if (k === '.') {
-      if (!_s.amount.includes('.')) _s.amount = (_s.amount || '0') + '.';
-    } else {
-      if (_s.amount.length >= 9) return;
-      _s.amount += k;
-    }
-    const disp = document.getElementById('entry-amount-display');
-    if (disp) disp.textContent = formatAmountDisplay(_s.amount);
-  }
-
-  function formatAmountDisplay(raw) {
-    if (!raw) return '$0';
-    const num = parseFloat(raw);
-    if (raw.endsWith('.')) return '$' + num.toLocaleString() + '.';
-    return '$' + (isNaN(num) ? raw : num.toLocaleString());
+    // Don't intercept clicks inside the date label (let them reach the date input)
+    if (btn.dataset.action === 'date-chip') return;
+    handleAction(btn.dataset.action, btn.dataset.val);
   }
 
   // ── Actions ───────────────────────────────────────────────────────────────
@@ -137,10 +122,10 @@ Router.register('entry', (() => {
         renderAll(); break;
       case 'pick-acct-out': showAccountPicker('out'); break;
       case 'pick-acct-in':  showAccountPicker('in');  break;
-      case 'pick-date':
-        document.getElementById('inp-date-hidden')?.showPicker?.() ||
-        document.getElementById('inp-date-hidden')?.click(); break;
-      case 'toggle-memo': _s.showMemo = !_s.showMemo; renderAll(); break;
+      case 'toggle-memo':
+        _s.showMemo = !_s.showMemo;
+        renderAll(_s.showMemo);
+        break;
       case 'submit': handleSubmit(); break;
     }
   }
@@ -149,18 +134,15 @@ Router.register('entry', (() => {
   function showAccountPicker(side) {
     const modal = document.createElement('div');
     modal.className = 'modal-overlay';
-    const isKonTi = _s.type === '公積金提撥';
-    const roles = (side === 'in' && !isKonTi) ? CFG.ROLES : (side === 'in' ? ['家用'] : [_s.roleOut]);
+    const roles = (side === 'in' && _s.type !== '公積金提撥') ? CFG.ROLES : (side === 'in' ? ['家用'] : [_s.roleOut]);
 
     const items = roles.flatMap(role =>
       Store.accountsForRole(role).map(a => {
-        const isCurrent = side === 'out'
-          ? _s.accountOut === a
-          : _s.accountIn === a && _s.roleIn === role;
-        return `<div class="acct-pick-item${isCurrent?' active':''}" data-role="${role}" data-acct="${a}">
+        const cur = side === 'out' ? _s.accountOut === a : (_s.accountIn === a && _s.roleIn === role);
+        return `<div class="acct-pick-item${cur?' active':''}" data-role="${role}" data-acct="${a}">
           <span class="balance-role-badge">${role}</span>
           <span>${a}</span>
-          ${isCurrent ? '<span class="acct-pick-check">✓</span>' : ''}
+          ${cur ? '<span class="acct-pick-check">✓</span>' : ''}
         </div>`;
       })
     ).join('');
@@ -173,12 +155,8 @@ Router.register('entry', (() => {
 
     modal.querySelectorAll('.acct-pick-item').forEach(item => {
       item.addEventListener('click', () => {
-        if (side === 'out') {
-          _s.accountOut = item.dataset.acct;
-        } else {
-          _s.roleIn    = item.dataset.role;
-          _s.accountIn = item.dataset.acct;
-        }
+        if (side === 'out') { _s.accountOut = item.dataset.acct; }
+        else { _s.roleIn = item.dataset.role; _s.accountIn = item.dataset.acct; }
         modal.remove();
         renderAll();
       });
@@ -189,39 +167,40 @@ Router.register('entry', (() => {
   // ── Submit ────────────────────────────────────────────────────────────────
   async function handleSubmit() {
     const isTransfer = _s.type === '轉帳' || _s.type === '公積金提撥';
-    const amount = parseFloat(_s.amount);
-    if (!_s.category)        return Utils.toast('請選擇分類', 'warn');
-    if (!_s.accountOut)      return Utils.toast('請選擇付款帳戶', 'warn');
+    const amount = parseFloat(document.getElementById('inp-amount')?.value || '');
+
+    if (!_s.category)           return Utils.toast('請選擇分類', 'warn');
+    if (!_s.accountOut)         return Utils.toast('請選擇付款帳戶', 'warn');
     if (!amount || amount <= 0) return Utils.toast('請輸入有效金額', 'warn');
     if (_s.type === '支出' && _s.dimension === '專案' && !_s.projectTag)
       return Utils.toast('請選擇專案', 'warn');
     if (isTransfer && !_s.accountIn) return Utils.toast('請選擇對象帳戶', 'warn');
 
+    const memo = document.getElementById('inp-memo')?.value?.trim() || '';
     const row = [
       Utils.uid(), _s.roleOut,
       _s.type === '支出' ? _s.dimension : '',
       _s.type === '支出' && _s.dimension === '專案' ? _s.projectTag : '',
-      _s.type, _s.category, _s.memo,
+      _s.type, _s.category, memo,
       _s.date.replace(/-/g, '/'), amount, _s.accountOut,
       isTransfer ? _s.roleIn : '', isTransfer ? _s.accountIn : ''
     ];
 
     const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID) || CFG.SHEET_ID;
-    const submitBtn = _el.querySelector('[data-action="submit"]');
-    if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = '儲存中…'; }
+    const btn = document.getElementById('btn-submit');
+    if (btn) { btn.disabled = true; btn.textContent = '儲存中…'; }
 
     try {
       await API.append(sid, 'Ledger!A:L', row);
       Store.invalidate();
       saveLast();
       Utils.toast('記帳成功！', 'success');
-      _s.amount = ''; _s.memo = ''; _s.showMemo = false;
-      _s.category = ''; _s.projectTag = '';
+      _s.category = ''; _s.projectTag = ''; _s.memo = ''; _s.showMemo = false;
       _s.date = new Date().toISOString().slice(0, 10);
       renderAll();
     } catch (err) {
       Utils.toast('儲存失敗：' + err.message, 'error');
-      if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = '記帳 ✓'; }
+      if (btn) { btn.disabled = false; btn.textContent = '記帳 ✓'; }
     }
   }
 
@@ -245,7 +224,7 @@ Router.register('entry', (() => {
     const acctOutName = _s.accountOut || '選擇帳戶';
     const acctInName  = _s.accountIn  || '選擇帳戶';
 
-    const chipsMain = isTransfer ? `
+    const acctChips = isTransfer ? `
       <button type="button" class="entry-chip entry-chip-acct" data-action="pick-acct-out">💳 ${acctOutName} ▾</button>
       <span class="chip-arrow">→</span>
       <button type="button" class="entry-chip entry-chip-acct-in" data-action="pick-acct-in">🏦 ${acctInName} ▾</button>
@@ -253,15 +232,25 @@ Router.register('entry', (() => {
       <button type="button" class="entry-chip entry-chip-acct" data-action="pick-acct-out">💳 ${acctOutName} ▾</button>
     `;
 
-    const chipsSub = `
-      <button type="button" class="entry-chip entry-chip-date" data-action="pick-date">📅 ${dateLabel}</button>
-      <button type="button" class="entry-chip entry-chip-memo${_s.showMemo?' entry-chip-active':''}" data-action="toggle-memo">✏️ 備忘</button>
-    `;
+    // Date chip: label wraps a hidden date input so clicking triggers native picker
+    const dateChip = `
+      <label class="entry-chip entry-chip-date" for="inp-date">
+        <span id="date-chip-label">📅 ${dateLabel}</span>
+        <input type="date" id="inp-date" value="${_s.date}"
+               style="position:absolute;opacity:0;width:1px;height:1px;overflow:hidden;pointer-events:none">
+      </label>`;
+
+    const memoChip = `<button type="button" class="entry-chip entry-chip-memo${_s.showMemo?' entry-chip-active':''}" data-action="toggle-memo">✏️ 備忘</button>`;
 
     const memoBar = _s.showMemo ? `
       <div class="entry-memo-bar">
         <input type="text" id="inp-memo" class="entry-memo-input" placeholder="備忘（選填）" value="${_s.memo}">
       </div>` : '';
+
+    const dimChip = isExpense ? `
+      <button type="button" class="entry-chip${_s.dimension==='專案'?' entry-chip-dim-on':' entry-chip-dim'}" data-action="toggle-dim">
+        ${_s.dimension === '專案' ? '📁 專案' : '☀️ 日常'}
+      </button>` : '';
 
     const projectRow = (isExpense && _s.dimension === '專案') ? `
       <div class="entry-project-row">
@@ -279,22 +268,22 @@ Router.register('entry', (() => {
       </button>`
     ).join('');
 
-    const dimKey = isExpense
-      ? `<button type="button" class="entry-key entry-key-special${_s.dimension==='專案'?' entry-key-dim-on':''}" data-action="toggle-dim">${_s.dimension==='專案'?'<b>專案</b>':'日常'}</button>`
-      : `<div class="entry-key entry-key-blank"></div>`;
-
     return `<div class="entry-wrapper">
-      <input type="date" id="inp-date-hidden" style="position:fixed;opacity:0;height:0;pointer-events:none;top:0;left:0" value="${_s.date}">
-
       <div class="entry-segs">
         <div class="entry-seg-row">${roleBtns}</div>
         <div class="entry-seg-row entry-seg-row-type">${typeBtns}</div>
       </div>
 
       <div class="entry-amount-area">
-        <div class="entry-amount-num" id="entry-amount-display">${formatAmountDisplay(_s.amount)}</div>
-        <div class="entry-chips">${chipsMain}</div>
-        <div class="entry-chips" style="margin-top:5px">${chipsSub}</div>
+        <div class="entry-amount-label">金額</div>
+        <input type="text" inputmode="decimal" id="inp-amount"
+               class="entry-amount-input" placeholder="0" autocomplete="off">
+        <div class="entry-chips" style="margin-top:10px">
+          ${acctChips}
+          ${dateChip}
+          ${dimChip}
+          ${memoChip}
+        </div>
         ${memoBar}
       </div>
 
@@ -304,25 +293,8 @@ Router.register('entry', (() => {
         <div class="entry-cat-grid">${catGrid}</div>
       </div>
 
-      <div class="entry-keypad">
-        <button type="button" class="entry-key" data-key="7">7</button>
-        <button type="button" class="entry-key" data-key="8">8</button>
-        <button type="button" class="entry-key" data-key="9">9</button>
-        <button type="button" class="entry-key entry-key-del" data-key="del">⌫</button>
-
-        <button type="button" class="entry-key" data-key="4">4</button>
-        <button type="button" class="entry-key" data-key="5">5</button>
-        <button type="button" class="entry-key" data-key="6">6</button>
-        ${dimKey}
-
-        <button type="button" class="entry-key" data-key="1">1</button>
-        <button type="button" class="entry-key" data-key="2">2</button>
-        <button type="button" class="entry-key" data-key="3">3</button>
-        <button type="button" class="entry-key entry-key-special" data-action="pick-date">📅</button>
-
-        <button type="button" class="entry-key" data-key=".">.</button>
-        <button type="button" class="entry-key" data-key="0">0</button>
-        <button type="button" class="entry-key entry-key-submit" data-action="submit">記帳 ✓</button>
+      <div class="entry-submit-area">
+        <button type="button" class="btn btn-primary btn-full btn-lg" id="btn-submit" data-action="submit">記帳 ✓</button>
       </div>
     </div>`;
   }
