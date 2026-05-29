@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>記帳頁線稿</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'PingFang TC', sans-serif;
+    background: #F0F0F0;
+    display: flex;
+    justify-content: center;
+    padding: 24px 16px;
+    gap: 32px;
+    flex-wrap: wrap;
+  }
+
+  .phone {
+    width: 375px;
+    background: #fff;
+    border-radius: 24px;
+    box-shadow: 0 8px 40px rgba(0,0,0,.15);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .phone-label {
+    text-align: center;
+    font-size: 13px;
+    color: #666;
+    margin-bottom: 8px;
+    font-weight: 600;
+  }
+
+  /* Header */
+  .header {
+    height: 52px;
+    background: #fff;
+    border-bottom: 1px solid #E5E7EB;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    font-weight: 700;
+    color: #1A1A2E;
+  }
+
+  /* Body */
+  .body {
+    flex: 1;
+    overflow-y: auto;
+    background: #F3F4F6;
+  }
+
+  /* Seg row */
+  .seg-row {
+    background: #fff;
+    padding: 10px 14px;
+    display: flex;
+    gap: 6px;
+    border-bottom: 1px solid #E5E7EB;
+  }
+  .seg-pill {
+    flex: 1;
+    padding: 7px 4px;
+    border-radius: 8px;
+    border: 1.5px solid #E5E7EB;
+    font-size: 13px;
+    font-weight: 600;
+    text-align: center;
+    color: #6B7280;
+    background: #fff;
+  }
+  .seg-pill.active {
+    background: #4361EE;
+    border-color: #4361EE;
+    color: #fff;
+  }
+  .seg-pill.active-soft {
+    background: #EEF1FF;
+    border-color: #4361EE;
+    color: #4361EE;
+  }
+
+  /* Amount display */
+  .amount-area {
+    background: #fff;
+    padding: 12px 20px 10px;
+    border-bottom: 1px solid #E5E7EB;
+  }
+  .amount-label { font-size: 12px; color: #6B7280; margin-bottom: 2px; }
+  .amount-display {
+    font-size: 36px;
+    font-weight: 700;
+    color: #1A1A2E;
+    letter-spacing: -1px;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+  }
+  .amount-display .cursor {
+    width: 2px; height: 32px;
+    background: #4361EE;
+    display: inline-block;
+    margin-left: 2px;
+    animation: blink 1s step-end infinite;
+  }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+  .amount-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 6px;
+    flex-wrap: wrap;
+  }
+  .acct-chip {
+    background: #EEF1FF;
+    color: #4361EE;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 99px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .date-chip {
+    background: #F3F4F6;
+    color: #6B7280;
+    font-size: 12px;
+    font-weight: 500;
+    padding: 4px 10px;
+    border-radius: 99px;
+  }
+  .memo-chip {
+    background: #F3F4F6;
+    color: #6B7280;
+    font-size: 12px;
+    padding: 4px 10px;
+    border-radius: 99px;
+    border: 1.5px dashed #D1D5DB;
+  }
+
+  /* Category grid */
+  .cat-section {
+    padding: 10px 14px;
+    background: #fff;
+    margin-top: 8px;
+  }
+  .cat-label {
+    font-size: 11px;
+    font-weight: 700;
+    color: #9CA3AF;
+    text-transform: uppercase;
+    letter-spacing: .5px;
+    margin-bottom: 8px;
+  }
+  .cat-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+  }
+  .cat-chip {
+    padding: 9px 4px;
+    border-radius: 10px;
+    border: 1.5px solid #E5E7EB;
+    font-size: 13px;
+    text-align: center;
+    color: #374151;
+    background: #F9FAFB;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+  }
+  .cat-chip .icon { font-size: 18px; }
+  .cat-chip.selected {
+    background: #EEF1FF;
+    border-color: #4361EE;
+    color: #4361EE;
+    font-weight: 600;
+  }
+
+  /* Keypad */
+  .keypad {
+    background: #F3F4F6;
+    padding: 8px 10px;
+    margin-top: 8px;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+  }
+  .key {
+    background: #fff;
+    border: none;
+    border-radius: 12px;
+    font-size: 20px;
+    font-weight: 500;
+    color: #1A1A2E;
+    padding: 16px 4px;
+    text-align: center;
+    box-shadow: 0 1px 3px rgba(0,0,0,.08);
+  }
+  .key.key-del { font-size: 16px; color: #6B7280; }
+  .key.key-action {
+    background: #4361EE;
+    color: #fff;
+    font-size: 15px;
+    font-weight: 700;
+  }
+  .key.key-light { background: #F3F4F6; color: #6B7280; font-size: 13px; }
+  .key.key-submit {
+    grid-column: span 2;
+    background: #4361EE;
+    color: #fff;
+    font-size: 16px;
+    font-weight: 700;
+  }
+
+  /* Memo overlay */
+  .memo-bar {
+    background: #fff;
+    border-top: 1px solid #E5E7EB;
+    padding: 10px 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    color: #9CA3AF;
+  }
+  .memo-bar input {
+    flex: 1;
+    border: none;
+    outline: none;
+    font-size: 14px;
+    color: #374151;
+    background: transparent;
+  }
+
+  /* Annotation */
+  .annotation {
+    position: relative;
+  }
+  .tag {
+    position: absolute;
+    background: #FEF3C7;
+    border: 1px solid #F59E0B;
+    color: #92400E;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 6px;
+    white-space: nowrap;
+    z-index: 10;
+  }
+  .tag::before {
+    content: '';
+    position: absolute;
+    left: -8px;
+    top: 50%;
+    transform: translateY(-50%);
+    border: 4px solid transparent;
+    border-right-color: #F59E0B;
+  }
+
+  .divider { height: 1px; background: #E5E7EB; margin: 0 14px; }
+</style>
+</head>
+<body>
+
+<!-- Screen 1: 支出 with category selected -->
+<div>
+  <div class="phone-label">一般支出（已選分類）</div>
+  <div class="phone">
+    <div class="header">記一筆</div>
+    <div class="body">
+
+      <!-- Role row -->
+      <div class="seg-row">
+        <div class="seg-pill active-soft">阿熊</div>
+        <div class="seg-pill">綺綺</div>
+        <div class="seg-pill">家用</div>
+      </div>
+
+      <!-- Type row -->
+      <div class="seg-row" style="background:#F9FAFB">
+        <div class="seg-pill active">支出</div>
+        <div class="seg-pill">收入</div>
+        <div class="seg-pill">轉帳</div>
+        <div class="seg-pill" style="font-size:11px">公積金</div>
+      </div>
+
+      <!-- Amount area -->
+      <div class="amount-area">
+        <div class="amount-label">金額</div>
+        <div class="amount-display">$280<span class="cursor"></span></div>
+        <div class="amount-meta">
+          <div class="acct-chip">💳 聯邦活存(日用) ▾</div>
+          <div class="date-chip">📅 今天</div>
+          <div class="memo-chip">＋ 備忘</div>
+        </div>
+      </div>
+
+      <!-- Category grid -->
+      <div class="cat-section">
+        <div class="cat-label">主分類</div>
+        <div class="cat-grid">
+          <div class="cat-chip selected"><span class="icon">🍱</span>食物</div>
+          <div class="cat-chip"><span class="icon">🧋</span>飲料</div>
+          <div class="cat-chip"><span class="icon">🚇</span>交通</div>
+          <div class="cat-chip"><span class="icon">🛍️</span>購物</div>
+          <div class="cat-chip"><span class="icon">🎮</span>娛樂</div>
+          <div class="cat-chip"><span class="icon">🏠</span>家用</div>
+          <div class="cat-chip"><span class="icon">📱</span>電信</div>
+          <div class="cat-chip"><span class="icon">💊</span>醫藥</div>
+          <div class="cat-chip"><span class="icon">📚</span>教育</div>
+          <div class="cat-chip"><span class="icon">✈️</span>旅遊</div>
+          <div class="cat-chip"><span class="icon">📺</span>訂閱</div>
+          <div class="cat-chip"><span class="icon">💳</span>信用卡</div>
+        </div>
+      </div>
+
+      <!-- Keypad -->
+      <div class="keypad">
+        <div class="key">7</div>
+        <div class="key">8</div>
+        <div class="key">9</div>
+        <div class="key key-del">⌫</div>
+        <div class="key">4</div>
+        <div class="key">5</div>
+        <div class="key">6</div>
+        <div class="key key-light" style="font-size:12px">日常<br>專案</div>
+        <div class="key">1</div>
+        <div class="key">2</div>
+        <div class="key">3</div>
+        <div class="key key-light" style="font-size:15px">📅</div>
+        <div class="key" style="font-size:16px">.</div>
+        <div class="key">0</div>
+        <div class="key key-submit" style="grid-column:span 2">記帳 ✓</div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- Screen 2: 備忘展開 -->
+<div>
+  <div class="phone-label">點「＋備忘」後展開</div>
+  <div class="phone">
+    <div class="header">記一筆</div>
+    <div class="body">
+
+      <div class="seg-row">
+        <div class="seg-pill active-soft">阿熊</div>
+        <div class="seg-pill">綺綺</div>
+        <div class="seg-pill">家用</div>
+      </div>
+      <div class="seg-row" style="background:#F9FAFB">
+        <div class="seg-pill active">支出</div>
+        <div class="seg-pill">收入</div>
+        <div class="seg-pill">轉帳</div>
+        <div class="seg-pill" style="font-size:11px">公積金</div>
+      </div>
+
+      <div class="amount-area">
+        <div class="amount-label">金額</div>
+        <div class="amount-display">$280<span class="cursor"></span></div>
+        <div class="amount-meta">
+          <div class="acct-chip">💳 聯邦活存(日用) ▾</div>
+          <div class="date-chip">📅 今天</div>
+        </div>
+      </div>
+
+      <!-- Memo bar (expanded) -->
+      <div class="memo-bar">
+        <span>✏️</span>
+        <input type="text" placeholder="備忘（選填）" value="午餐便當">
+      </div>
+
+      <div class="cat-section">
+        <div class="cat-label">主分類</div>
+        <div class="cat-grid">
+          <div class="cat-chip selected"><span class="icon">🍱</span>食物</div>
+          <div class="cat-chip"><span class="icon">🧋</span>飲料</div>
+          <div class="cat-chip"><span class="icon">🚇</span>交通</div>
+          <div class="cat-chip"><span class="icon">🛍️</span>購物</div>
+          <div class="cat-chip"><span class="icon">🎮</span>娛樂</div>
+          <div class="cat-chip"><span class="icon">🏠</span>家用</div>
+          <div class="cat-chip"><span class="icon">📱</span>電信</div>
+          <div class="cat-chip"><span class="icon">💊</span>醫藥</div>
+          <div class="cat-chip"><span class="icon">📚</span>教育</div>
+          <div class="cat-chip"><span class="icon">✈️</span>旅遊</div>
+          <div class="cat-chip"><span class="icon">📺</span>訂閱</div>
+          <div class="cat-chip"><span class="icon">💳</span>信用卡</div>
+        </div>
+      </div>
+
+      <div class="keypad">
+        <div class="key">7</div>
+        <div class="key">8</div>
+        <div class="key">9</div>
+        <div class="key key-del">⌫</div>
+        <div class="key">4</div>
+        <div class="key">5</div>
+        <div class="key">6</div>
+        <div class="key key-light" style="font-size:12px">日常<br>專案</div>
+        <div class="key">1</div>
+        <div class="key">2</div>
+        <div class="key">3</div>
+        <div class="key key-light" style="font-size:15px">📅</div>
+        <div class="key" style="font-size:16px">.</div>
+        <div class="key">0</div>
+        <div class="key key-submit" style="grid-column:span 2">記帳 ✓</div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- Screen 3: 轉帳 -->
+<div>
+  <div class="phone-label">轉帳（額外欄位展開）</div>
+  <div class="phone">
+    <div class="header">記一筆</div>
+    <div class="body">
+
+      <div class="seg-row">
+        <div class="seg-pill active-soft">阿熊</div>
+        <div class="seg-pill">綺綺</div>
+        <div class="seg-pill">家用</div>
+      </div>
+      <div class="seg-row" style="background:#F9FAFB">
+        <div class="seg-pill">支出</div>
+        <div class="seg-pill">收入</div>
+        <div class="seg-pill active">轉帳</div>
+        <div class="seg-pill" style="font-size:11px">公積金</div>
+      </div>
+
+      <div class="amount-area">
+        <div class="amount-label">金額</div>
+        <div class="amount-display">$5,000<span class="cursor"></span></div>
+        <div class="amount-meta">
+          <div class="acct-chip">💳 中信活存(薪資) ▾</div>
+          <div style="font-size:18px;color:#9CA3AF">→</div>
+          <div class="acct-chip" style="background:#E8FBF6;color:#059669">🏦 一銀活存 ▾</div>
+        </div>
+        <div class="amount-meta" style="margin-top:6px">
+          <div class="date-chip">📅 今天</div>
+          <div class="memo-chip">＋ 備忘</div>
+        </div>
+      </div>
+
+      <!-- Transfer category (compact) -->
+      <div class="cat-section">
+        <div class="cat-label">分類</div>
+        <div class="cat-grid" style="grid-template-columns:repeat(2,1fr)">
+          <div class="cat-chip selected"><span class="icon">🏧</span>ATM領現</div>
+          <div class="cat-chip"><span class="icon">🔄</span>轉帳</div>
+        </div>
+      </div>
+
+      <div class="keypad">
+        <div class="key">7</div>
+        <div class="key">8</div>
+        <div class="key">9</div>
+        <div class="key key-del">⌫</div>
+        <div class="key">4</div>
+        <div class="key">5</div>
+        <div class="key">6</div>
+        <div class="key key-light" style="font-size:15px">📅</div>
+        <div class="key">1</div>
+        <div class="key">2</div>
+        <div class="key">3</div>
+        <div class="key key-light"></div>
+        <div class="key" style="font-size:16px">.</div>
+        <div class="key">0</div>
+        <div class="key key-submit" style="grid-column:span 2">記帳 ✓</div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
