@@ -33,9 +33,16 @@ window.Auth = (() => {
   }
 
   // Silent token refresh (no popup) — used for auto-login on app start
-  function silentToken() {
+  function silentToken(timeout = 5000) {
     return new Promise((resolve, reject) => {
-      _resolveToken = { resolve, reject };
+      const t = setTimeout(() => {
+        _resolveToken = null;
+        reject(new Error('silent timeout'));
+      }, timeout);
+      _resolveToken = {
+        resolve: (v) => { clearTimeout(t); resolve(v); },
+        reject:  (e) => { clearTimeout(t); reject(e); }
+      };
       _client.requestAccessToken({ prompt: 'none' });
     });
   }
