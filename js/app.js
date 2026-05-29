@@ -5,21 +5,13 @@ if ('serviceWorker' in navigator) {
 }
 
 async function boot() {
-  const clientId = localStorage.getItem(CFG.LS_KEYS.CLIENT_ID);
-  const sheetId = localStorage.getItem(CFG.LS_KEYS.SHEET_ID);
+  // Use hardcoded values, fall back to localStorage overrides (from settings page)
+  const clientId = localStorage.getItem(CFG.LS_KEYS.CLIENT_ID) || CFG.CLIENT_ID;
+  const sheetId  = localStorage.getItem(CFG.LS_KEYS.SHEET_ID)  || CFG.SHEET_ID;
 
-  if (!clientId || !sheetId) {
-    showScreen('setup');
-    document.getElementById('btn-setup-save').addEventListener('click', () => {
-      const cid = document.getElementById('inp-setup-client').value.trim();
-      const sid = document.getElementById('inp-setup-sheet').value.trim();
-      if (!cid || !sid) return Utils.toast('請填寫完整設定', 'warn');
-      localStorage.setItem(CFG.LS_KEYS.CLIENT_ID, cid);
-      localStorage.setItem(CFG.LS_KEYS.SHEET_ID, sid);
-      location.reload();
-    });
-    return;
-  }
+  // Persist so Store/API can read from localStorage
+  if (!localStorage.getItem(CFG.LS_KEYS.CLIENT_ID)) localStorage.setItem(CFG.LS_KEYS.CLIENT_ID, clientId);
+  if (!localStorage.getItem(CFG.LS_KEYS.SHEET_ID))  localStorage.setItem(CFG.LS_KEYS.SHEET_ID, sheetId);
 
   try {
     await waitForGSI();
@@ -32,7 +24,7 @@ async function boot() {
 
   await Auth.init(clientId);
 
-  // Auto-login: silently try to get token if user has logged in before
+  // Auto-login if user has logged in before
   const hasLoggedInBefore = localStorage.getItem(CFG.LS_KEYS.AUTOLOGIN);
   if (hasLoggedInBefore) {
     Utils.showLoading(true);
@@ -42,7 +34,6 @@ async function boot() {
       launchApp();
       return;
     } catch (e) {
-      // Silent failed (session expired) → fall through to login screen
       Utils.showLoading(false);
     }
   }

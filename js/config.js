@@ -2,6 +2,9 @@ window.CFG = {
   SCOPES: 'https://www.googleapis.com/auth/spreadsheets',
   SHEETS_BASE: 'https://sheets.googleapis.com/v4/spreadsheets',
 
+  CLIENT_ID: '677203779184-0r63u9ebkc4vu92r7ivetmqrprrgc6ct.apps.googleusercontent.com',
+  SHEET_ID: '1UY2xEcxqqo8eQcFz-E_Txs3koxf9K9wl29OG2Ht7sgM',
+
   ROLES: ['阿熊', '綺綺', '家用'],
   TX_TYPES: ['支出', '收入', '轉帳', '公積金提撥'],
   DIMENSIONS: ['日常', '專案'],
