@@ -97,6 +97,7 @@ Router.register('ledger', (() => {
         ${tx.accountIn ? `<span class="detail-label">對象帳戶</span><span>${tx.accountIn}</span>` : ''}
       </div>
       <div class="modal-actions">
+        <button class="btn btn-primary btn-sm" id="btn-edit-tx">編輯</button>
         <button class="btn btn-danger btn-sm" id="btn-del-tx">刪除</button>
         <button class="btn btn-outline btn-sm" id="btn-close-modal">關閉</button>
       </div>
@@ -105,6 +106,123 @@ Router.register('ledger', (() => {
     modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
     Utils.el('btn-close-modal').addEventListener('click', () => modal.remove());
     Utils.el('btn-del-tx').addEventListener('click', () => deleteTx(tx, modal));
+    Utils.el('btn-edit-tx').addEventListener('click', () => { modal.remove(); showEditModal(tx); });
+  }
+
+  function showEditModal(tx) {
+    const isTransfer = tx.type === '轉帳' || tx.type === '公積金提撥';
+    const cats = CFG.CATEGORIES[tx.type] || [];
+    const acctOuts = Store.accountsForRole(tx.roleOut);
+
+    const catOptions = cats.map(c =>
+      `<option value="${c}"${c === tx.category ? ' selected' : ''}>${c}</option>`
+    ).join('');
+    const acctOutOptions = acctOuts.map(a =>
+      `<option value="${a.replace(/"/g,'&quot;')}"${a === tx.accountOut ? ' selected' : ''}>${a}</option>`
+    ).join('');
+
+    let transferFields = '';
+    if (isTransfer) {
+      const roleInOpts = CFG.ROLES.map(r =>
+        `<option value="${r}"${r === tx.roleIn ? ' selected' : ''}>${r}</option>`
+      ).join('');
+      const acctIns = Store.accountsForRole(tx.roleIn);
+      const acctInOpts = acctIns.map(a =>
+        `<option value="${a.replace(/"/g,'&quot;')}"${a === tx.accountIn ? ' selected' : ''}>${a}</option>`
+      ).join('');
+      transferFields = `
+        <div class="form-row">
+          <label>角色（入）</label>
+          <select id="edit-role-in" class="form-select">${roleInOpts}</select>
+        </div>
+        <div class="form-row">
+          <label>對象帳戶</label>
+          <select id="edit-acct-in" class="form-select">${acctInOpts}</select>
+        </div>`;
+    }
+
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.innerHTML = `<div class="modal-card">
+      <div class="modal-title">編輯帳目</div>
+      <div class="form-row">
+        <label>日期</label>
+        <input type="date" id="edit-date" class="form-input" value="${tx.date.replace(/\//g,'-')}">
+      </div>
+      <div class="form-row">
+        <label>金額</label>
+        <input type="number" id="edit-amount" class="form-input" value="${tx.amount}" min="0" step="any">
+      </div>
+      <div class="form-row">
+        <label>主分類</label>
+        <select id="edit-category" class="form-select">
+          ${catOptions || `<option value="${tx.category}">${tx.category}</option>`}
+        </select>
+      </div>
+      <div class="form-row">
+        <label>付款帳戶</label>
+        <select id="edit-acct-out" class="form-select">
+          ${acctOutOptions || `<option value="${tx.accountOut}">${tx.accountOut}</option>`}
+        </select>
+      </div>
+      ${transferFields}
+      <div class="form-row">
+        <label>備忘</label>
+        <input type="text" id="edit-memo" class="form-input" value="${tx.memo.replace(/"/g,'&quot;')}" placeholder="（選填）">
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-primary btn-sm" id="btn-save-edit">儲存</button>
+        <button class="btn btn-outline btn-sm" id="btn-cancel-edit">取消</button>
+      </div>
+    </div>`;
+    document.body.appendChild(modal);
+    modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+    document.getElementById('btn-cancel-edit').addEventListener('click', () => modal.remove());
+
+    if (isTransfer) {
+      document.getElementById('edit-role-in').addEventListener('change', e => {
+        const accts = Store.accountsForRole(e.target.value);
+        const sel = document.getElementById('edit-acct-in');
+        sel.innerHTML = accts.map(a => `<option value="${a.replace(/"/g,'&quot;')}">${a}</option>`).join('');
+      });
+    }
+
+    document.getElementById('btn-save-edit').addEventListener('click', () => saveEditTx(tx, modal, isTransfer));
+  }
+
+  async function saveEditTx(tx, modal, isTransfer) {
+    const date = document.getElementById('edit-date').value.replace(/-/g, '/');
+    const amount = parseFloat(document.getElementById('edit-amount').value);
+    const category = document.getElementById('edit-category').value;
+    const accountOut = document.getElementById('edit-acct-out').value;
+    const memo = document.getElementById('edit-memo').value.trim();
+    const roleIn = isTransfer ? document.getElementById('edit-role-in').value : tx.roleIn;
+    const accountIn = isTransfer ? document.getElementById('edit-acct-in').value : tx.accountIn;
+
+    if (!date) return Utils.toast('請選擇日期', 'warn');
+    if (!amount || amount <= 0) return Utils.toast('請輸入有效金額', 'warn');
+    if (!category) return Utils.toast('請選擇分類', 'warn');
+
+    const row = [
+      tx.id, tx.roleOut, tx.dimension, tx.projectTag,
+      tx.type, category, memo, date, amount, accountOut,
+      roleIn, accountIn
+    ];
+
+    const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID);
+    const saveBtn = document.getElementById('btn-save-edit');
+    if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = '儲存中…'; }
+    try {
+      await API.updateRange(sid, `Ledger!A${tx._row}:L${tx._row}`, [row]);
+      Store.invalidate();
+      await Store.load(true);
+      modal.remove();
+      refreshList();
+      Utils.toast('已更新', 'success');
+    } catch (e) {
+      Utils.toast('更新失敗：' + e.message, 'error');
+      if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = '儲存'; }
+    }
   }
 
   async function deleteTx(tx, modal) {

@@ -104,6 +104,18 @@ window.Store = (() => {
       _data.accounts = parseAccountConfig(acctRows);
       _data.activeProjects = _data.projects.filter(p => p.status === '進行中').map(p => p.name);
 
+      // Recalculate project financials from ledger — independent of Sheets formula columns
+      _data.projects.forEach(proj => {
+        proj.spent = _data.ledger
+          .filter(tx => tx.projectTag === proj.name && tx.type === '支出')
+          .reduce((s, tx) => s + tx.amount, 0);
+        proj.allocated = _data.ledger
+          .filter(tx => tx.projectTag === proj.name && tx.type === '公積金提撥')
+          .reduce((s, tx) => s + tx.amount, 0);
+        proj.remaining = proj.budget - proj.spent;
+        proj.gap = proj.allocated < proj.spent ? proj.spent - proj.allocated : 0;
+      });
+
       _sheetMeta = await API.getSheetMeta(sid);
       _dirty = false;
 

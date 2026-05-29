@@ -7,7 +7,7 @@ Router.register('projects', (() => {
     </div>`;
   }
 
-  function projCard(p, active) {
+  function projCard(p, active, sheetRow) {
     const gapHtml = active && p.gap > 0
       ? `<div class="gap-alert">⚠ 資金缺口 ${Utils.formatMoney(p.gap)}（代墊尚未補足）</div>` : '';
     const allocRow = `<div class="proj-stat-row">
@@ -36,7 +36,10 @@ Router.register('projects', (() => {
         ${allocRow}
       </div>
       ${gapHtml}
-      ${active ? `<button class="btn btn-outline btn-sm btn-close-proj" data-name="${p.name}">結案</button>` : ''}
+      <div class="proj-card-actions">
+        <button class="btn btn-outline btn-sm btn-edit-proj" data-name="${p.name}" data-budget="${p.budget}" data-row="${sheetRow}">編輯</button>
+        ${active ? `<button class="btn btn-outline btn-sm btn-close-proj" data-name="${p.name}">結案</button>` : ''}
+      </div>
     </div>`;
   }
 
@@ -57,11 +60,11 @@ Router.register('projects', (() => {
         <span class="section-label">進行中</span>
         <button class="btn btn-primary btn-sm" id="btn-new-proj">＋ 新增</button>
       </div>
-      ${active.length ? active.map(p => projCard(p, true)).join('') : '<p class="empty-hint">目前無進行中專案</p>'}
+      ${active.length ? active.map(p => projCard(p, true, projects.indexOf(p) + 2)).join('') : '<p class="empty-hint">目前無進行中專案</p>'}
 
       ${closed.length ? `
         <div class="section-label" style="margin-top:24px">已結案</div>
-        ${closed.map(p => projCard(p, false)).join('')}
+        ${closed.map(p => projCard(p, false, projects.indexOf(p) + 2)).join('')}
       ` : ''}
       <div style="height:16px"></div>
     </div>`;
@@ -70,6 +73,10 @@ Router.register('projects', (() => {
 
     el.querySelectorAll('.btn-close-proj').forEach(btn => {
       btn.addEventListener('click', () => closeProject(btn.dataset.name));
+    });
+
+    el.querySelectorAll('.btn-edit-proj').forEach(btn => {
+      btn.addEventListener('click', () => showEditProjModal(btn.dataset.name, parseFloat(btn.dataset.budget), parseInt(btn.dataset.row)));
     });
   }
 
@@ -137,6 +144,52 @@ Router.register('projects', (() => {
       Utils.toast('操作失敗：' + e.message, 'error');
     } finally {
       Utils.showLoading(false);
+    }
+  }
+
+  function showEditProjModal(name, budget, sheetRow) {
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.innerHTML = `<div class="modal-card">
+      <div class="modal-title">編輯專案</div>
+      <div class="form-row">
+        <label>專案名稱</label>
+        <input type="text" id="inp-edit-proj-name" class="form-input" value="${name.replace(/"/g,'&quot;')}">
+      </div>
+      <div class="form-row">
+        <label>目標預算</label>
+        <input type="number" id="inp-edit-proj-budget" class="form-input" value="${budget}" min="0">
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-primary btn-sm" id="btn-save-edit-proj">儲存</button>
+        <button class="btn btn-outline btn-sm" id="btn-cancel-edit-proj">取消</button>
+      </div>
+    </div>`;
+    document.body.appendChild(modal);
+    modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+    Utils.el('btn-cancel-edit-proj').addEventListener('click', () => modal.remove());
+    Utils.el('btn-save-edit-proj').addEventListener('click', () => saveEditProject(name, sheetRow, modal));
+  }
+
+  async function saveEditProject(oldName, sheetRow, modal) {
+    const newName = Utils.el('inp-edit-proj-name').value.trim();
+    const newBudget = parseFloat(Utils.el('inp-edit-proj-budget').value) || 0;
+    if (!newName) return Utils.toast('請輸入專案名稱', 'warn');
+    if (newBudget <= 0) return Utils.toast('請輸入預算金額', 'warn');
+
+    const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID);
+    const saveBtn = Utils.el('btn-save-edit-proj');
+    if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = '儲存中…'; }
+    try {
+      await API.updateRange(sid, `Projects!B${sheetRow}:C${sheetRow}`, [[newName, newBudget]]);
+      Store.invalidate();
+      await Store.load(true);
+      modal.remove();
+      await onMount();
+      Utils.toast('專案已更新', 'success');
+    } catch (e) {
+      Utils.toast('更新失敗：' + e.message, 'error');
+      if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = '儲存'; }
     }
   }
 
