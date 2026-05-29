@@ -112,8 +112,11 @@ Router.register('settings', (() => {
 
   function attachListListeners() {
     document.querySelectorAll('.acct-del-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const { role, i } = btn.dataset;
+      // Use clone-replace to ensure only one listener per button
+      const fresh = btn.cloneNode(true);
+      btn.replaceWith(fresh);
+      fresh.addEventListener('click', () => {
+        const { role, i } = fresh.dataset;
         _acctState[role][parseInt(i)]._deleted = true;
         Utils.el(`acct-list-${role}`).innerHTML = renderRoleList(role);
         attachListListeners();

@@ -176,7 +176,8 @@ Router.register('entry', (() => {
       return Utils.toast('請選擇專案', 'warn');
     if (isTransfer && !_s.accountIn) return Utils.toast('請選擇對象帳戶', 'warn');
 
-    const memo = document.getElementById('inp-memo')?.value?.trim() || '';
+    // Always read from state — DOM input may not exist if memo bar is hidden
+    const memo = _s.memo.trim();
     const row = [
       Utils.uid(), _s.roleOut,
       _s.type === '支出' ? _s.dimension : '',
@@ -237,14 +238,14 @@ Router.register('entry', (() => {
       <label class="entry-chip entry-chip-date" for="inp-date">
         <span id="date-chip-label">📅 ${dateLabel}</span>
         <input type="date" id="inp-date" value="${_s.date}"
-               style="position:absolute;opacity:0;width:1px;height:1px;overflow:hidden;pointer-events:none">
+               style="position:absolute;opacity:0;width:100%;height:100%;top:0;left:0;cursor:pointer;border:none;background:transparent">
       </label>`;
 
     const memoChip = `<button type="button" class="entry-chip entry-chip-memo${_s.showMemo?' entry-chip-active':''}" data-action="toggle-memo">✏️ 備忘</button>`;
 
     const memoBar = _s.showMemo ? `
       <div class="entry-memo-bar">
-        <input type="text" id="inp-memo" class="entry-memo-input" placeholder="備忘（選填）" value="${_s.memo}">
+        <input type="text" id="inp-memo" class="entry-memo-input" placeholder="備忘（選填）" value="${_s.memo.replace(/"/g,'&quot;')}">
       </div>` : '';
 
     const dimChip = isExpense ? `

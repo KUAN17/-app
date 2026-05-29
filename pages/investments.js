@@ -291,7 +291,7 @@ Router.register('investments', (() => {
     Utils.el('inp-inv-role').addEventListener('change', () => {
       const role = Utils.el('inp-inv-role').value;
       const accts2 = Store.accountsForRole(role);
-      Utils.el('inp-inv-account').innerHTML = accts2.map(a => `<option value="${a}">${a}</option>`).join('');
+      Utils.el('inp-inv-account').innerHTML = accts2.map(a => `<option value="${a.replace(/"/g,'&quot;')}">${a}</option>`).join('');
     });
 
     // Search with debounce
