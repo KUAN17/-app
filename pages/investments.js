@@ -1,36 +1,115 @@
 Router.register('investments', (() => {
   let _invState = []; // [{role,account,ticker,name,shares,avgCost,totalCost,price,marketValue,unrealized,returnRate,_deleted}]
-  let _stockList = [];
   const STOCK_LS = 'ff_stock_list';
   const STOCK_TS = 'ff_stock_list_ts';
   const STOCK_TTL = 24 * 60 * 60 * 1000;
 
-  // ── Stock list (TWSE + TPEX) ─────────────────────────────────────────────
+  // ── Built-in common stocks (fallback when API unavailable) ───────────────
+  const BUILTIN_STOCKS = [
+    // 上市 ETF
+    {code:'0050',name:'元大台灣50',market:'上市'},{code:'0051',name:'元大中型100',market:'上市'},
+    {code:'0052',name:'富邦科技',market:'上市'},{code:'0053',name:'元大電子',market:'上市'},
+    {code:'0054',name:'元大台商50',market:'上市'},{code:'0055',name:'元大MSCI金融',market:'上市'},
+    {code:'0056',name:'元大高股息',market:'上市'},{code:'006205',name:'富邦上証',market:'上市'},
+    {code:'006208',name:'富邦台50',market:'上市'},{code:'00646',name:'元大S&P500',market:'上市'},
+    {code:'00692',name:'富邦公司治理',market:'上市'},{code:'00701',name:'國泰低波動30',market:'上市'},
+    {code:'00713',name:'元大台灣高息低波',market:'上市'},{code:'00715L',name:'期街口布蘭特正2',market:'上市'},
+    {code:'00720B',name:'元大投資級公司債',market:'上市'},{code:'00733',name:'富邦台灣中小',market:'上市'},
+    {code:'00757',name:'統一FANG+',market:'上市'},{code:'00878',name:'國泰永續高股息',market:'上市'},
+    {code:'00881',name:'國泰台灣5G+',market:'上市'},{code:'00882',name:'中信中國高股息',market:'上市'},
+    {code:'00892',name:'富邦台灣半導體',market:'上市'},{code:'00893',name:'國泰智能電動車',market:'上市'},
+    {code:'00895',name:'富邦未來車',market:'上市'},{code:'00896',name:'中信green30',market:'上市'},
+    {code:'00900',name:'富邦特選高股息30',market:'上市'},{code:'00907',name:'永豐台灣ESG',market:'上市'},
+    {code:'00912',name:'中信台灣智慧50',market:'上市'},{code:'00915',name:'凱基優選高股息30',market:'上市'},
+    {code:'00916',name:'國泰全球品牌50',market:'上市'},{code:'00919',name:'群益台灣精選高息',market:'上市'},
+    {code:'00929',name:'復華台灣科技優息',market:'上市'},{code:'00934',name:'中信成長高股息',market:'上市'},
+    {code:'00936',name:'台新臺灣永續高息',market:'上市'},{code:'00939',name:'統一台灣高息動能',market:'上市'},
+    {code:'00940',name:'元大台灣價值高息',market:'上市'},{code:'00943',name:'國泰台灣季季息',market:'上市'},
+    {code:'00946',name:'元大台灣成長基金',market:'上市'},
+    // 上市大型股
+    {code:'1101',name:'台泥',market:'上市'},{code:'1216',name:'統一',market:'上市'},
+    {code:'1301',name:'台塑',market:'上市'},{code:'1303',name:'南亞',market:'上市'},
+    {code:'1326',name:'台化',market:'上市'},{code:'2002',name:'中鋼',market:'上市'},
+    {code:'2105',name:'正新',market:'上市'},{code:'2207',name:'和泰車',market:'上市'},
+    {code:'2301',name:'光寶科',market:'上市'},{code:'2303',name:'聯電',market:'上市'},
+    {code:'2308',name:'台達電',market:'上市'},{code:'2317',name:'鴻海',market:'上市'},
+    {code:'2327',name:'國巨',market:'上市'},{code:'2330',name:'台積電',market:'上市'},
+    {code:'2337',name:'旺宏',market:'上市'},{code:'2345',name:'智邦',market:'上市'},
+    {code:'2347',name:'聯強',market:'上市'},{code:'2352',name:'佳世達',market:'上市'},
+    {code:'2353',name:'宏碁',market:'上市'},{code:'2356',name:'英業達',market:'上市'},
+    {code:'2357',name:'華碩',market:'上市'},{code:'2360',name:'致茂',market:'上市'},
+    {code:'2376',name:'技嘉',market:'上市'},{code:'2377',name:'微星',market:'上市'},
+    {code:'2379',name:'瑞昱',market:'上市'},{code:'2382',name:'廣達',market:'上市'},
+    {code:'2395',name:'研華',market:'上市'},{code:'2408',name:'南亞科',market:'上市'},
+    {code:'2412',name:'中華電',market:'上市'},{code:'2454',name:'聯發科',market:'上市'},
+    {code:'2474',name:'可成',market:'上市'},{code:'2482',name:'連宇',market:'上市'},
+    {code:'2492',name:'華新科',market:'上市'},{code:'2498',name:'宏達電',market:'上市'},
+    {code:'2603',name:'長榮',market:'上市'},{code:'2609',name:'陽明',market:'上市'},
+    {code:'2615',name:'萬海',market:'上市'},{code:'2633',name:'台灣高鐵',market:'上市'},
+    {code:'2801',name:'彰銀',market:'上市'},{code:'2880',name:'華南金',market:'上市'},
+    {code:'2881',name:'富邦金',market:'上市'},{code:'2882',name:'國泰金',market:'上市'},
+    {code:'2883',name:'開發金',market:'上市'},{code:'2884',name:'玉山金',market:'上市'},
+    {code:'2885',name:'元大金',market:'上市'},{code:'2886',name:'兆豐金',market:'上市'},
+    {code:'2887',name:'台新金',market:'上市'},{code:'2890',name:'永豐金',market:'上市'},
+    {code:'2891',name:'中信金',market:'上市'},{code:'2892',name:'第一金',market:'上市'},
+    {code:'2912',name:'統一超',market:'上市'},{code:'3008',name:'大立光',market:'上市'},
+    {code:'3017',name:'奇鋐',market:'上市'},{code:'3034',name:'聯詠',market:'上市'},
+    {code:'3037',name:'欣興',market:'上市'},{code:'3045',name:'台灣大',market:'上市'},
+    {code:'3481',name:'群創',market:'上市'},{code:'3711',name:'日月光投控',market:'上市'},
+    {code:'4904',name:'遠傳',market:'上市'},{code:'5871',name:'中租-KY',market:'上市'},
+    {code:'5876',name:'上海商銀',market:'上市'},{code:'5880',name:'合庫金',market:'上市'},
+    {code:'6415',name:'矽力-KY',market:'上市'},{code:'6505',name:'台塑化',market:'上市'},
+    {code:'6669',name:'緯穎',market:'上市'},{code:'6770',name:'力積電',market:'上市'},
+    {code:'8046',name:'南電',market:'上市'},
+    // 上櫃常見
+    {code:'3533',name:'嘉澤',market:'上櫃'},{code:'3661',name:'世芯-KY',market:'上櫃'},
+    {code:'4966',name:'譜瑞-KY',market:'上櫃'},{code:'6274',name:'台燿',market:'上櫃'},
+    {code:'6488',name:'環球晶',market:'上櫃'},{code:'6550',name:'北極星藥業-KY',market:'上櫃'},
+    {code:'8299',name:'群聯',market:'上櫃'}
+  ];
+
+  // ── Stock list: builtin first, API supplements in background ────────────
+  let _stockList = [...BUILTIN_STOCKS];
+
   async function loadStockList() {
+    // Always start with builtin so search works immediately
+    _stockList = [...BUILTIN_STOCKS];
+
     const ts = parseInt(localStorage.getItem(STOCK_TS) || '0');
     if (Date.now() - ts < STOCK_TTL) {
       const cached = localStorage.getItem(STOCK_LS);
       if (cached) { _stockList = JSON.parse(cached); return; }
     }
-    const list = [];
+
+    const existing = new Set(BUILTIN_STOCKS.map(s => s.code));
+    const list = [...BUILTIN_STOCKS];
+
     try {
-      const data = await fetch('https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL').then(r => r.json());
+      const data = await fetch('https://openapi.twse.com.tw/v1/opendata/t187ap03_L').then(r => r.json());
       data.forEach(s => {
-        const code = s['證券代號'] || '';
-        const name = s['證券名稱'] || '';
-        if (code && name && /^\d/.test(code)) list.push({ code, name, market: '上市' });
+        const code = (s['公司代號'] || s['證券代號'] || '').trim();
+        const name = (s['公司簡稱'] || s['證券名稱'] || '').trim();
+        if (code && name && /^\d/.test(code) && !existing.has(code)) {
+          list.push({ code, name, market: '上市' });
+          existing.add(code);
+        }
       });
     } catch (_) {}
+
     try {
       const data = await fetch('https://www.tpex.org.tw/openapi/v1/tpex_mainboard_peratio_analysis').then(r => r.json());
       data.forEach(s => {
-        const code = s['SecuritiesCompanyCode'] || s['股票代號'] || s['Code'] || '';
-        const name = s['CompanyName'] || s['公司名稱'] || s['Name'] || '';
-        if (code && name) list.push({ code, name, market: '上櫃' });
+        const code = (s['SecuritiesCompanyCode'] || s['股票代號'] || s['Code'] || '').trim();
+        const name = (s['CompanyName'] || s['公司名稱'] || s['Name'] || '').trim();
+        if (code && name && !existing.has(code)) {
+          list.push({ code, name, market: '上櫃' });
+          existing.add(code);
+        }
       });
     } catch (_) {}
-    if (list.length) {
-      _stockList = list;
+
+    _stockList = list;
+    if (list.length > BUILTIN_STOCKS.length) {
       localStorage.setItem(STOCK_LS, JSON.stringify(list));
       localStorage.setItem(STOCK_TS, String(Date.now()));
     }
@@ -38,8 +117,9 @@ Router.register('investments', (() => {
 
   function searchStocks(q) {
     if (!q || q.length < 1) return [];
+    const lower = q.toLowerCase();
     return _stockList.filter(s =>
-      s.code.startsWith(q) || s.name.includes(q)
+      s.code.startsWith(q) || s.name.includes(q) || s.code.toLowerCase().startsWith(lower)
     ).slice(0, 8);
   }
 
