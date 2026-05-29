@@ -277,19 +277,19 @@ Router.register('settings', (() => {
   // Investments
   var inv = ss.getSheetByName('Investments') || ss.insertSheet('Investments');
   inv.clear();
-  inv.getRange('A1:J1').setValues([['角色歸屬','標的代號','標的名稱','持有股數','持有均價','總成本','即時現價','總市值','未實現損益','報酬率']]).setFontWeight('bold');
+  inv.getRange('A1:K1').setValues([['角色歸屬','帳戶','標的代號','標的名稱','持有股數','持有均價','總成本','即時現價','總市值','未實現損益','報酬率']]).setFontWeight('bold');
   var ivf = [];
   for (var j = 2; j <= 51; j++) {
     ivf.push([
-      '=IF(B'+j+'="","",D'+j+'*E'+j+')',
-      '=IF(B'+j+'="","",GOOGLEFINANCE(B'+j+',"price"))',
-      '=IF(B'+j+'="","",D'+j+'*G'+j+')',
-      '=IF(B'+j+'="","",H'+j+'-F'+j+')',
-      '=IF(OR(B'+j+'="",F'+j+'=0),"",I'+j+'/F'+j+')'
+      '=IF(C'+j+'="","",E'+j+'*F'+j+')',
+      '=IF(C'+j+'="","",GOOGLEFINANCE(C'+j+',"price"))',
+      '=IF(C'+j+'="","",E'+j+'*H'+j+')',
+      '=IF(C'+j+'="","",I'+j+'-G'+j+')',
+      '=IF(OR(C'+j+'="",G'+j+'=0),"",J'+j+'/G'+j+')'
     ]);
   }
-  inv.getRange(2,6,ivf.length,5).setFormulas(ivf);
-  inv.getRange('J2:J51').setNumberFormat('0.00%');
+  inv.getRange(2,7,ivf.length,5).setFormulas(ivf);
+  inv.getRange('K2:K51').setNumberFormat('0.00%');
 
   // Ledger
   var ld = ss.getSheetByName('Ledger') || ss.insertSheet('Ledger');

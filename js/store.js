@@ -45,16 +45,17 @@ window.Store = (() => {
   // ── Investments row → object ─────────────────────────────────────────────
   function parseInvestRow(row) {
     return {
-      role: row[0] || '',
-      ticker: row[1] || '',
-      name: row[2] || '',
-      shares: Utils.parseAmount(row[3]),
-      avgCost: Utils.parseAmount(row[4]),
-      totalCost: Utils.parseAmount(row[5]),
-      price: Utils.parseAmount(row[6]),
-      marketValue: Utils.parseAmount(row[7]),
-      unrealized: Utils.parseAmount(row[8]),
-      returnRate: parseFloat(row[9]) || 0
+      role:        row[0] || '',
+      account:     row[1] || '',
+      ticker:      row[2] || '',
+      name:        row[3] || '',
+      shares:      Utils.parseAmount(row[4]),
+      avgCost:     Utils.parseAmount(row[5]),
+      totalCost:   Utils.parseAmount(row[6]),
+      price:       Utils.parseAmount(row[7]),
+      marketValue: Utils.parseAmount(row[8]),
+      unrealized:  Utils.parseAmount(row[9]),
+      returnRate:  parseFloat(row[10]) || 0
     };
   }
 
@@ -92,14 +93,14 @@ window.Store = (() => {
       const ranges = [
         'Ledger!A2:L',
         'Projects!A2:G',
-        'Investments!A2:J',
+        'Investments!A2:K',
         'Backend!L2:P'
       ];
       const [ledgerRows, projRows, invRows, acctRows] = await API.batchGet(sid, ranges);
 
       _data.ledger = ledgerRows.filter(r => r[0]).map(parseLedgerRow);
       _data.projects = projRows.filter(r => r[1]).map(parseProjectRow);
-      _data.investments = invRows.filter(r => r[1]).map(parseInvestRow);
+      _data.investments = invRows.filter(r => r[2]).map(parseInvestRow);
       _data.accounts = parseAccountConfig(acctRows);
       _data.activeProjects = _data.projects.filter(p => p.status === '進行中').map(p => p.name);
 
