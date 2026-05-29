@@ -1,240 +1,330 @@
 Router.register('entry', (() => {
-  function render(el) {
-    el.innerHTML = `<div class="page-inner">
-      <form id="entry-form" autocomplete="off">
+  const CAT_ICONS = {
+    '食物':'🍱','飲料':'🧋','交通':'🚇','購物':'🛍️',
+    '娛樂':'🎮','家用':'🏠','電信':'📱','醫藥':'💊',
+    '教育':'📚','醫療保險':'🏥','投資儲蓄':'📈','旅遊':'✈️',
+    '訂閱':'📺','信用卡費':'💳',
+    '薪資收入':'💰','利息/股息':'📊','業外收入':'💵','現金回饋':'🎁',
+    'ATM領現':'🏧','轉帳':'🔄',
+    '常態家用':'🏡','專案預備金':'🗂️'
+  };
+  const LS_LAST = 'ff_entry_last';
+  let _s = {};
+  let _el = null;
 
-        <div class="form-row">
-          <label>角色（出）</label>
-          <div class="seg-group" id="seg-role-out">
-            ${CFG.ROLES.map(r => `<button type="button" class="seg-btn" data-val="${r}">${r}</button>`).join('')}
-          </div>
-        </div>
-
-        <div class="form-row">
-          <label>類型</label>
-          <div class="seg-group" id="seg-type">
-            ${CFG.TX_TYPES.map(t => `<button type="button" class="seg-btn" data-val="${t}">${t}</button>`).join('')}
-          </div>
-        </div>
-
-        <div class="form-row" id="row-dimension">
-          <label>開銷維度</label>
-          <div class="seg-group" id="seg-dimension">
-            ${CFG.DIMENSIONS.map(d => `<button type="button" class="seg-btn" data-val="${d}">${d}</button>`).join('')}
-          </div>
-        </div>
-
-        <div class="form-row hidden" id="row-project">
-          <label>專案標籤</label>
-          <select id="sel-project" class="form-select">
-            <option value="">選擇專案</option>
-          </select>
-        </div>
-
-        <div class="form-row">
-          <label>主分類</label>
-          <select id="sel-category" class="form-select">
-            <option value="">選擇分類</option>
-          </select>
-        </div>
-
-        <div class="form-row">
-          <label>付款帳戶</label>
-          <select id="sel-account-out" class="form-select">
-            <option value="">選擇帳戶</option>
-          </select>
-        </div>
-
-        <div class="form-row hidden" id="row-role-in">
-          <label>角色（入）</label>
-          <div class="seg-group" id="seg-role-in">
-            ${CFG.ROLES.map(r => `<button type="button" class="seg-btn" data-val="${r}">${r}</button>`).join('')}
-          </div>
-        </div>
-
-        <div class="form-row hidden" id="row-account-in">
-          <label>對象帳戶</label>
-          <select id="sel-account-in" class="form-select">
-            <option value="">選擇帳戶</option>
-          </select>
-        </div>
-
-        <div class="form-row">
-          <label>金額</label>
-          <input type="number" id="inp-amount" class="form-input" placeholder="0" min="0" inputmode="decimal">
-        </div>
-
-        <div class="form-row">
-          <label>日期</label>
-          <input type="date" id="inp-date" class="form-input" value="${new Date().toISOString().slice(0,10)}">
-        </div>
-
-        <div class="form-row">
-          <label>項目 / 明細</label>
-          <input type="text" id="inp-memo" class="form-input" placeholder="備忘（選填）">
-        </div>
-
-        <button type="submit" class="btn btn-primary btn-full" id="btn-submit">記帳</button>
-      </form>
-    </div>`;
+  function loadLast() {
+    try { return JSON.parse(localStorage.getItem(LS_LAST) || '{}'); } catch { return {}; }
   }
 
-  function segGroup(groupId, handler) {
-    const group = Utils.el(groupId);
-    group.querySelectorAll('.seg-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        group.querySelectorAll('.seg-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        handler(btn.dataset.val);
-      });
-    });
-  }
+  function initState() {
+    const last = loadLast();
+    const role = CFG.ROLES.includes(last.roleOut) ? last.roleOut : CFG.ROLES[0];
+    const type = CFG.TX_TYPES.includes(last.type) ? last.type : '支出';
 
-  function segVal(groupId) {
-    const active = Utils.el(groupId)?.querySelector('.seg-btn.active');
-    return active ? active.dataset.val : '';
-  }
+    const accts = Store.accountsForRole(role);
+    const acctOut = accts.includes(last.accountOut) ? last.accountOut : (accts[0] || '');
 
-  function setSegVal(groupId, val) {
-    const group = Utils.el(groupId);
-    if (!group) return;
-    group.querySelectorAll('.seg-btn').forEach(b => {
-      b.classList.toggle('active', b.dataset.val === val);
-    });
-  }
+    const roleIn = CFG.ROLES.includes(last.roleIn) ? last.roleIn : CFG.ROLES[0];
+    const acctsIn = Store.accountsForRole(roleIn);
+    const acctIn = acctsIn.includes(last.accountIn) ? last.accountIn : (acctsIn[0] || '');
 
-  function fillSelect(id, options, selected = '') {
-    const sel = Utils.el(id);
-    sel.innerHTML = `<option value="">選擇...</option>` +
-      options.map(o => `<option value="${o}" ${o === selected ? 'selected' : ''}>${o}</option>`).join('');
-  }
+    _s = {
+      roleOut: role, type, dimension: '日常', projectTag: '',
+      category: '', accountOut: acctOut, roleIn, accountIn: acctIn,
+      amount: '', date: new Date().toISOString().slice(0, 10),
+      memo: '', showMemo: false
+    };
 
-  function show(id) { Utils.el(id)?.classList.remove('hidden'); }
-  function hide(id) { Utils.el(id)?.classList.add('hidden'); }
-
-  function updateCategory(type) {
-    const cats = CFG.CATEGORIES[type] || [];
-    fillSelect('sel-category', cats);
-  }
-
-  function updateAccountOut(role) {
-    fillSelect('sel-account-out', Store.accountsForRole(role));
-  }
-
-  function updateAccountIn(role) {
-    fillSelect('sel-account-in', Store.accountsForRole(role));
-  }
-
-  function updateProjectList() {
-    const active = Store.get().activeProjects;
-    const sel = Utils.el('sel-project');
-    sel.innerHTML = `<option value="">選擇專案</option>` +
-      active.map(p => `<option value="${p}">${p}</option>`).join('');
-  }
-
-  function applyTypeRules(type) {
-    updateCategory(type);
-
-    const needTransfer = type === '轉帳' || type === '公積金提撥';
-    const isExpense = type === '支出';
-
-    if (needTransfer) { show('row-role-in'); show('row-account-in'); }
-    else { hide('row-role-in'); hide('row-account-in'); }
-
-    if (isExpense) { show('row-dimension'); }
-    else { hide('row-dimension'); hide('row-project'); setSegVal('seg-dimension', ''); }
-
-    // 公積金提撥 → 角色(入) 固定家用
     if (type === '公積金提撥') {
-      setSegVal('seg-role-in', '家用');
-      updateAccountIn('家用');
-      Utils.el('seg-role-in').querySelectorAll('.seg-btn').forEach(b => {
-        b.disabled = b.dataset.val !== '家用';
-      });
+      _s.roleIn = '家用';
+      const ha = Store.accountsForRole('家用');
+      if (!ha.includes(_s.accountIn)) _s.accountIn = ha[0] || '';
+    }
+  }
+
+  function saveLast() {
+    localStorage.setItem(LS_LAST, JSON.stringify({
+      roleOut: _s.roleOut, type: _s.type,
+      accountOut: _s.accountOut, roleIn: _s.roleIn, accountIn: _s.accountIn
+    }));
+  }
+
+  // ── Render ────────────────────────────────────────────────────────────────
+  function render(el) {
+    el.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:200px"><div class="spinner"></div></div>`;
+  }
+
+  async function onMount() {
+    _el = Utils.el('page-content');
+    await Store.load();
+    initState();
+    renderAll();
+  }
+
+  function renderAll() {
+    _el.removeEventListener('click', handleClick);
+    _el.innerHTML = buildHTML();
+    _el.addEventListener('click', handleClick);
+
+    document.getElementById('inp-date-hidden')?.addEventListener('change', e => {
+      _s.date = e.target.value;
+      renderAll();
+    });
+    const memoInp = document.getElementById('inp-memo');
+    if (memoInp) {
+      memoInp.addEventListener('input', e => { _s.memo = e.target.value; });
+      if (_s.showMemo) { memoInp.focus(); memoInp.setSelectionRange(999, 999); }
+    }
+    document.getElementById('sel-project')?.addEventListener('change', e => {
+      _s.projectTag = e.target.value;
+    });
+  }
+
+  function handleClick(e) {
+    const btn = e.target.closest('[data-key],[data-action]');
+    if (!btn || btn.disabled) return;
+    if (btn.dataset.key !== undefined) handleKey(btn.dataset.key);
+    else handleAction(btn.dataset.action, btn.dataset.val);
+  }
+
+  // ── Keypad ────────────────────────────────────────────────────────────────
+  function handleKey(k) {
+    if (k === 'del') {
+      _s.amount = _s.amount.slice(0, -1);
+    } else if (k === '.') {
+      if (!_s.amount.includes('.')) _s.amount = (_s.amount || '0') + '.';
     } else {
-      Utils.el('seg-role-in').querySelectorAll('.seg-btn').forEach(b => b.disabled = false);
+      if (_s.amount.length >= 9) return;
+      _s.amount += k;
+    }
+    const disp = document.getElementById('entry-amount-display');
+    if (disp) disp.textContent = formatAmountDisplay(_s.amount);
+  }
+
+  function formatAmountDisplay(raw) {
+    if (!raw) return '$0';
+    const num = parseFloat(raw);
+    if (raw.endsWith('.')) return '$' + num.toLocaleString() + '.';
+    return '$' + (isNaN(num) ? raw : num.toLocaleString());
+  }
+
+  // ── Actions ───────────────────────────────────────────────────────────────
+  function handleAction(action, val) {
+    switch (action) {
+      case 'role-out': {
+        _s.roleOut = val;
+        const a = Store.accountsForRole(val);
+        _s.accountOut = a[0] || '';
+        renderAll(); break;
+      }
+      case 'type': {
+        _s.type = val; _s.category = ''; _s.dimension = '日常'; _s.projectTag = '';
+        if (val === '公積金提撥') {
+          _s.roleIn = '家用';
+          const ha = Store.accountsForRole('家用');
+          _s.accountIn = ha[0] || '';
+        }
+        renderAll(); break;
+      }
+      case 'cat':
+        _s.category = val;
+        _el.querySelectorAll('.entry-cat-chip').forEach(c =>
+          c.classList.toggle('selected', c.dataset.val === val));
+        break;
+      case 'toggle-dim':
+        _s.dimension = _s.dimension === '日常' ? '專案' : '日常';
+        _s.projectTag = '';
+        renderAll(); break;
+      case 'pick-acct-out': showAccountPicker('out'); break;
+      case 'pick-acct-in':  showAccountPicker('in');  break;
+      case 'pick-date':
+        document.getElementById('inp-date-hidden')?.showPicker?.() ||
+        document.getElementById('inp-date-hidden')?.click(); break;
+      case 'toggle-memo': _s.showMemo = !_s.showMemo; renderAll(); break;
+      case 'submit': handleSubmit(); break;
     }
   }
 
-  function applyDimensionRules(dim) {
-    if (dim === '專案') { show('row-project'); updateProjectList(); }
-    else { hide('row-project'); Utils.el('sel-project').value = ''; }
+  // ── Account picker ────────────────────────────────────────────────────────
+  function showAccountPicker(side) {
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    const isKonTi = _s.type === '公積金提撥';
+    const roles = (side === 'in' && !isKonTi) ? CFG.ROLES : (side === 'in' ? ['家用'] : [_s.roleOut]);
 
-    // 若為專案提撥，限定分類為「專案預備金」
-    const type = segVal('seg-type');
-    if (type === '公積金提撥' && dim === '專案') {
-      fillSelect('sel-category', ['專案預備金'], '專案預備金');
-    }
+    const items = roles.flatMap(role =>
+      Store.accountsForRole(role).map(a => {
+        const isCurrent = side === 'out'
+          ? _s.accountOut === a
+          : _s.accountIn === a && _s.roleIn === role;
+        return `<div class="acct-pick-item${isCurrent?' active':''}" data-role="${role}" data-acct="${a}">
+          <span class="balance-role-badge">${role}</span>
+          <span>${a}</span>
+          ${isCurrent ? '<span class="acct-pick-check">✓</span>' : ''}
+        </div>`;
+      })
+    ).join('');
+
+    modal.innerHTML = `<div class="modal-card">
+      <div class="modal-title">${side === 'out' ? '付款帳戶' : '對象帳戶'}</div>
+      ${items || '<p class="empty-hint">無帳戶，請先至設定新增</p>'}
+    </div>`;
+    document.body.appendChild(modal);
+
+    modal.querySelectorAll('.acct-pick-item').forEach(item => {
+      item.addEventListener('click', () => {
+        if (side === 'out') {
+          _s.accountOut = item.dataset.acct;
+        } else {
+          _s.roleIn    = item.dataset.role;
+          _s.accountIn = item.dataset.acct;
+        }
+        modal.remove();
+        renderAll();
+      });
+    });
+    modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
   }
 
-  async function handleSubmit(e) {
-    e.preventDefault();
-
-    const roleOut = segVal('seg-role-out');
-    const type = segVal('seg-type');
-    const dimension = segVal('seg-dimension');
-    const projectTag = Utils.el('sel-project').value;
-    const category = Utils.el('sel-category').value;
-    const accountOut = Utils.el('sel-account-out').value;
-    const roleIn = segVal('seg-role-in');
-    const accountIn = Utils.el('sel-account-in').value;
-    const amount = parseFloat(Utils.el('inp-amount').value);
-    const date = Utils.el('inp-date').value.replace(/-/g, '/');
-    const memo = Utils.el('inp-memo').value.trim();
-
-    // Validation
-    if (!roleOut) return Utils.toast('請選擇角色（出）', 'warn');
-    if (!type) return Utils.toast('請選擇類型', 'warn');
-    if (!category) return Utils.toast('請選擇主分類', 'warn');
-    if (!accountOut) return Utils.toast('請選擇付款帳戶', 'warn');
+  // ── Submit ────────────────────────────────────────────────────────────────
+  async function handleSubmit() {
+    const isTransfer = _s.type === '轉帳' || _s.type === '公積金提撥';
+    const amount = parseFloat(_s.amount);
+    if (!_s.category)        return Utils.toast('請選擇分類', 'warn');
+    if (!_s.accountOut)      return Utils.toast('請選擇付款帳戶', 'warn');
     if (!amount || amount <= 0) return Utils.toast('請輸入有效金額', 'warn');
-    if (!date) return Utils.toast('請選擇日期', 'warn');
-    if (type === '支出' && dimension === '專案' && !projectTag) return Utils.toast('請選擇專案標籤', 'warn');
-    if ((type === '轉帳' || type === '公積金提撥') && !accountIn) return Utils.toast('請選擇對象帳戶', 'warn');
+    if (_s.type === '支出' && _s.dimension === '專案' && !_s.projectTag)
+      return Utils.toast('請選擇專案', 'warn');
+    if (isTransfer && !_s.accountIn) return Utils.toast('請選擇對象帳戶', 'warn');
 
     const row = [
-      Utils.uid(), roleOut, dimension || '', projectTag, type,
-      category, memo, date, amount, accountOut,
-      roleIn || '', accountIn || ''
+      Utils.uid(), _s.roleOut,
+      _s.type === '支出' ? _s.dimension : '',
+      _s.type === '支出' && _s.dimension === '專案' ? _s.projectTag : '',
+      _s.type, _s.category, _s.memo,
+      _s.date.replace(/-/g, '/'), amount, _s.accountOut,
+      isTransfer ? _s.roleIn : '', isTransfer ? _s.accountIn : ''
     ];
 
-    const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID);
-    const btn = Utils.el('btn-submit');
-    btn.disabled = true;
-    btn.textContent = '儲存中…';
+    const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID) || CFG.SHEET_ID;
+    const submitBtn = _el.querySelector('[data-action="submit"]');
+    if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = '儲存中…'; }
 
     try {
       await API.append(sid, 'Ledger!A:L', row);
       Store.invalidate();
-      Utils.toast('已記帳！', 'success');
-      Utils.el('entry-form').reset();
-      Utils.el('seg-role-out').querySelectorAll('.seg-btn').forEach(b => b.classList.remove('active'));
-      Utils.el('seg-type').querySelectorAll('.seg-btn').forEach(b => b.classList.remove('active'));
-      Utils.el('seg-dimension').querySelectorAll('.seg-btn').forEach(b => b.classList.remove('active'));
-      Utils.el('inp-date').value = new Date().toISOString().slice(0,10);
-      hide('row-dimension'); hide('row-project'); hide('row-role-in'); hide('row-account-in');
+      saveLast();
+      Utils.toast('記帳成功！', 'success');
+      _s.amount = ''; _s.memo = ''; _s.showMemo = false;
+      _s.category = ''; _s.projectTag = '';
+      _s.date = new Date().toISOString().slice(0, 10);
+      renderAll();
     } catch (err) {
       Utils.toast('儲存失敗：' + err.message, 'error');
-    } finally {
-      btn.disabled = false;
-      btn.textContent = '記帳';
+      if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = '記帳 ✓'; }
     }
   }
 
-  function onMount() {
-    segGroup('seg-role-out', role => updateAccountOut(role));
-    segGroup('seg-type', type => applyTypeRules(type));
-    segGroup('seg-dimension', dim => applyDimensionRules(dim));
-    segGroup('seg-role-in', role => updateAccountIn(role));
-    Utils.el('entry-form').addEventListener('submit', handleSubmit);
+  // ── Build HTML ────────────────────────────────────────────────────────────
+  function buildHTML() {
+    const isTransfer = _s.type === '轉帳' || _s.type === '公積金提撥';
+    const isExpense  = _s.type === '支出';
+    const cats = CFG.CATEGORIES[_s.type] || [];
+    const today = new Date().toISOString().slice(0, 10);
+    const dateLabel = _s.date === today ? '今天' : _s.date.replace(/-/g, '/');
 
-    // Defaults
-    hide('row-dimension');
-    hide('row-project');
-    hide('row-role-in');
-    hide('row-account-in');
-    setSegVal('seg-type', '支出');
-    applyTypeRules('支出');
+    const roleBtns = CFG.ROLES.map(r =>
+      `<button type="button" class="entry-seg-btn${_s.roleOut===r?' active':''}" data-action="role-out" data-val="${r}">${r}</button>`
+    ).join('');
+
+    const typeBtns = CFG.TX_TYPES.map(t => {
+      const label = t === '公積金提撥' ? '公積金' : t;
+      return `<button type="button" class="entry-seg-btn entry-seg-type${_s.type===t?' active':''}${t==='公積金提撥'?' entry-seg-xs':''}" data-action="type" data-val="${t}">${label}</button>`;
+    }).join('');
+
+    const acctOutName = _s.accountOut || '選擇帳戶';
+    const acctInName  = _s.accountIn  || '選擇帳戶';
+
+    const chipsMain = isTransfer ? `
+      <button type="button" class="entry-chip entry-chip-acct" data-action="pick-acct-out">💳 ${acctOutName} ▾</button>
+      <span class="chip-arrow">→</span>
+      <button type="button" class="entry-chip entry-chip-acct-in" data-action="pick-acct-in">🏦 ${acctInName} ▾</button>
+    ` : `
+      <button type="button" class="entry-chip entry-chip-acct" data-action="pick-acct-out">💳 ${acctOutName} ▾</button>
+    `;
+
+    const chipsSub = `
+      <button type="button" class="entry-chip entry-chip-date" data-action="pick-date">📅 ${dateLabel}</button>
+      <button type="button" class="entry-chip entry-chip-memo${_s.showMemo?' entry-chip-active':''}" data-action="toggle-memo">✏️ 備忘</button>
+    `;
+
+    const memoBar = _s.showMemo ? `
+      <div class="entry-memo-bar">
+        <input type="text" id="inp-memo" class="entry-memo-input" placeholder="備忘（選填）" value="${_s.memo}">
+      </div>` : '';
+
+    const projectRow = (isExpense && _s.dimension === '專案') ? `
+      <div class="entry-project-row">
+        <select id="sel-project" class="form-select" style="font-size:13px;padding:8px 12px">
+          <option value="">選擇專案</option>
+          ${Store.get().activeProjects.map(p =>
+            `<option value="${p}"${_s.projectTag===p?' selected':''}>${p}</option>`
+          ).join('')}
+        </select>
+      </div>` : '';
+
+    const catGrid = cats.map(c =>
+      `<button type="button" class="entry-cat-chip${_s.category===c?' selected':''}" data-action="cat" data-val="${c}">
+        <span class="cat-icon">${CAT_ICONS[c]||'📌'}</span><span>${c}</span>
+      </button>`
+    ).join('');
+
+    const dimKey = isExpense
+      ? `<button type="button" class="entry-key entry-key-special${_s.dimension==='專案'?' entry-key-dim-on':''}" data-action="toggle-dim">${_s.dimension==='專案'?'<b>專案</b>':'日常'}</button>`
+      : `<div class="entry-key entry-key-blank"></div>`;
+
+    return `<div class="entry-wrapper">
+      <input type="date" id="inp-date-hidden" style="position:fixed;opacity:0;height:0;pointer-events:none;top:0;left:0" value="${_s.date}">
+
+      <div class="entry-segs">
+        <div class="entry-seg-row">${roleBtns}</div>
+        <div class="entry-seg-row entry-seg-row-type">${typeBtns}</div>
+      </div>
+
+      <div class="entry-amount-area">
+        <div class="entry-amount-num" id="entry-amount-display">${formatAmountDisplay(_s.amount)}</div>
+        <div class="entry-chips">${chipsMain}</div>
+        <div class="entry-chips" style="margin-top:5px">${chipsSub}</div>
+        ${memoBar}
+      </div>
+
+      ${projectRow}
+
+      <div class="entry-cat-section">
+        <div class="entry-cat-grid">${catGrid}</div>
+      </div>
+
+      <div class="entry-keypad">
+        <button type="button" class="entry-key" data-key="7">7</button>
+        <button type="button" class="entry-key" data-key="8">8</button>
+        <button type="button" class="entry-key" data-key="9">9</button>
+        <button type="button" class="entry-key entry-key-del" data-key="del">⌫</button>
+
+        <button type="button" class="entry-key" data-key="4">4</button>
+        <button type="button" class="entry-key" data-key="5">5</button>
+        <button type="button" class="entry-key" data-key="6">6</button>
+        ${dimKey}
+
+        <button type="button" class="entry-key" data-key="1">1</button>
+        <button type="button" class="entry-key" data-key="2">2</button>
+        <button type="button" class="entry-key" data-key="3">3</button>
+        <button type="button" class="entry-key entry-key-special" data-action="pick-date">📅</button>
+
+        <button type="button" class="entry-key" data-key=".">.</button>
+        <button type="button" class="entry-key" data-key="0">0</button>
+        <button type="button" class="entry-key entry-key-submit" data-action="submit">記帳 ✓</button>
+      </div>
+    </div>`;
   }
 
   return { render, onMount };
