@@ -236,6 +236,17 @@ html, body {
 .balance-row-inputs { display: flex; gap: 8px; }
 .balance-row-inputs .form-input { flex: 1; }
 
+/* ── Account management ──────────────────────────────────── */
+.acct-role-card { padding: 14px; }
+.acct-role-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.acct-item { border-top: 1px solid var(--border); padding: 10px 0; }
+.acct-item:first-child { border-top: none; }
+.acct-item-top { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+.acct-item-name { font-size: 14px; font-weight: 600; }
+.acct-item-purpose { font-size: 11px; color: var(--text-muted); background: var(--bg); border-radius: 99px; padding: 2px 8px; }
+.acct-item-inputs { display: flex; gap: 8px; }
+.acct-item-inputs .form-input { flex: 1; font-size: 14px; padding: 9px 12px; }
+
 /* ── Modal ───────────────────────────────────────────────── */
 .modal-overlay {
   position: fixed; inset: 0; background: rgba(0,0,0,.5);

@@ -58,7 +58,7 @@ window.Store = (() => {
     };
   }
 
-  // ── Account initial balances from Backend L:O ────────────────────────────
+  // ── Account initial balances from Backend L:P ────────────────────────────
   function parseAccountConfig(rows) {
     const map = {};
     rows.forEach(row => {
@@ -66,9 +66,10 @@ window.Store = (() => {
       const role = row[0];
       if (!map[role]) map[role] = [];
       map[role].push({
-        name: row[1],
-        balance: Utils.parseAmount(row[2]),
-        baseDate: row[3] || ''
+        name:     row[1],
+        balance:  Utils.parseAmount(row[2]),
+        baseDate: row[3] || '',
+        purpose:  row[4] || ''
       });
     });
     return map;
@@ -92,7 +93,7 @@ window.Store = (() => {
         'Ledger!A2:L',
         'Projects!A2:G',
         'Investments!A2:J',
-        'Backend!L2:O'
+        'Backend!L2:P'
       ];
       const [ledgerRows, projRows, invRows, acctRows] = await API.batchGet(sid, ranges);
 
@@ -139,9 +140,7 @@ window.Store = (() => {
   }
 
   function accountsForRole(role) {
-    const saved = (_data.accounts[role] || []).map(a => a.name);
-    if (saved.length > 0) return saved;
-    return CFG.DEFAULT_ACCOUNTS[role] || [];
+    return (_data.accounts[role] || []).map(a => a.name);
   }
 
   function getSheetId(sheetName) {

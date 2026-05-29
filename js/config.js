@@ -16,11 +16,22 @@ window.CFG = {
     '公積金提撥': ['常態家用','專案預備金']
   },
 
-  DEFAULT_ACCOUNTS: {
-    '阿熊': ['中信活存(薪資)','新光活存(投資)','聯邦活存(日用)','Line Pay Money','信用卡-玉山Pi','現金錢包','股票部位'],
-    '綺綺': ['台新Richart','信用卡-台新GoGo','現金錢包','股票部位'],
-    '家用': ['一銀活存','土銀活存','現金錢包']
-  },
+  INITIAL_ACCOUNTS: [
+    {role:'阿熊', name:'中信活存(薪資)', purpose:'薪資入帳'},
+    {role:'阿熊', name:'新光活存(投資)', purpose:'投資'},
+    {role:'阿熊', name:'聯邦活存(日用)', purpose:'日常消費'},
+    {role:'阿熊', name:'Line Pay Money',  purpose:'行動支付'},
+    {role:'阿熊', name:'信用卡-玉山Pi',   purpose:''},
+    {role:'阿熊', name:'現金錢包',         purpose:''},
+    {role:'阿熊', name:'股票部位',         purpose:'投資'},
+    {role:'綺綺', name:'台新Richart',      purpose:''},
+    {role:'綺綺', name:'信用卡-台新GoGo', purpose:''},
+    {role:'綺綺', name:'現金錢包',         purpose:''},
+    {role:'綺綺', name:'股票部位',         purpose:'投資'},
+    {role:'家用', name:'一銀活存',         purpose:'家用主帳戶'},
+    {role:'家用', name:'土銀活存',         purpose:''},
+    {role:'家用', name:'現金錢包',         purpose:''}
+  ],
 
   LS_KEYS: {
     SHEET_ID: 'ff_sheet_id',
