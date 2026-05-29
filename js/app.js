@@ -1,4 +1,3 @@
-// Service Worker registration
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('sw.js').catch(console.warn);
@@ -9,7 +8,6 @@ async function boot() {
   const clientId = localStorage.getItem(CFG.LS_KEYS.CLIENT_ID);
   const sheetId = localStorage.getItem(CFG.LS_KEYS.SHEET_ID);
 
-  // No config → go to setup
   if (!clientId || !sheetId) {
     showScreen('setup');
     document.getElementById('btn-setup-save').addEventListener('click', () => {
@@ -23,18 +21,37 @@ async function boot() {
     return;
   }
 
-  // Wait for Google Identity Services to load (it's async)
   try {
     await waitForGSI();
   } catch (e) {
     document.getElementById('gsi-error').classList.remove('hidden');
     showScreen('auth');
+    bindAuthButtons();
     return;
   }
 
   await Auth.init(clientId);
 
+  // Auto-login: silently try to get token if user has logged in before
+  const hasLoggedInBefore = localStorage.getItem(CFG.LS_KEYS.AUTOLOGIN);
+  if (hasLoggedInBefore) {
+    Utils.showLoading(true);
+    try {
+      await Auth.silentToken();
+      Utils.showLoading(false);
+      launchApp();
+      return;
+    } catch (e) {
+      // Silent failed (session expired) → fall through to login screen
+      Utils.showLoading(false);
+    }
+  }
+
   showScreen('auth');
+  bindAuthButtons();
+}
+
+function bindAuthButtons() {
   document.getElementById('btn-signin').addEventListener('click', async () => {
     try {
       await Auth.getToken();
