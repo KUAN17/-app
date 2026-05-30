@@ -343,6 +343,45 @@ html, body {
   background: var(--bg);
 }
 
+/* Date row */
+.entry-date-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px 16px; margin: 0;
+  background: var(--card); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
+  cursor: pointer; position: relative; font-size: 15px; color: var(--text);
+  -webkit-tap-highlight-color: transparent;
+}
+.entry-date-icon { font-size: 18px; }
+.entry-date-arrow { margin-left: auto; color: var(--text-muted); font-size: 20px; line-height: 1; }
+
+/* 日常 / 專案 tabs */
+.entry-dim-tabs {
+  display: flex; border-radius: 10px; overflow: hidden;
+  border: 1px solid var(--border); margin-bottom: 10px;
+}
+.entry-dim-tab {
+  flex: 1; padding: 10px 0; font-size: 14px; font-weight: 600;
+  background: var(--card); color: var(--text-muted);
+  border: none; cursor: pointer; transition: background .15s, color .15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.entry-dim-tab.active { background: var(--primary); color: #fff; }
+.entry-dim-tab:not(.active):active { background: var(--bg); }
+
+/* Project category free-text */
+.proj-cat-input { margin-bottom: 4px; font-size: 15px; }
+.proj-cat-suggestions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 8px; }
+.proj-cat-sugg-item {
+  padding: 6px 14px; border-radius: 20px;
+  border: 1.5px solid var(--primary); background: transparent;
+  color: var(--primary); font-size: 13px; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.proj-cat-sugg-item:active { background: var(--primary); color: #fff; }
+
+/* Project card actions row */
+.proj-card-actions { display: flex; gap: 8px; margin-top: 12px; }
+
 /* Account picker list */
 .acct-pick-item {
   display: flex; align-items: center; gap: 10px; padding: 13px 0;

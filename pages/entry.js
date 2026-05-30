@@ -68,7 +68,7 @@ Router.register('entry', (() => {
       _s.date = e.target.value;
       const today = new Date().toISOString().slice(0, 10);
       const label = document.getElementById('date-chip-label');
-      if (label) label.textContent = '📅 ' + (_s.date === today ? '今天' : _s.date.replace(/-/g, '/'));
+      if (label) label.textContent = _s.date === today ? '今天' : _s.date.replace(/-/g, '/');
     });
 
     // Memo input
@@ -76,6 +76,25 @@ Router.register('entry', (() => {
 
     // Project select
     document.getElementById('sel-project')?.addEventListener('change', e => { _s.projectTag = e.target.value; });
+
+    // Project category free-text
+    const projCatEl = document.getElementById('inp-proj-cat');
+    if (projCatEl) {
+      projCatEl.addEventListener('input', e => {
+        _s.category = e.target.value;
+        const q = e.target.value;
+        const sugg = document.getElementById('proj-cat-sugg');
+        if (sugg) sugg.innerHTML = getProjectCatSuggestions().filter(c => !q || c.includes(q))
+          .map(c => `<button type="button" class="proj-cat-sugg-item" data-action="proj-cat-sugg" data-val="${c}">${c}</button>`).join('');
+      });
+      projCatEl.addEventListener('focus', () => {
+        const sugg = document.getElementById('proj-cat-sugg');
+        if (sugg && !sugg.children.length) {
+          sugg.innerHTML = getProjectCatSuggestions()
+            .map(c => `<button type="button" class="proj-cat-sugg-item" data-action="proj-cat-sugg" data-val="${c}">${c}</button>`).join('');
+        }
+      });
+    }
 
     // Auto-focus amount (unless keepFocus flag set for memo)
     if (!keepFocus) {
@@ -117,9 +136,19 @@ Router.register('entry', (() => {
           c.classList.toggle('selected', c.dataset.val === val));
         break;
       case 'toggle-dim':
-        _s.dimension = _s.dimension === '日常' ? '專案' : '日常';
+      case 'set-dim':
+        _s.dimension = val || (_s.dimension === '日常' ? '專案' : '日常');
         _s.projectTag = '';
+        _s.category = '';
         renderAll(); break;
+      case 'proj-cat-sugg': {
+        _s.category = val;
+        const _inp = document.getElementById('inp-proj-cat');
+        if (_inp) { _inp.value = val; _inp.focus(); }
+        const _sugg = document.getElementById('proj-cat-sugg');
+        if (_sugg) _sugg.innerHTML = '';
+        break;
+      }
       case 'pick-acct-out': showAccountPicker('out'); break;
       case 'pick-acct-in':  showAccountPicker('in');  break;
       case 'toggle-memo':
@@ -205,6 +234,15 @@ Router.register('entry', (() => {
     }
   }
 
+  // ── Project category suggestions ─────────────────────────────────────────
+  function getProjectCatSuggestions() {
+    return [...new Set(
+      Store.get().ledger
+        .filter(tx => tx.dimension === '專案' && tx.type === '支出' && tx.category)
+        .map(tx => tx.category)
+    )];
+  }
+
   // ── Build HTML ────────────────────────────────────────────────────────────
   function buildHTML() {
     const isTransfer = _s.type === '轉帳' || _s.type === '公積金提撥';
@@ -233,14 +271,6 @@ Router.register('entry', (() => {
       <button type="button" class="entry-chip entry-chip-acct" data-action="pick-acct-out">💳 ${acctOutName} ▾</button>
     `;
 
-    // Date chip: label wraps a hidden date input so clicking triggers native picker
-    const dateChip = `
-      <label class="entry-chip entry-chip-date" for="inp-date">
-        <span id="date-chip-label">📅 ${dateLabel}</span>
-        <input type="date" id="inp-date" value="${_s.date}"
-               style="position:absolute;opacity:0;width:100%;height:100%;top:0;left:0;cursor:pointer;border:none;background:transparent">
-      </label>`;
-
     const memoChip = `<button type="button" class="entry-chip entry-chip-memo${_s.showMemo?' entry-chip-active':''}" data-action="toggle-memo">✏️ 備忘</button>`;
 
     const memoBar = _s.showMemo ? `
@@ -248,10 +278,22 @@ Router.register('entry', (() => {
         <input type="text" id="inp-memo" class="entry-memo-input" placeholder="備忘（選填）" value="${_s.memo.replace(/"/g,'&quot;')}">
       </div>` : '';
 
-    const dimChip = isExpense ? `
-      <button type="button" class="entry-chip${_s.dimension==='專案'?' entry-chip-dim-on':' entry-chip-dim'}" data-action="toggle-dim">
-        ${_s.dimension === '專案' ? '📁 專案' : '☀️ 日常'}
-      </button>` : '';
+    // Full-width date row — large tap target
+    const dateRow = `
+      <label class="entry-date-row" for="inp-date">
+        <span class="entry-date-icon">📅</span>
+        <span id="date-chip-label">${dateLabel}</span>
+        <span class="entry-date-arrow">›</span>
+        <input type="date" id="inp-date" value="${_s.date}"
+               style="position:absolute;opacity:0;width:100%;height:100%;top:0;left:0;cursor:pointer;border:none;background:transparent">
+      </label>`;
+
+    // 日常/專案 segmented tabs — only for 支出, above category section
+    const dimTabs = isExpense ? `
+      <div class="entry-dim-tabs">
+        <button type="button" class="entry-dim-tab${_s.dimension==='日常'?' active':''}" data-action="set-dim" data-val="日常">☀️ 日常</button>
+        <button type="button" class="entry-dim-tab${_s.dimension==='專案'?' active':''}" data-action="set-dim" data-val="專案">📁 專案</button>
+      </div>` : '';
 
     const projectRow = (isExpense && _s.dimension === '專案') ? `
       <div class="entry-project-row">
@@ -263,11 +305,24 @@ Router.register('entry', (() => {
         </select>
       </div>` : '';
 
-    const catGrid = cats.map(c =>
-      `<button type="button" class="entry-cat-chip${_s.category===c?' selected':''}" data-action="cat" data-val="${c}">
-        <span class="cat-icon">${CAT_ICONS[c]||'📌'}</span><span>${c}</span>
-      </button>`
-    ).join('');
+    // Category area: chip grid for 日常, free-text with suggestions for 專案
+    let catContent;
+    if (isExpense && _s.dimension === '專案') {
+      const initSugg = getProjectCatSuggestions();
+      catContent = `<div class="proj-cat-area">
+        <input type="text" id="inp-proj-cat" class="form-input proj-cat-input"
+               placeholder="輸入分類（如：建材、人工）" value="${_s.category.replace(/"/g,'&quot;')}" autocomplete="off">
+        <div class="proj-cat-suggestions" id="proj-cat-sugg">
+          ${initSugg.map(c => `<button type="button" class="proj-cat-sugg-item" data-action="proj-cat-sugg" data-val="${c}">${c}</button>`).join('')}
+        </div>
+      </div>`;
+    } else {
+      catContent = `<div class="entry-cat-grid">${cats.map(c =>
+        `<button type="button" class="entry-cat-chip${_s.category===c?' selected':''}" data-action="cat" data-val="${c}">
+          <span class="cat-icon">${CAT_ICONS[c]||'📌'}</span><span>${c}</span>
+        </button>`
+      ).join('')}</div>`;
+    }
 
     return `<div class="entry-wrapper">
       <div class="entry-segs">
@@ -281,17 +336,17 @@ Router.register('entry', (() => {
                class="entry-amount-input" placeholder="0" autocomplete="off">
         <div class="entry-chips" style="margin-top:10px">
           ${acctChips}
-          ${dateChip}
-          ${dimChip}
           ${memoChip}
         </div>
         ${memoBar}
       </div>
 
-      ${projectRow}
+      ${dateRow}
 
       <div class="entry-cat-section">
-        <div class="entry-cat-grid">${catGrid}</div>
+        ${dimTabs}
+        ${projectRow}
+        ${catContent}
       </div>
 
       <div class="entry-submit-area">
