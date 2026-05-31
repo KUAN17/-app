@@ -1,11 +1,10 @@
 Router.register('investments', (() => {
-  let _invState = [];
+  let _lots = [];
+  let _activeRole = null;
   const PERSONAL_ROLES = () => CFG.ROLES.filter(r => r !== '家用');
-  const STOCK_LS = 'ff_stock_list';
-  const STOCK_TS = 'ff_stock_list_ts';
-  const STOCK_TTL = 24 * 60 * 60 * 1000;
 
-  // ── Built-in common stocks ───────────────────────────────────────────────
+  const STOCK_LS = 'ff_stock_list', STOCK_TS = 'ff_stock_list_ts', STOCK_TTL = 86400000;
+
   const BUILTIN_STOCKS = [
     // ETF
     {code:'0050',name:'元大台灣50',market:'上市'},{code:'0051',name:'元大中型100',market:'上市'},
@@ -93,13 +92,14 @@ Router.register('investments', (() => {
   }
 
   function searchStocks(q) {
-    if (!q || q.length < 1) return [];
+    if (!q) return [];
     const lower = q.toLowerCase();
     return _stockList.filter(s =>
       s.code.startsWith(q) || s.name.includes(q) || s.code.toLowerCase().startsWith(lower)
     ).slice(0, 8);
   }
 
+  // ── Lifecycle ─────────────────────────────────────────────────────────
   function render(el) {
     el.innerHTML = `<div class="page-inner"><div class="spinner"></div></div>`;
   }
@@ -107,228 +107,318 @@ Router.register('investments', (() => {
   async function onMount() {
     await Store.load();
     buildState();
+    if (!_activeRole || !PERSONAL_ROLES().includes(_activeRole)) _activeRole = PERSONAL_ROLES()[0];
     renderPage();
     loadStockList();
   }
 
   function buildState() {
-    _invState = Store.get().investments.map(i => ({ ...i, _deleted: false }));
+    _lots = Store.get().investments.map(i => ({ ...i, _deleted: false }));
   }
 
-  // ── Main page ─────────────────────────────────────────────────────────────
+  // ── Merge lots into positions ──────────────────────────────────────────
+  function getMergedPositions(role) {
+    const map = {};
+    _lots.filter(l => !l._deleted && l.role === role).forEach(l => {
+      const key = `${l.account}||${l.ticker}`;
+      if (!map[key]) map[key] = { role: l.role, account: l.account, ticker: l.ticker, name: l.name, lots: [], price: 0 };
+      map[key].lots.push({ ...l, _si: _lots.indexOf(l) });
+      if (l.price > 0) map[key].price = l.price;
+    });
+    return Object.values(map).map(pos => {
+      const totalShares = pos.lots.reduce((s, l) => s + l.shares, 0);
+      const totalCost   = pos.lots.reduce((s, l) => s + l.shares * l.avgCost, 0);
+      const weightedAvg = totalShares > 0 ? totalCost / totalShares : 0;
+      const marketValue = pos.price > 0 ? totalShares * pos.price : totalCost;
+      const unrealized  = marketValue - totalCost;
+      const returnRate  = totalCost > 0 ? unrealized / totalCost : 0;
+      return { ...pos, totalShares, totalCost, weightedAvg, marketValue, unrealized, returnRate };
+    }).sort((a, b) => b.marketValue - a.marketValue);
+  }
+
+  // ── Main page ──────────────────────────────────────────────────────────
   function renderPage() {
     const el = Utils.el('page-content');
-    const visible = _invState.filter(i => !i._deleted);
     const roles = PERSONAL_ROLES();
 
-    const totalMV     = visible.reduce((s, i) => s + i.marketValue, 0);
-    const totalCost   = visible.reduce((s, i) => s + i.totalCost,   0);
-    const totalUnreal = visible.reduce((s, i) => s + i.unrealized,  0);
-    const totalReturn = totalCost > 0 ? totalUnreal / totalCost : 0;
+    // Summary across all roles
+    let totalMV = 0, totalCost = 0;
+    roles.forEach(r => getMergedPositions(r).forEach(p => { totalMV += p.marketValue; totalCost += p.totalCost; }));
+    const totalUnreal  = totalMV - totalCost;
+    const totalReturn  = totalCost > 0 ? totalUnreal / totalCost : 0;
+    const pnlClass     = totalUnreal >= 0 ? 'amount-in' : 'amount-out';
+    const pnlArrow     = totalUnreal >= 0 ? '▲' : '▼';
 
-    // Group by role → broker account
-    const byRole = {};
-    roles.forEach(r => { byRole[r] = {}; });
-    visible.forEach(inv => {
-      if (!byRole[inv.role]) return;
-      if (!byRole[inv.role][inv.account]) byRole[inv.role][inv.account] = [];
-      byRole[inv.role][inv.account].push({ ...inv, _si: _invState.indexOf(inv) });
-    });
-
-    const roleSections = roles.map(role => {
-      const brokers = byRole[role];
-      const brokerNames = Store.brokersForRole(role);
-      const roleMV = Object.values(brokers).flat().reduce((s, i) => s + i.marketValue, 0);
-
-      const brokerSections = Object.keys(brokers).map(broker => {
-        const items = brokers[broker];
-        const brokerMV = items.reduce((s, i) => s + i.marketValue, 0);
-        const rows = items.map(i => `
-          <div class="inv-row">
-            <div class="inv-ticker">${i.ticker.replace(/^TPE:/i,'')}</div>
-            <div class="inv-name">${i.name}</div>
-            <div>${i.shares.toLocaleString()}</div>
-            <div>$${i.price.toLocaleString()}</div>
-            <div class="inv-mv">${Utils.formatMoney(i.marketValue)}</div>
-            <div class="${i.unrealized >= 0 ? 'amount-in' : 'amount-out'}">${Utils.formatMoney(i.unrealized, true)}</div>
-            <div class="${i.returnRate >= 0 ? 'amount-in' : 'amount-out'}">${Utils.formatPct(i.returnRate)}</div>
-            <div class="inv-row-actions">
-              <button class="inv-reduce-btn" data-si="${i._si}" title="減倉">減倉</button>
-              <button class="inv-del-btn" data-si="${i._si}" title="刪除">✕</button>
-            </div>
-          </div>`).join('');
-
-        return `<div class="inv-broker-section">
-          <div class="inv-broker-header">
-            <span>📊 ${broker}</span>
-            <span class="inv-broker-mv">${Utils.formatMoney(brokerMV)}</span>
-          </div>
-          <div class="inv-table">
-            <div class="inv-header">
-              <span>代號</span><span>名稱</span><span>股數</span><span>現價</span><span>市值</span><span>損益</span><span>報酬</span><span></span>
-            </div>
-            ${rows}
-          </div>
-        </div>`;
-      }).join('');
-
-      const noBroker = brokerNames.length === 0
-        ? `<p class="empty-hint" style="padding:8px 0">尚未設定證券帳戶，請先至設定新增「證券帳戶」類型的帳戶</p>` : '';
-
-      return `
-        <div class="section-header">
-          <div class="section-label">${role}<span class="section-sub">${Utils.formatMoney(roleMV)}</span></div>
-          <button class="btn btn-outline btn-sm btn-add-inv" data-role="${role}">＋ 新增標的</button>
-        </div>
-        <div class="card" style="padding:0;overflow:hidden">
-          ${noBroker}
-          ${brokerSections || '<p class="empty-hint" style="padding:12px 16px">尚無持倉</p>'}
-        </div>`;
-    }).join('');
+    const roleTabs = roles.length > 1
+      ? `<div class="inv-role-tabs">${roles.map(r =>
+          `<button class="inv-role-tab${r === _activeRole ? ' active' : ''}" data-role="${r}">${r}</button>`
+        ).join('')}</div>` : '';
 
     el.innerHTML = `<div class="page-inner">
-      <div class="card invest-total">
-        <div class="invest-total-row">
-          <span class="label-sm">投資組合總市值</span>
-          <div style="display:flex;align-items:center;gap:10px">
-            <span class="amount-primary invest-total-num">${Utils.formatMoney(totalMV)}</span>
-            <button class="btn btn-outline btn-sm" id="btn-inv-refresh">重新整理</button>
-          </div>
+      <div class="card invest-summary">
+        <div class="invest-summary-label">投資組合總市值</div>
+        <div class="invest-summary-value">${Utils.formatMoney(totalMV)}</div>
+        <div class="invest-summary-pnl ${pnlClass}">
+          ${pnlArrow} ${Utils.formatMoney(Math.abs(Math.round(totalUnreal)))}
+          <span class="invest-summary-pct">${Utils.formatPct(totalReturn)}</span>
         </div>
-        <div class="invest-total-row">
-          <span class="label-sm">總成本</span><span>${Utils.formatMoney(totalCost)}</span>
-        </div>
-        <div class="invest-total-row">
-          <span class="label-sm">未實現損益</span>
-          <span class="${totalUnreal >= 0 ? 'amount-in' : 'amount-out'}">${Utils.formatMoney(totalUnreal, true)}</span>
-        </div>
-        <div class="invest-total-row">
-          <span class="label-sm">整體報酬率</span>
-          <span class="${totalReturn >= 0 ? 'amount-in' : 'amount-out'}">${Utils.formatPct(totalReturn)}</span>
+        <div class="invest-summary-row">
+          <span class="label-sm">總成本</span>
+          <span>${Utils.formatMoney(totalCost)}</span>
+          <button class="btn btn-outline btn-sm" id="btn-inv-refresh" style="margin-left:auto">重新整理</button>
         </div>
       </div>
-      ${roleSections}
+      ${roleTabs}
+      <div id="inv-role-content"></div>
       <div style="height:16px"></div>
     </div>`;
+
+    renderRoleSection(_activeRole);
+
+    if (roles.length > 1) {
+      el.querySelectorAll('.inv-role-tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+          _activeRole = tab.dataset.role;
+          el.querySelectorAll('.inv-role-tab').forEach(t => t.classList.toggle('active', t.dataset.role === _activeRole));
+          renderRoleSection(_activeRole);
+        });
+      });
+    }
 
     Utils.el('btn-inv-refresh').addEventListener('click', async () => {
       Store.invalidate(); Utils.showLoading(true);
       try { await Store.load(true); buildState(); renderPage(); Utils.toast('已更新最新收盤價'); }
       finally { Utils.showLoading(false); }
     });
+  }
 
-    document.querySelectorAll('.btn-add-inv').forEach(btn => {
-      btn.addEventListener('click', () => showAddModal(btn.dataset.role));
+  function renderRoleSection(role) {
+    const container = Utils.el('inv-role-content');
+    const positions  = getMergedPositions(role);
+    const brokers    = Store.brokersForRole(role);
+
+    // Group by account
+    const byAccount = {};
+    positions.forEach(pos => {
+      if (!byAccount[pos.account]) byAccount[pos.account] = [];
+      byAccount[pos.account].push(pos);
     });
 
-    document.querySelectorAll('.inv-del-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const si = parseInt(btn.dataset.si);
-        if (!confirm(`確定刪除「${_invState[si].name}」持倉？`)) return;
-        _invState[si]._deleted = true;
-        saveInvestments();
+    const accountSections = Object.keys(byAccount).map(acct => {
+      const acctMV = byAccount[acct].reduce((s, p) => s + p.marketValue, 0);
+      const rows = byAccount[acct].map(pos => {
+        const ticker    = pos.ticker.replace(/^TPE:/i, '');
+        const pnlClass  = pos.unrealized >= 0 ? 'amount-in' : 'amount-out';
+        const pnlArrow  = pos.unrealized >= 0 ? '▲' : '▼';
+        const pnlAmt    = Utils.formatMoney(Math.abs(Math.round(pos.unrealized)));
+        return `<div class="inv-pos-row" data-key="${acct}||${pos.ticker}" data-role="${role}">
+          <div class="inv-pos-left">
+            <span class="inv-pos-name">${pos.name}</span>
+            <span class="inv-pos-meta">${ticker} · ${pos.totalShares.toLocaleString()} 股</span>
+          </div>
+          <div class="inv-pos-right">
+            <span class="inv-pos-value">${Utils.formatMoney(pos.marketValue)}</span>
+            <span class="inv-pos-pnl ${pnlClass}">${pnlArrow} ${pnlAmt}（${Utils.formatPct(pos.returnRate)}）</span>
+          </div>
+        </div>`;
+      }).join('');
+
+      return `<div class="inv-broker-section">
+        <div class="inv-broker-header">
+          <span>📊 ${acct}</span>
+          <span class="inv-broker-mv">${Utils.formatMoney(acctMV)}</span>
+        </div>
+        ${rows}
+      </div>`;
+    }).join('');
+
+    const emptyMsg = positions.length === 0
+      ? `<p class="empty-hint" style="padding:12px 16px">${brokers.length ? '尚無持倉' : '請先至設定新增「證券帳戶」類型的帳戶'}</p>`
+      : '';
+
+    container.innerHTML = `
+      <div class="card" style="padding:0;overflow:hidden;margin-bottom:10px">
+        ${emptyMsg}${accountSections}
+      </div>
+      <button class="btn btn-outline btn-add-inv" data-role="${role}" style="width:100%">＋ 新增標的</button>
+    `;
+
+    container.querySelectorAll('.inv-pos-row').forEach(row => {
+      row.addEventListener('click', () => {
+        const [acct, ticker] = row.dataset.key.split('||');
+        const pos = getMergedPositions(row.dataset.role).find(p => p.account === acct && p.ticker === ticker);
+        if (pos) showDetailSheet(pos);
       });
     });
 
-    document.querySelectorAll('.inv-reduce-btn').forEach(btn => {
-      btn.addEventListener('click', () => showReduceModal(parseInt(btn.dataset.si)));
+    container.querySelector('.btn-add-inv')?.addEventListener('click', e => showAddLotModal(e.target.dataset.role));
+  }
+
+  // ── Detail bottom sheet ────────────────────────────────────────────────
+  function showDetailSheet(pos) {
+    const overlay = document.createElement('div');
+    overlay.className = 'detail-sheet-overlay';
+    const sheet = document.createElement('div');
+    sheet.className = 'detail-sheet';
+
+    const ticker   = pos.ticker.replace(/^TPE:/i, '');
+    const pnlClass = pos.unrealized >= 0 ? 'amount-in' : 'amount-out';
+    const pnlArrow = pos.unrealized >= 0 ? '▲' : '▼';
+    const pnlAmt   = Utils.formatMoney(Math.abs(Math.round(pos.unrealized)));
+
+    const lotsHtml = pos.lots.map((l, i) => `
+      <div class="detail-lot-row">
+        <span class="detail-lot-idx">第 ${i + 1} 批</span>
+        <span class="detail-lot-info">${l.shares.toLocaleString()} 股 @ $${l.avgCost.toLocaleString()}</span>
+        <span class="detail-lot-cost">${Utils.formatMoney(Math.round(l.shares * l.avgCost))}</span>
+      </div>`).join('');
+
+    sheet.innerHTML = `
+      <div class="detail-sheet-handle"></div>
+      <div class="detail-sheet-header">
+        <div>
+          <div class="detail-sheet-name">${pos.name}</div>
+          <div class="detail-sheet-sub">${ticker} · 📊 ${pos.account}</div>
+        </div>
+        <button class="detail-sheet-close" id="btn-sheet-close">✕</button>
+      </div>
+      <div class="detail-stats-grid">
+        <div class="detail-stat"><span class="label-sm">持有股數</span><span class="detail-stat-val">${pos.totalShares.toLocaleString()} 股</span></div>
+        <div class="detail-stat"><span class="label-sm">加權均價</span><span class="detail-stat-val">$${pos.weightedAvg.toFixed(2)}</span></div>
+        <div class="detail-stat"><span class="label-sm">現價</span><span class="detail-stat-val">$${pos.price.toLocaleString()}</span></div>
+        <div class="detail-stat"><span class="label-sm">總市值</span><span class="detail-stat-val">${Utils.formatMoney(pos.marketValue)}</span></div>
+        <div class="detail-stat detail-stat-full">
+          <span class="label-sm">未實現損益</span>
+          <span class="detail-stat-pnl ${pnlClass}">${pnlArrow} ${pnlAmt}<span class="detail-pct">（${Utils.formatPct(pos.returnRate)}）</span></span>
+        </div>
+      </div>
+      <div class="detail-lots-title">持倉明細（${pos.lots.length} 批）</div>
+      <div class="detail-lots-list">${lotsHtml}</div>
+      <div class="detail-actions">
+        <button class="btn btn-outline" id="btn-add-lot">＋ 加倉</button>
+        <button class="btn btn-outline" id="btn-reduce-lot">減倉</button>
+        <button class="btn btn-danger" id="btn-clear-lot">清倉</button>
+      </div>
+    `;
+
+    document.body.appendChild(overlay);
+    document.body.appendChild(sheet);
+    requestAnimationFrame(() => { overlay.classList.add('visible'); sheet.classList.add('visible'); });
+
+    function close() {
+      overlay.classList.remove('visible'); sheet.classList.remove('visible');
+      setTimeout(() => { overlay.remove(); sheet.remove(); }, 300);
+    }
+
+    overlay.addEventListener('click', close);
+    sheet.querySelector('#btn-sheet-close').addEventListener('click', close);
+
+    sheet.querySelector('#btn-add-lot').addEventListener('click', () => {
+      close();
+      showAddLotModal(pos.role, { ticker: pos.ticker, name: pos.name, account: pos.account });
+    });
+    sheet.querySelector('#btn-reduce-lot').addEventListener('click', () => { close(); showReduceModal(pos); });
+    sheet.querySelector('#btn-clear-lot').addEventListener('click', () => {
+      if (!confirm(`確定清倉「${pos.name}」所有批次？`)) return;
+      pos.lots.forEach(l => { _lots[l._si]._deleted = true; });
+      close();
+      saveLots();
     });
   }
 
-  // ── Add modal ─────────────────────────────────────────────────────────────
-  function showAddModal(defaultRole) {
+  // ── Add lot modal ──────────────────────────────────────────────────────
+  function showAddLotModal(defaultRole, prefill = {}) {
     const modal = document.createElement('div');
     modal.className = 'modal-overlay';
-
-    const roles = PERSONAL_ROLES();
-    const roleOpts = roles.map(r =>
-      `<option value="${r}"${r === defaultRole ? ' selected' : ''}>${r}</option>`
-    ).join('');
+    const roles    = PERSONAL_ROLES();
+    const roleOpts = roles.map(r => `<option value="${r}"${r === defaultRole ? ' selected' : ''}>${r}</option>`).join('');
 
     function brokerOpts(role) {
-      const brokers = Store.brokersForRole(role);
-      if (!brokers.length) return `<option value="">（請先至設定新增證券帳戶）</option>`;
-      return brokers.map(b => `<option value="${b}">${b}</option>`).join('');
+      const list = Store.brokersForRole(role);
+      if (!list.length) return `<option value="">（請先至設定新增證券帳戶）</option>`;
+      return list.map(b => `<option value="${b}"${prefill.account === b ? ' selected' : ''}>${b}</option>`).join('');
     }
 
+    const tickerSection = prefill.ticker
+      ? `<div class="form-row"><label>標的</label>
+          <div style="padding:8px 0;font-weight:600">${prefill.name}（${prefill.ticker.replace(/^TPE:/i,'')}）</div>
+          <input type="hidden" id="inp-inv-ticker" value="${prefill.ticker}">
+          <input type="hidden" id="inp-inv-name" value="${prefill.name}">
+        </div>`
+      : `<div class="form-row inv-search-wrap">
+          <label>搜尋標的</label>
+          <input type="text" id="inp-inv-search" class="form-input" placeholder="輸入代號或名稱" autocomplete="off">
+          <div id="inv-search-dropdown" class="inv-search-dropdown hidden"></div>
+        </div>
+        <div class="form-row">
+          <label>GOOGLEFINANCE 代號</label>
+          <input type="text" id="inp-inv-ticker" class="form-input" placeholder="TPE:2330 或 AAPL">
+          <p class="input-hint">台股自動加 TPE: 前綴</p>
+        </div>
+        <div class="form-row">
+          <label>標的名稱</label>
+          <input type="text" id="inp-inv-name" class="form-input" placeholder="自動填入">
+        </div>`;
+
     modal.innerHTML = `<div class="modal-card">
-      <div class="modal-title">新增持倉</div>
-      <div class="form-row">
-        <label>角色</label>
+      <div class="modal-title">${prefill.ticker ? '加倉' : '新增標的'}</div>
+      <div class="form-row"><label>角色</label>
         <select id="inp-inv-role" class="form-select">${roleOpts}</select>
       </div>
-      <div class="form-row">
-        <label>證券帳戶</label>
+      <div class="form-row"><label>證券帳戶</label>
         <select id="inp-inv-account" class="form-select">${brokerOpts(defaultRole)}</select>
       </div>
-      <div class="form-row inv-search-wrap">
-        <label>搜尋標的（代號或名稱）</label>
-        <input type="text" id="inp-inv-search" class="form-input" placeholder="例：2330、台積電、AAPL" autocomplete="off">
-        <div id="inv-search-dropdown" class="inv-search-dropdown hidden"></div>
-      </div>
-      <div class="form-row">
-        <label>GOOGLEFINANCE 代號</label>
-        <input type="text" id="inp-inv-ticker" class="form-input" placeholder="台股自動填入，美股請直接輸入如 AAPL">
-        <p class="input-hint">台股將自動加上 <code>TPE:</code> 前綴</p>
-      </div>
-      <div class="form-row">
-        <label>標的名稱</label>
-        <input type="text" id="inp-inv-name" class="form-input" placeholder="自動填入或手動輸入">
-      </div>
-      <div class="form-row">
-        <label>持有股數</label>
+      ${tickerSection}
+      <div class="form-row"><label>買入股數</label>
         <input type="number" id="inp-inv-shares" class="form-input" placeholder="0" min="0" step="1">
       </div>
-      <div class="form-row">
-        <label>持有均價</label>
+      <div class="form-row"><label>買入均價</label>
         <input type="number" id="inp-inv-avgcost" class="form-input" placeholder="0.00" min="0" step="0.01">
       </div>
       <div class="modal-actions">
-        <button class="btn btn-primary" id="btn-inv-confirm">新增持倉</button>
+        <button class="btn btn-primary" id="btn-inv-confirm">${prefill.ticker ? '確認加倉' : '新增持倉'}</button>
         <button class="btn btn-outline" id="btn-inv-cancel">取消</button>
       </div>
     </div>`;
     document.body.appendChild(modal);
-
+    modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+    Utils.el('btn-inv-cancel').addEventListener('click', () => modal.remove());
     Utils.el('inp-inv-role').addEventListener('change', () => {
       Utils.el('inp-inv-account').innerHTML = brokerOpts(Utils.el('inp-inv-role').value);
     });
 
-    let _timer;
-    Utils.el('inp-inv-search').addEventListener('input', () => {
-      clearTimeout(_timer);
-      _timer = setTimeout(() => renderSearchDropdown(Utils.el('inp-inv-search').value.trim()), 200);
-    });
-
-    function renderSearchDropdown(q) {
-      const dd = Utils.el('inv-search-dropdown');
-      const matches = searchStocks(q);
-      if (!matches.length) { dd.classList.add('hidden'); return; }
-      dd.innerHTML = matches.map(s =>
-        `<div class="inv-search-item" data-code="${s.code}" data-name="${s.name}">
-          <span class="inv-search-code">${s.code}</span>
-          <span class="inv-search-name">${s.name}</span>
-          <span class="inv-search-market">${s.market}</span>
-        </div>`
-      ).join('');
-      dd.classList.remove('hidden');
-      dd.querySelectorAll('.inv-search-item').forEach(item => {
-        item.addEventListener('mousedown', e => {
-          e.preventDefault();
-          Utils.el('inp-inv-ticker').value = 'TPE:' + item.dataset.code;
-          Utils.el('inp-inv-name').value = item.dataset.name;
-          Utils.el('inp-inv-search').value = `${item.dataset.code}　${item.dataset.name}`;
-          dd.classList.add('hidden');
-        });
+    if (!prefill.ticker) {
+      let _t;
+      Utils.el('inp-inv-search').addEventListener('input', () => {
+        clearTimeout(_t);
+        _t = setTimeout(() => {
+          const q = Utils.el('inp-inv-search').value.trim();
+          const dd = Utils.el('inv-search-dropdown');
+          const hits = searchStocks(q);
+          if (!hits.length) { dd.classList.add('hidden'); return; }
+          dd.innerHTML = hits.map(s =>
+            `<div class="inv-search-item" data-code="${s.code}" data-name="${s.name}">
+              <span class="inv-search-code">${s.code}</span>
+              <span class="inv-search-name">${s.name}</span>
+              <span class="inv-search-market">${s.market}</span>
+            </div>`).join('');
+          dd.classList.remove('hidden');
+          dd.querySelectorAll('.inv-search-item').forEach(item => {
+            item.addEventListener('mousedown', e => {
+              e.preventDefault();
+              Utils.el('inp-inv-ticker').value = 'TPE:' + item.dataset.code;
+              Utils.el('inp-inv-name').value = item.dataset.name;
+              Utils.el('inp-inv-search').value = `${item.dataset.code}　${item.dataset.name}`;
+              dd.classList.add('hidden');
+            });
+          });
+        }, 200);
+      });
+      Utils.el('inp-inv-search').addEventListener('blur', () => {
+        setTimeout(() => Utils.el('inv-search-dropdown')?.classList.add('hidden'), 150);
       });
     }
 
-    Utils.el('inp-inv-search').addEventListener('blur', () => {
-      setTimeout(() => Utils.el('inv-search-dropdown')?.classList.add('hidden'), 150);
-    });
-
-    modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
-    Utils.el('btn-inv-cancel').addEventListener('click', () => modal.remove());
     Utils.el('btn-inv-confirm').addEventListener('click', () => {
       const role    = Utils.el('inp-inv-role').value;
       const account = Utils.el('inp-inv-account').value;
@@ -339,34 +429,35 @@ Router.register('investments', (() => {
       if (!account) return Utils.toast('請先至設定新增證券帳戶', 'warn');
       if (!ticker)  return Utils.toast('請選擇標的或輸入代號', 'warn');
       if (!name)    return Utils.toast('請輸入標的名稱', 'warn');
-      if (!shares)  return Utils.toast('請輸入持有股數', 'warn');
-      _invState.push({ role, account, ticker, name, shares, avgCost,
+      if (!shares)  return Utils.toast('請輸入買入股數', 'warn');
+      _lots.push({ role, account, ticker, name, shares, avgCost,
         totalCost: 0, price: 0, marketValue: 0, unrealized: 0, returnRate: 0, _deleted: false });
       modal.remove();
-      saveInvestments();
+      saveLots();
     });
   }
 
-  // ── Reduce modal ──────────────────────────────────────────────────────────
-  function showReduceModal(si) {
-    const inv = _invState[si];
+  // ── Reduce modal (FIFO) ────────────────────────────────────────────────
+  function showReduceModal(pos) {
     const modal = document.createElement('div');
     modal.className = 'modal-overlay';
     modal.innerHTML = `<div class="modal-card">
-      <div class="modal-title">減倉 — ${inv.name}</div>
+      <div class="modal-title">減倉 — ${pos.name}</div>
       <div class="form-row">
-        <label>目前持倉</label>
-        <div style="padding:8px 0;color:var(--text-muted)">${inv.shares.toLocaleString()} 股，均價 ${Utils.formatMoney(inv.avgCost)}</div>
+        <label>持倉概況</label>
+        <div style="padding:6px 0;color:var(--text-muted);font-size:.9rem">
+          ${pos.totalShares.toLocaleString()} 股，加權均價 $${pos.weightedAvg.toFixed(2)}，共 ${pos.lots.length} 批（FIFO 順序賣出）
+        </div>
       </div>
       <div class="form-row">
         <label>賣出股數 *</label>
-        <input type="number" id="inp-reduce-shares" class="form-input" placeholder="0" min="1" max="${inv.shares}" step="1">
+        <input type="number" id="inp-reduce-shares" class="form-input" placeholder="0" min="1" max="${pos.totalShares}" step="1">
       </div>
       <div class="form-row">
-        <label>賣出價格（選填，供計算已實現損益）</label>
-        <input type="number" id="inp-reduce-price" class="form-input" placeholder="${inv.price || inv.avgCost}" min="0" step="0.01">
+        <label>賣出價格（選填，計算已實現損益）</label>
+        <input type="number" id="inp-reduce-price" class="form-input" placeholder="${pos.price || pos.weightedAvg.toFixed(2)}" min="0" step="0.01">
       </div>
-      <div id="reduce-pnl" style="display:none;padding:8px 12px;border-radius:8px;margin:8px 0;font-size:.9rem"></div>
+      <div id="reduce-pnl" style="display:none;padding:8px 12px;border-radius:8px;margin:4px 0;font-size:.9rem"></div>
       <div class="modal-actions">
         <button class="btn btn-primary" id="btn-reduce-confirm">確認減倉</button>
         <button class="btn btn-outline" id="btn-reduce-cancel">取消</button>
@@ -376,43 +467,51 @@ Router.register('investments', (() => {
     modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
     Utils.el('btn-reduce-cancel').addEventListener('click', () => modal.remove());
 
+    const sorted = [...pos.lots].sort((a, b) => a._si - b._si);
+
     function updatePnL() {
       const sellShares = parseFloat(Utils.el('inp-reduce-shares').value) || 0;
       const sellPrice  = parseFloat(Utils.el('inp-reduce-price').value) || 0;
       const pnlEl = Utils.el('reduce-pnl');
       if (sellShares > 0 && sellPrice > 0) {
-        const realized = (sellPrice - inv.avgCost) * sellShares;
+        let rem = sellShares, fifoCost = 0;
+        for (const l of sorted) {
+          if (rem <= 0) break;
+          const take = Math.min(l.shares, rem);
+          fifoCost += take * l.avgCost;
+          rem -= take;
+        }
+        const realized = sellShares * sellPrice - fifoCost;
         pnlEl.style.display = 'block';
         pnlEl.style.background = realized >= 0 ? 'var(--success-light)' : 'var(--danger-light)';
         pnlEl.style.color = realized >= 0 ? '#059669' : 'var(--danger)';
-        pnlEl.textContent = `已實現損益：${Utils.formatMoney(realized, true)}（${sellShares} 股 × $${sellPrice} − 均價 $${inv.avgCost}）`;
-      } else {
-        pnlEl.style.display = 'none';
-      }
+        pnlEl.textContent = `已實現損益：${realized >= 0 ? '+' : ''}${Utils.formatMoney(Math.round(realized))}（FIFO 成本 ${Utils.formatMoney(Math.round(fifoCost))}）`;
+      } else { pnlEl.style.display = 'none'; }
     }
-
     Utils.el('inp-reduce-shares').addEventListener('input', updatePnL);
     Utils.el('inp-reduce-price').addEventListener('input', updatePnL);
 
     Utils.el('btn-reduce-confirm').addEventListener('click', () => {
       const sellShares = parseFloat(Utils.el('inp-reduce-shares').value) || 0;
       if (!sellShares || sellShares <= 0) return Utils.toast('請輸入賣出股數', 'warn');
-      if (sellShares > inv.shares) return Utils.toast(`最多可賣出 ${inv.shares} 股`, 'warn');
-      if (sellShares === inv.shares) {
-        _invState[si]._deleted = true;
-      } else {
-        _invState[si].shares = inv.shares - sellShares;
+      if (sellShares > pos.totalShares)   return Utils.toast(`最多可賣出 ${pos.totalShares} 股`, 'warn');
+      let rem = sellShares;
+      for (const l of sorted) {
+        if (rem <= 0) break;
+        const take = Math.min(l.shares, rem);
+        if (take >= _lots[l._si].shares) _lots[l._si]._deleted = true;
+        else _lots[l._si].shares -= take;
+        rem -= take;
       }
       modal.remove();
-      saveInvestments();
+      saveLots();
     });
   }
 
-  // ── Save ──────────────────────────────────────────────────────────────────
-  async function saveInvestments() {
+  // ── Save ───────────────────────────────────────────────────────────────
+  async function saveLots() {
     const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID) || CFG.SHEET_ID;
-    const rows = _invState.filter(i => !i._deleted)
-      .map(i => [i.role, i.account, i.ticker, i.name, i.shares, i.avgCost]);
+    const rows = _lots.filter(l => !l._deleted).map(l => [l.role, l.account, l.ticker, l.name, l.shares, l.avgCost]);
     const padded = [...rows];
     while (padded.length < 50) padded.push(['', '', '', '', '', '']);
     Utils.showLoading(true);
@@ -425,9 +524,7 @@ Router.register('investments', (() => {
       Utils.toast('已儲存', 'success');
     } catch (e) {
       Utils.toast('儲存失敗：' + e.message, 'error');
-    } finally {
-      Utils.showLoading(false);
-    }
+    } finally { Utils.showLoading(false); }
   }
 
   return { render, onMount };

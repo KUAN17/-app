@@ -210,38 +210,93 @@ html, body {
 .ledger-amount { font-size: 15px; font-weight: 700; flex-shrink: 0; }
 
 /* ── Investments ─────────────────────────────────────────── */
-.invest-total { padding: 16px; }
-.invest-total-row { display: flex; justify-content: space-between; align-items: center; padding: 5px 0; }
-.invest-total-num { font-size: 20px; }
-.inv-table { overflow-x: auto; }
-.inv-header, .inv-row {
-  display: grid;
-  grid-template-columns: 52px 1fr 44px 60px 72px 72px 46px 28px;
-  gap: 3px; padding: 8px 10px; font-size: 12px; align-items: center;
+.invest-summary { padding: 16px 16px 12px; }
+.invest-summary-label { font-size: .8rem; color: var(--text-muted); margin-bottom: 4px; }
+.invest-summary-value { font-size: 1.8rem; font-weight: 700; letter-spacing: -.5px; }
+.invest-summary-pnl { font-size: 1rem; font-weight: 600; margin: 2px 0 12px; }
+.invest-summary-pct { font-size: .85rem; font-weight: 400; margin-left: 4px; }
+.invest-summary-row { display: flex; align-items: center; gap: 8px; font-size: .875rem; color: var(--text-muted); }
+
+.inv-role-tabs { display: flex; gap: 8px; margin: 8px 0 4px; }
+.inv-role-tab {
+  flex: 1; padding: 8px; border: 1.5px solid var(--border); background: var(--card);
+  border-radius: 10px; font-size: .875rem; font-weight: 600; color: var(--text-muted); cursor: pointer;
 }
-.inv-header { font-weight: 700; color: var(--text-muted); border-bottom: 1px solid var(--border); }
-.inv-row { border-bottom: 1px solid var(--border); }
-.inv-row:last-child { border-bottom: none; }
-.inv-ticker { font-weight: 700; font-size: 11px; }
-.inv-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 1.3; }
-.inv-acct { font-size: 10px; color: var(--text-muted); }
-.inv-mv { font-weight: 600; }
-.inv-row-actions { display: flex; gap: 4px; align-items: center; }
-.inv-del-btn, .inv-reduce-btn {
-  background: none; border: none; cursor: pointer; color: var(--text-muted);
-  font-size: 12px; padding: 3px 6px; border-radius: 4px; line-height: 1; white-space: nowrap;
-}
-.inv-del-btn:active { color: var(--danger); background: var(--danger-light); }
-.inv-reduce-btn { border: 1px solid var(--border); }
-.inv-reduce-btn:active { background: var(--primary-light); color: var(--primary); border-color: var(--primary); }
+.inv-role-tab.active { border-color: var(--primary); background: var(--primary-light); color: var(--primary); }
+
 .inv-broker-section { border-bottom: 1px solid var(--border); }
 .inv-broker-section:last-child { border-bottom: none; }
 .inv-broker-header {
   display: flex; justify-content: space-between; align-items: center;
-  padding: 10px 14px; background: var(--bg-card-2, #f8f9fa);
-  font-size: .85rem; font-weight: 600; color: var(--text-muted);
+  padding: 9px 14px; background: var(--bg); font-size: .8rem; font-weight: 600; color: var(--text-muted);
 }
 .inv-broker-mv { font-weight: 700; color: var(--text); }
+
+.inv-pos-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 13px 14px; border-bottom: 1px solid var(--border); cursor: pointer; gap: 8px;
+}
+.inv-pos-row:last-child { border-bottom: none; }
+.inv-pos-row:active { background: var(--bg); }
+.inv-pos-left { flex: 1; min-width: 0; }
+.inv-pos-name { font-size: .95rem; font-weight: 600; display: block; }
+.inv-pos-meta { font-size: .78rem; color: var(--text-muted); display: block; margin-top: 2px; }
+.inv-pos-right { text-align: right; flex-shrink: 0; }
+.inv-pos-value { font-size: .95rem; font-weight: 700; display: block; }
+.inv-pos-pnl { font-size: .78rem; display: block; margin-top: 2px; }
+
+/* ── Detail bottom sheet ─────────────────────────────────── */
+.detail-sheet-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 200;
+  opacity: 0; transition: opacity .25s; pointer-events: none;
+}
+.detail-sheet-overlay.visible { opacity: 1; pointer-events: auto; }
+.detail-sheet {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 201;
+  background: var(--card); border-radius: 20px 20px 0 0;
+  max-height: 85vh; overflow-y: auto;
+  transform: translateY(100%); transition: transform .3s cubic-bezier(.4,0,.2,1);
+  padding-bottom: max(env(safe-area-inset-bottom, 0px), 16px);
+}
+.detail-sheet.visible { transform: translateY(0); }
+.detail-sheet-handle {
+  width: 40px; height: 4px; background: var(--border); border-radius: 99px; margin: 10px auto 6px;
+}
+.detail-sheet-header {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  padding: 10px 16px 14px;
+}
+.detail-sheet-name { font-size: 1.1rem; font-weight: 700; }
+.detail-sheet-sub { font-size: .8rem; color: var(--text-muted); margin-top: 3px; }
+.detail-sheet-close {
+  background: var(--bg); border: none; border-radius: 50%; width: 28px; height: 28px;
+  font-size: 14px; cursor: pointer; color: var(--text-muted); flex-shrink: 0;
+}
+.detail-stats-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 0 16px 14px;
+}
+.detail-stat { background: var(--bg); border-radius: 10px; padding: 10px 12px; }
+.detail-stat-full { grid-column: 1 / -1; }
+.detail-stat-val { display: block; font-size: 1rem; font-weight: 700; margin-top: 4px; }
+.detail-stat-pnl { display: block; font-size: 1.2rem; font-weight: 700; margin-top: 4px; }
+.detail-pct { font-size: .85rem; font-weight: 400; }
+.detail-lots-title {
+  font-size: .8rem; font-weight: 700; color: var(--text-muted); letter-spacing: .04em;
+  padding: 0 16px 8px; border-bottom: 1px solid var(--border);
+}
+.detail-lots-list { padding: 4px 0; }
+.detail-lot-row {
+  display: flex; align-items: center; gap: 8px; padding: 10px 16px;
+  border-bottom: 1px solid var(--border); font-size: .875rem;
+}
+.detail-lot-row:last-child { border-bottom: none; }
+.detail-lot-idx { font-size: .75rem; color: var(--text-muted); min-width: 36px; }
+.detail-lot-info { flex: 1; }
+.detail-lot-cost { color: var(--text-muted); font-size: .82rem; }
+.detail-actions {
+  display: flex; gap: 10px; padding: 14px 16px 0;
+}
+.detail-actions .btn { flex: 1; }
 
 /* ── Investment search dropdown ──────────────────────────── */
 .inv-search-wrap { position: relative; }
