@@ -74,8 +74,11 @@ Router.register('entry', (() => {
     // Memo input
     document.getElementById('inp-memo')?.addEventListener('input', e => { _s.memo = e.target.value; });
 
-    // Project select
+    // Project select (支出+專案)
     document.getElementById('sel-project')?.addEventListener('change', e => { _s.projectTag = e.target.value; });
+
+    // Project select (公積金提撥+專案預備金)
+    document.getElementById('sel-project-reserve')?.addEventListener('change', e => { _s.projectTag = e.target.value; });
 
     // Project category free-text
     const projCatEl = document.getElementById('inp-proj-cat');
@@ -134,6 +137,8 @@ Router.register('entry', (() => {
         _s.category = val;
         _el.querySelectorAll('.entry-cat-chip').forEach(c =>
           c.classList.toggle('selected', c.dataset.val === val));
+        // 公積金提撥切換分類時需重繪以顯示/隱藏專案選單
+        if (_s.type === '公積金提撥') { _s.projectTag = ''; renderAll(); }
         break;
       case 'toggle-dim':
       case 'set-dim':
@@ -198,11 +203,13 @@ Router.register('entry', (() => {
     const isTransfer = _s.type === '轉帳' || _s.type === '公積金提撥';
     const amount = parseFloat(document.getElementById('inp-amount')?.value || '');
 
+    const needsProjTag = (_s.type === '支出' && _s.dimension === '專案') ||
+                         (_s.type === '公積金提撥' && _s.category === '專案預備金');
+
     if (!_s.category)           return Utils.toast('請選擇分類', 'warn');
     if (!_s.accountOut)         return Utils.toast('請選擇付款帳戶', 'warn');
     if (!amount || amount <= 0) return Utils.toast('請輸入有效金額', 'warn');
-    if (_s.type === '支出' && _s.dimension === '專案' && !_s.projectTag)
-      return Utils.toast('請選擇專案', 'warn');
+    if (needsProjTag && !_s.projectTag) return Utils.toast('請選擇專案', 'warn');
     if (isTransfer && !_s.accountIn) return Utils.toast('請選擇對象帳戶', 'warn');
 
     // Always read from state — DOM input may not exist if memo bar is hidden
@@ -210,7 +217,7 @@ Router.register('entry', (() => {
     const row = [
       Utils.uid(), _s.roleOut,
       _s.type === '支出' ? _s.dimension : '',
-      _s.type === '支出' && _s.dimension === '專案' ? _s.projectTag : '',
+      needsProjTag ? _s.projectTag : '',
       _s.type, _s.category, memo,
       _s.date.replace(/-/g, '/'), amount, _s.accountOut,
       isTransfer ? _s.roleIn : '', isTransfer ? _s.accountIn : ''
@@ -305,6 +312,17 @@ Router.register('entry', (() => {
         </select>
       </div>` : '';
 
+    // 公積金提撥 + 專案預備金 → 顯示專案選單
+    const reserveProjectRow = (_s.type === '公積金提撥' && _s.category === '專案預備金') ? `
+      <div class="entry-project-row">
+        <select id="sel-project-reserve" class="form-select" style="font-size:13px;padding:8px 12px">
+          <option value="">選擇要提撥的專案</option>
+          ${Store.get().activeProjects.map(p =>
+            `<option value="${p}"${_s.projectTag===p?' selected':''}>${p}</option>`
+          ).join('')}
+        </select>
+      </div>` : '';
+
     // Category area: chip grid for 日常, free-text with suggestions for 專案
     let catContent;
     if (isExpense && _s.dimension === '專案') {
@@ -347,6 +365,7 @@ Router.register('entry', (() => {
         ${dimTabs}
         ${projectRow}
         ${catContent}
+        ${reserveProjectRow}
       </div>
 
       <div class="entry-submit-area">

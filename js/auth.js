@@ -83,7 +83,7 @@ window.Auth = (() => {
 
   async function getToken() {
     if (isValid()) return _token;
-    try { return await silentToken(); } catch { return interactiveToken(); }
+    return interactiveToken();
   }
 
   function signOut() {
