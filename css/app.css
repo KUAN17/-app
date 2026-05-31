@@ -343,6 +343,22 @@ html, body {
   background: var(--bg);
 }
 
+/* Loan summary card */
+.loan-summary-card {
+  background: linear-gradient(135deg, #1e3a8a 0%, #1e40af 100%);
+  color: #fff; padding: 16px; margin-bottom: 4px;
+}
+.loan-summary-card .loan-summary-title {
+  font-size: 15px; font-weight: 700; margin-bottom: 2px;
+}
+.loan-summary-card .proj-stats { margin: 0; }
+.loan-summary-card .proj-stat-row { color: rgba(255,255,255,.9); }
+.loan-summary-card .label-sm { color: rgba(255,255,255,.65); }
+.loan-summary-card .amount-out { color: #fca5a5; }
+.loan-summary-card .proj-loan-section { border-top-color: rgba(255,255,255,.2); }
+.loan-summary-card .progress-wrap { background: rgba(255,255,255,.2); }
+.loan-summary-card .progress-bar { background: #fff; }
+
 /* Project type toggle (new project modal) */
 .proj-type-toggle { display: flex; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); }
 .proj-type-btn {

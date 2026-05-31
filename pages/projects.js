@@ -20,6 +20,60 @@ Router.register('projects', (() => {
     return { paymentsMade, remainingPeriods, payoffStr, totalInterest };
   }
 
+  function loanSummaryCard(loans) {
+    const totalBudget   = loans.reduce((s, p) => s + p.budget, 0);
+    const totalSpent    = loans.reduce((s, p) => s + p.spent, 0);
+    const totalRemain   = loans.reduce((s, p) => s + p.remaining, 0);
+    const totalMonthly  = loans.reduce((s, p) => s + p.monthlyPayment, 0);
+    const pct = totalBudget > 0 ? Math.min((totalSpent / totalBudget) * 100, 100) : 0;
+
+    // Latest payoff date across all loans
+    let latestPayoff = '';
+    loans.forEach(p => {
+      if (!p.loanStartDate || !p.totalPeriods) return;
+      const parts = p.loanStartDate.replace(/\//g, '-').split('-');
+      const d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, 1);
+      d.setMonth(d.getMonth() + p.totalPeriods);
+      const str = `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}`;
+      if (!latestPayoff || str > latestPayoff) latestPayoff = str;
+    });
+
+    return `<div class="card loan-summary-card">
+      <div class="loan-summary-title">🏠 房貸總覽（${loans.length} 條）</div>
+      <div class="progress-wrap" style="margin:10px 0 14px">
+        <div class="progress-bar" style="width:${pct}%"></div>
+      </div>
+      <div class="proj-stats">
+        <div class="proj-stat-row">
+          <span class="label-sm">總貸款金額</span>
+          <span>${Utils.formatMoney(totalBudget)}</span>
+        </div>
+        <div class="proj-stat-row">
+          <span class="label-sm">已還合計</span>
+          <span>${Utils.formatMoney(totalSpent)}</span>
+        </div>
+        <div class="proj-stat-row">
+          <span class="label-sm">剩餘合計</span>
+          <span class="amount-out">${Utils.formatMoney(totalRemain)}</span>
+        </div>
+      </div>
+      <div class="proj-loan-section">
+        <div class="proj-stat-row">
+          <span class="label-sm">本月應繳合計</span>
+          <span><strong>${Utils.formatMoney(totalMonthly)}</strong> / 月</span>
+        </div>
+        <div class="proj-stat-row">
+          <span class="label-sm">整體還款進度</span>
+          <span>${pct.toFixed(1)}%</span>
+        </div>
+        ${latestPayoff ? `<div class="proj-stat-row">
+          <span class="label-sm">最晚還清日</span>
+          <span>${latestPayoff}</span>
+        </div>` : ''}
+      </div>
+    </div>`;
+  }
+
   function projCard(p, active, sheetRow) {
     const isLoan = p.monthlyPayment > 0;
     const ls = isLoan ? loanStats(p) : null;
@@ -95,8 +149,10 @@ Router.register('projects', (() => {
 
     const active = projects.filter(p => p.status === '進行中');
     const closed = projects.filter(p => p.status === '已結案');
+    const activeLoans = active.filter(p => p.monthlyPayment > 0);
 
     el.innerHTML = `<div class="page-inner">
+      ${activeLoans.length >= 2 ? loanSummaryCard(activeLoans) : ''}
       <div class="section-header">
         <span class="section-label">進行中</span>
         <button class="btn btn-primary btn-sm" id="btn-new-proj">＋ 新增</button>
