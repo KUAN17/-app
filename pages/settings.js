@@ -100,13 +100,19 @@ Router.register('settings', (() => {
     const visible = _acctState[role].map((a, i) => ({ ...a, _i: i })).filter(a => !a._deleted);
     if (!visible.length) return `<p class="empty-hint" style="padding:10px 0">尚無帳戶</p>`;
 
-    return visible.map(a => `
+    return visible.map(a => {
+      const typeClass = a.type === '現金' ? 'cash' : a.type === '信用卡' ? 'cc' : 'bank';
+      return `
       <div class="acct-item">
         <div class="acct-item-top">
           <span class="acct-item-name">${a.name}</span>
-          ${a.type ? `<span class="acct-type-badge type-${a.type==='現金'?'cash':a.type==='信用卡'?'cc':'bank'}">${a.type}</span>` : ''}
           ${a.purpose ? `<span class="acct-item-purpose">${a.purpose}</span>` : ''}
           <button class="btn btn-danger btn-sm acct-del-btn" data-role="${role}" data-i="${a._i}" style="margin-left:auto">✕</button>
+        </div>
+        <div class="acct-type-toggle acct-inline-type" style="margin:4px 0 6px">
+          <button type="button" class="proj-type-btn acct-type-pick${a.type==='現金'?' active':''}" data-role="${role}" data-i="${a._i}" data-t="現金">💵 現金</button>
+          <button type="button" class="proj-type-btn acct-type-pick${(!a.type||a.type==='活存帳戶')?' active':''}" data-role="${role}" data-i="${a._i}" data-t="活存帳戶">🏦 活存帳戶</button>
+          <button type="button" class="proj-type-btn acct-type-pick${a.type==='信用卡'?' active':''}" data-role="${role}" data-i="${a._i}" data-t="信用卡">💳 信用卡</button>
         </div>
         <div class="acct-item-inputs">
           <input type="number" class="form-input inp-acct-balance" data-role="${role}" data-i="${a._i}"
@@ -114,17 +120,27 @@ Router.register('settings', (() => {
           <input type="date" class="form-input inp-acct-date" data-role="${role}" data-i="${a._i}"
                  value="${a.baseDate ? a.baseDate.replace(/\//g, '-') : ''}">
         </div>
-      </div>`).join('');
+      </div>`;
+    }).join('');
   }
 
   function attachListListeners() {
     document.querySelectorAll('.acct-del-btn').forEach(btn => {
-      // Use clone-replace to ensure only one listener per button
       const fresh = btn.cloneNode(true);
       btn.replaceWith(fresh);
       fresh.addEventListener('click', () => {
         const { role, i } = fresh.dataset;
         _acctState[role][parseInt(i)]._deleted = true;
+        Utils.el(`acct-list-${role}`).innerHTML = renderRoleList(role);
+        attachListListeners();
+      });
+    });
+    document.querySelectorAll('.acct-type-pick').forEach(btn => {
+      const fresh = btn.cloneNode(true);
+      btn.replaceWith(fresh);
+      fresh.addEventListener('click', () => {
+        const { role, i, t } = fresh.dataset;
+        _acctState[role][parseInt(i)].type = t;
         Utils.el(`acct-list-${role}`).innerHTML = renderRoleList(role);
         attachListListeners();
       });

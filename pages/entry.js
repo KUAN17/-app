@@ -196,9 +196,10 @@ Router.register('entry', (() => {
       }).join('');
     }
 
-    const tabsHtml = usedTypes.length > 1
+    const TYPE_ICONS = { '現金': '💵', '活存帳戶': '🏦', '信用卡': '💳' };
+    const tabsHtml = usedTypes.length > 0
       ? `<div class="acct-type-tabs">${usedTypes.map(t =>
-          `<button class="acct-type-tab${t===activeType?' active':''}" data-type="${t}">${t}</button>`
+          `<button class="acct-type-tab${t===activeType?' active':''}" data-type="${t}">${TYPE_ICONS[t]||''} ${t}</button>`
         ).join('')}</div>`
       : '';
 
@@ -305,13 +306,19 @@ Router.register('entry', (() => {
 
     const acctOutName = _s.accountOut || '選擇帳戶';
     const acctInName  = _s.accountIn  || '選擇帳戶';
+    const _acctIconMap = { '現金': '💵', '活存帳戶': '🏦', '信用卡': '💳' };
+    function acctIcon(name) {
+      const all = Store.allAccountsFlat();
+      const a = all.find(x => x.name === name);
+      return _acctIconMap[a?.type || '活存帳戶'] || '🏦';
+    }
 
     const acctChips = isTransfer ? `
-      <button type="button" class="entry-chip entry-chip-acct" data-action="pick-acct-out">💳 ${acctOutName} ▾</button>
+      <button type="button" class="entry-chip entry-chip-acct" data-action="pick-acct-out">${acctIcon(_s.accountOut)} ${acctOutName} ▾</button>
       <span class="chip-arrow">→</span>
-      <button type="button" class="entry-chip entry-chip-acct-in" data-action="pick-acct-in">🏦 ${acctInName} ▾</button>
+      <button type="button" class="entry-chip entry-chip-acct-in" data-action="pick-acct-in">${acctIcon(_s.accountIn)} ${acctInName} ▾</button>
     ` : `
-      <button type="button" class="entry-chip entry-chip-acct" data-action="pick-acct-out">💳 ${acctOutName} ▾</button>
+      <button type="button" class="entry-chip entry-chip-acct" data-action="pick-acct-out">${acctIcon(_s.accountOut)} ${acctOutName} ▾</button>
     `;
 
     const memoChip = `<button type="button" class="entry-chip entry-chip-memo${_s.showMemo?' entry-chip-active':''}" data-action="toggle-memo">✏️ 備忘</button>`;
