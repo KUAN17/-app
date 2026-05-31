@@ -226,11 +226,22 @@ html, body {
 .inv-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 1.3; }
 .inv-acct { font-size: 10px; color: var(--text-muted); }
 .inv-mv { font-weight: 600; }
-.inv-del-btn {
+.inv-row-actions { display: flex; gap: 4px; align-items: center; }
+.inv-del-btn, .inv-reduce-btn {
   background: none; border: none; cursor: pointer; color: var(--text-muted);
-  font-size: 13px; padding: 4px; border-radius: 4px; line-height: 1;
+  font-size: 12px; padding: 3px 6px; border-radius: 4px; line-height: 1; white-space: nowrap;
 }
 .inv-del-btn:active { color: var(--danger); background: var(--danger-light); }
+.inv-reduce-btn { border: 1px solid var(--border); }
+.inv-reduce-btn:active { background: var(--primary-light); color: var(--primary); border-color: var(--primary); }
+.inv-broker-section { border-bottom: 1px solid var(--border); }
+.inv-broker-section:last-child { border-bottom: none; }
+.inv-broker-header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 10px 14px; background: var(--bg-card-2, #f8f9fa);
+  font-size: .85rem; font-weight: 600; color: var(--text-muted);
+}
+.inv-broker-mv { font-weight: 700; color: var(--text); }
 
 /* ── Investment search dropdown ──────────────────────────── */
 .inv-search-wrap { position: relative; }
@@ -547,6 +558,7 @@ html, body {
 .acct-type-badge {
   font-size: 11px; padding: 2px 7px; border-radius: 10px; font-weight: 600; margin-left: 6px;
 }
-.type-cash { background: #FEF3C7; color: #92400E; }
-.type-bank { background: var(--primary-light); color: var(--primary); }
-.type-cc   { background: #FCE7F3; color: #9D174D; }
+.type-cash   { background: #FEF3C7; color: #92400E; }
+.type-bank   { background: var(--primary-light); color: var(--primary); }
+.type-cc     { background: #FCE7F3; color: #9D174D; }
+.type-broker { background: #ECFDF5; color: #065F46; }

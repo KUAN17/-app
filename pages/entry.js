@@ -174,7 +174,7 @@ Router.register('entry', (() => {
       ? allAccts.filter(a => a.role === _s.roleOut)
       : (_s.type === '公積金提撥' ? allAccts.filter(a => a.role === '家用') : allAccts);
 
-    const TYPE_ORDER = ['現金', '銀行', '信用卡'];
+    const TYPE_ORDER = ['現金', '銀行', '信用卡', '證券帳戶'];
     const usedTypes = TYPE_ORDER.filter(t => pool.some(a => (a.type || '銀行') === t));
 
     // Default to tab of currently selected account
@@ -196,7 +196,7 @@ Router.register('entry', (() => {
       }).join('');
     }
 
-    const TYPE_ICONS = { '現金': '💵', '銀行': '🏦', '信用卡': '💳' };
+    const TYPE_ICONS = { '現金': '💵', '銀行': '🏦', '信用卡': '💳', '證券帳戶': '📊' };
     const tabsHtml = usedTypes.length > 0
       ? `<div class="acct-type-tabs">${usedTypes.map(t =>
           `<button class="acct-type-tab${t===activeType?' active':''}" data-type="${t}">${TYPE_ICONS[t]||''} ${t}</button>`
@@ -306,7 +306,7 @@ Router.register('entry', (() => {
 
     const acctOutName = _s.accountOut || '選擇帳戶';
     const acctInName  = _s.accountIn  || '選擇帳戶';
-    const _acctIconMap = { '現金': '💵', '銀行': '🏦', '信用卡': '💳' };
+    const _acctIconMap = { '現金': '💵', '銀行': '🏦', '信用卡': '💳', '證券帳戶': '📊' };
     function acctIcon(name) {
       const all = Store.allAccountsFlat();
       const a = all.find(x => x.name === name);

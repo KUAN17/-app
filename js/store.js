@@ -161,6 +161,10 @@ window.Store = (() => {
     return (_data.accounts[role] || []).map(a => a.name);
   }
 
+  function brokersForRole(role) {
+    return (_data.accounts[role] || []).filter(a => a.type === '證券帳戶').map(a => a.name);
+  }
+
   function allAccountsFlat() {
     const result = [];
     CFG.ROLES.forEach(role => {
@@ -179,5 +183,5 @@ window.Store = (() => {
   function get() { return _data; }
   function isDirty() { return _dirty; }
 
-  return { load, invalidate, calcBalance, accountsForRole, allAccountsFlat, getSheetId, get, isDirty };
+  return { load, invalidate, calcBalance, accountsForRole, brokersForRole, allAccountsFlat, getSheetId, get, isDirty };
 })();

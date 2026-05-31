@@ -101,7 +101,7 @@ Router.register('settings', (() => {
     if (!visible.length) return `<p class="empty-hint" style="padding:10px 0">尚無帳戶</p>`;
 
     return visible.map(a => {
-      const typeClass = a.type === '現金' ? 'cash' : a.type === '信用卡' ? 'cc' : 'bank';
+      const typeClass = a.type === '現金' ? 'cash' : a.type === '信用卡' ? 'cc' : a.type === '證券帳戶' ? 'broker' : 'bank';
       const typeLabel = a.type || '銀行';
       return `
       <div class="acct-item">
@@ -158,6 +158,7 @@ Router.register('settings', (() => {
         <button type="button" class="proj-type-btn${t==='現金'?' active':''}" id="atype-cash">💵 現金</button>
         <button type="button" class="proj-type-btn${(t==='銀行'||!acct.type)?' active':''}" id="atype-bank">🏦 銀行</button>
         <button type="button" class="proj-type-btn${t==='信用卡'?' active':''}" id="atype-cc">💳 信用卡</button>
+        <button type="button" class="proj-type-btn${t==='證券帳戶'?' active':''}" id="atype-broker">📊 證券帳戶</button>
       </div>
     </div>
     <div class="form-row">
@@ -198,11 +199,12 @@ Router.register('settings', (() => {
     function getType() {
       if (Utils.el('atype-cash').classList.contains('active')) return '現金';
       if (Utils.el('atype-cc').classList.contains('active')) return '信用卡';
+      if (Utils.el('atype-broker').classList.contains('active')) return '證券帳戶';
       return '銀行';
     }
-    ['cash','bank','cc'].forEach(key => {
+    ['cash','bank','cc','broker'].forEach(key => {
       Utils.el(`atype-${key}`).addEventListener('click', () => {
-        ['cash','bank','cc'].forEach(x => Utils.el(`atype-${x}`).classList.remove('active'));
+        ['cash','bank','cc','broker'].forEach(x => Utils.el(`atype-${x}`).classList.remove('active'));
         Utils.el(`atype-${key}`).classList.add('active');
         Utils.el('cc-acct-fields').style.display = key === 'cc' ? 'block' : 'none';
       });
@@ -296,6 +298,7 @@ Router.register('settings', (() => {
     function guessType(name) {
       if (/信用卡/.test(name)) return '信用卡';
       if (/現金|錢包/.test(name)) return '現金';
+      if (/證券|股票|投資|券商/.test(name)) return '證券帳戶';
       return '銀行';
     }
     CFG.INITIAL_ACCOUNTS.forEach(a => {
