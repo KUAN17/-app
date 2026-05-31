@@ -51,6 +51,19 @@ Router.register('investments', (() => {
     {code:'5880',name:'合庫金',market:'上市'},{code:'6415',name:'矽力-KY',market:'上市'},
     {code:'6505',name:'台塑化',market:'上市'},{code:'6669',name:'緯穎',market:'上市'},
     {code:'6770',name:'力積電',market:'上市'},{code:'8046',name:'南電',market:'上市'},
+    // 債券 ETF（TWSE PE API 不包含，需手動維護）
+    {code:'00679B',name:'元大美國政府20年以上債券',market:'上市'},
+    {code:'00687B',name:'元大AAA至A公司債',market:'上市'},
+    {code:'00695B',name:'富邦美國投資等級債',market:'上市'},
+    {code:'00720B',name:'元大投資級公司債',market:'上市'},
+    {code:'00740B',name:'國泰20年美國公債',market:'上市'},
+    {code:'00772B',name:'中信高評級公司債',market:'上市'},
+    {code:'00779B',name:'凱基美國投資級債20+',market:'上市'},
+    {code:'00840B',name:'元大30年美國公債',market:'上市'},
+    {code:'00844B',name:'中信20年美國公債',market:'上市'},
+    {code:'00856B',name:'國泰AAA至A級美元公司債',market:'上市'},
+    {code:'00933B',name:'中信優先順位金融債',market:'上市'},
+    {code:'00934B',name:'中信科技優先債',market:'上市'},
     // 上櫃
     {code:'3533',name:'嘉澤',market:'上櫃'},{code:'3661',name:'世芯-KY',market:'上櫃'},
     {code:'4966',name:'譜瑞-KY',market:'上櫃'},{code:'6274',name:'台燿',market:'上櫃'},
@@ -105,7 +118,7 @@ Router.register('investments', (() => {
   }
 
   async function onMount() {
-    await Store.load();
+    await Store.load(true); // always force-refresh to pick up manual Sheet edits
     buildState();
     if (!_activeRole || !PERSONAL_ROLES().includes(_activeRole)) _activeRole = PERSONAL_ROLES()[0];
     renderPage();
