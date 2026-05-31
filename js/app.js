@@ -27,6 +27,12 @@ async function boot() {
   // Auto-login if user has logged in before
   const hasLoggedInBefore = localStorage.getItem(CFG.LS_KEYS.AUTOLOGIN);
   if (hasLoggedInBefore) {
+    // Cached token still valid → enter app immediately, no GIS call needed
+    if (Auth.isValid()) {
+      launchApp();
+      return;
+    }
+    // Token expired → try silent refresh using browser's Google session
     Utils.showLoading(true);
     try {
       await Auth.silentToken();
