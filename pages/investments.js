@@ -53,7 +53,7 @@ Router.register('investments', (() => {
     {code:'6770',name:'力積電',market:'上市'},{code:'8046',name:'南電',market:'上市'},
     // 債券 ETF（TWSE PE API 不包含，需手動維護）
     {code:'00679B',name:'元大美國政府20年以上債券',market:'上市'},
-    {code:'00687B',name:'元大AAA至A公司債',market:'上市'},
+    {code:'00687B',name:'國泰20年美債',market:'上市'},
     {code:'00695B',name:'富邦美國投資等級債',market:'上市'},
     {code:'00720B',name:'元大投資級公司債',market:'上市'},
     {code:'00740B',name:'國泰20年美國公債',market:'上市'},
@@ -62,7 +62,7 @@ Router.register('investments', (() => {
     {code:'00840B',name:'元大30年美國公債',market:'上市'},
     {code:'00844B',name:'中信20年美國公債',market:'上市'},
     {code:'00856B',name:'國泰AAA至A級美元公司債',market:'上市'},
-    {code:'00933B',name:'中信優先順位金融債',market:'上市'},
+    {code:'00933B',name:'國泰10Y+金融債',market:'上市'},
     {code:'00934B',name:'中信科技優先債',market:'上市'},
     // 上櫃
     {code:'3533',name:'嘉澤',market:'上櫃'},{code:'3661',name:'世芯-KY',market:'上櫃'},
