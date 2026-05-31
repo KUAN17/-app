@@ -69,10 +69,13 @@ window.Store = (() => {
       const role = row[0];
       if (!map[role]) map[role] = [];
       map[role].push({
-        name:     row[1],
-        balance:  Utils.parseAmount(row[2]),
-        baseDate: row[3] || '',
-        purpose:  row[4] || ''
+        name:        row[1],
+        balance:     Utils.parseAmount(row[2]),
+        baseDate:    row[3] || '',
+        purpose:     row[4] || '',
+        type:        row[5] || '',
+        billingDate: parseInt(row[6]) || 0,
+        dueDate:     parseInt(row[7]) || 0
       });
     });
     return map;
@@ -96,7 +99,7 @@ window.Store = (() => {
         'Ledger!A2:L',
         'Projects!A2:L',
         'Investments!A2:K',
-        'Backend!L2:P'
+        'Backend!L2:S'
       ];
       const [ledgerRows, projRows, invRows, acctRows] = await API.batchGet(sid, ranges);
 
@@ -158,6 +161,16 @@ window.Store = (() => {
     return (_data.accounts[role] || []).map(a => a.name);
   }
 
+  function allAccountsFlat() {
+    const result = [];
+    CFG.ROLES.forEach(role => {
+      (_data.accounts[role] || []).forEach(acct => {
+        result.push({ role, ...acct });
+      });
+    });
+    return result;
+  }
+
   function getSheetId(sheetName) {
     const s = _sheetMeta.find(m => m.name === sheetName);
     return s ? s.id : null;
@@ -166,5 +179,5 @@ window.Store = (() => {
   function get() { return _data; }
   function isDirty() { return _dirty; }
 
-  return { load, invalidate, calcBalance, accountsForRole, getSheetId, get, isDirty };
+  return { load, invalidate, calcBalance, accountsForRole, allAccountsFlat, getSheetId, get, isDirty };
 })();

@@ -168,33 +168,69 @@ Router.register('entry', (() => {
   function showAccountPicker(side) {
     const modal = document.createElement('div');
     modal.className = 'modal-overlay';
-    const roles = (side === 'in' && _s.type !== '公積金提撥') ? CFG.ROLES : (side === 'in' ? ['家用'] : [_s.roleOut]);
 
-    const items = roles.flatMap(role =>
-      Store.accountsForRole(role).map(a => {
-        const cur = side === 'out' ? _s.accountOut === a : (_s.accountIn === a && _s.roleIn === role);
-        return `<div class="acct-pick-item${cur?' active':''}" data-role="${role}" data-acct="${a}">
-          <span class="balance-role-badge">${role}</span>
-          <span>${a}</span>
+    const allAccts = Store.allAccountsFlat();
+    const pool = side === 'out'
+      ? allAccts.filter(a => a.role === _s.roleOut)
+      : (_s.type === '公積金提撥' ? allAccts.filter(a => a.role === '家用') : allAccts);
+
+    const TYPE_ORDER = ['現金', '活存帳戶', '信用卡'];
+    const usedTypes = TYPE_ORDER.filter(t => pool.some(a => (a.type || '活存帳戶') === t));
+
+    // Default to tab of currently selected account
+    const curName = side === 'out' ? _s.accountOut : _s.accountIn;
+    const curObj  = pool.find(a => a.name === curName);
+    let activeType = (curObj?.type || '活存帳戶');
+    if (!usedTypes.includes(activeType)) activeType = usedTypes[0] || '活存帳戶';
+
+    function itemsHtml(type) {
+      const items = pool.filter(a => (a.type || '活存帳戶') === type);
+      if (!items.length) return '<p class="empty-hint">此類型無帳戶</p>';
+      return items.map(a => {
+        const cur = side === 'out' ? _s.accountOut === a.name : (_s.accountIn === a.name && _s.roleIn === a.role);
+        return `<div class="acct-pick-item${cur?' active':''}" data-role="${a.role}" data-acct="${a.name.replace(/"/g,'&quot;')}">
+          <span class="balance-role-badge">${a.role}</span>
+          <span>${a.name}</span>
           ${cur ? '<span class="acct-pick-check">✓</span>' : ''}
         </div>`;
-      })
-    ).join('');
+      }).join('');
+    }
+
+    const tabsHtml = usedTypes.length > 1
+      ? `<div class="acct-type-tabs">${usedTypes.map(t =>
+          `<button class="acct-type-tab${t===activeType?' active':''}" data-type="${t}">${t}</button>`
+        ).join('')}</div>`
+      : '';
 
     modal.innerHTML = `<div class="modal-card">
       <div class="modal-title">${side === 'out' ? '付款帳戶' : '對象帳戶'}</div>
-      ${items || '<p class="empty-hint">無帳戶，請先至設定新增</p>'}
+      ${tabsHtml}
+      <div id="acct-pick-list">${itemsHtml(activeType)}</div>
+      ${pool.length === 0 ? '<p class="empty-hint">無帳戶，請先至設定新增</p>' : ''}
     </div>`;
     document.body.appendChild(modal);
 
-    modal.querySelectorAll('.acct-pick-item').forEach(item => {
-      item.addEventListener('click', () => {
-        if (side === 'out') { _s.accountOut = item.dataset.acct; }
-        else { _s.roleIn = item.dataset.role; _s.accountIn = item.dataset.acct; }
-        modal.remove();
-        renderAll();
+    function attachItems() {
+      modal.querySelectorAll('.acct-pick-item').forEach(item => {
+        item.addEventListener('click', () => {
+          if (side === 'out') { _s.accountOut = item.dataset.acct; }
+          else { _s.roleIn = item.dataset.role; _s.accountIn = item.dataset.acct; }
+          modal.remove();
+          renderAll();
+        });
+      });
+    }
+    attachItems();
+
+    modal.querySelectorAll('.acct-type-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        modal.querySelectorAll('.acct-type-tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        modal.querySelector('#acct-pick-list').innerHTML = itemsHtml(tab.dataset.type);
+        attachItems();
       });
     });
+
     modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
   }
 

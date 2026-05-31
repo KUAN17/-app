@@ -51,7 +51,13 @@ Router.register('settings', (() => {
 
       _acctState = {};
       CFG.ROLES.forEach(r => {
-        _acctState[r] = (raw[r] || []).map(a => ({ ...a, _deleted: false, _new: false }));
+        _acctState[r] = (raw[r] || []).map(a => ({
+          ...a,
+          type:        a.type || '',
+          billingDate: a.billingDate || 0,
+          dueDate:     a.dueDate || 0,
+          _deleted: false, _new: false
+        }));
       });
 
       if (isEmpty) {
@@ -98,6 +104,7 @@ Router.register('settings', (() => {
       <div class="acct-item">
         <div class="acct-item-top">
           <span class="acct-item-name">${a.name}</span>
+          ${a.type ? `<span class="acct-type-badge type-${a.type==='現金'?'cash':a.type==='信用卡'?'cc':'bank'}">${a.type}</span>` : ''}
           ${a.purpose ? `<span class="acct-item-purpose">${a.purpose}</span>` : ''}
           <button class="btn btn-danger btn-sm acct-del-btn" data-role="${role}" data-i="${a._i}" style="margin-left:auto">✕</button>
         </div>
@@ -129,39 +136,78 @@ Router.register('settings', (() => {
     const modal = document.createElement('div');
     modal.className = 'modal-overlay';
     modal.innerHTML = `<div class="modal-card">
-      <div class="modal-title">新增帳戶（${role}）</div>
+    <div class="modal-title">新增帳戶（${role}）</div>
+    <div class="form-row">
+      <label>帳戶類型 *</label>
+      <div class="acct-type-toggle">
+        <button type="button" class="proj-type-btn" id="atype-cash">現金</button>
+        <button type="button" class="proj-type-btn active" id="atype-bank">活存帳戶</button>
+        <button type="button" class="proj-type-btn" id="atype-cc">信用卡</button>
+      </div>
+    </div>
+    <div class="form-row">
+      <label>帳戶名稱 *</label>
+      <input type="text" id="inp-new-name" class="form-input" placeholder="例：永豐數位帳戶">
+    </div>
+    <div class="form-row">
+      <label>主要用途</label>
+      <input type="text" id="inp-new-purpose" class="form-input" placeholder="選填，例：日常消費">
+    </div>
+    <div class="form-row">
+      <label>期初餘額</label>
+      <input type="number" id="inp-new-balance" class="form-input" placeholder="0" value="0">
+    </div>
+    <div class="form-row">
+      <label>基準日期</label>
+      <input type="date" id="inp-new-date" class="form-input" value="${today}">
+    </div>
+    <div id="cc-acct-fields" style="display:none">
       <div class="form-row">
-        <label>帳戶名稱 *</label>
-        <input type="text" id="inp-new-name" class="form-input" placeholder="例：永豐數位帳戶">
+        <label>帳單結帳日（每月幾號）</label>
+        <input type="number" id="inp-new-billing" class="form-input" placeholder="例：15" min="1" max="31">
       </div>
       <div class="form-row">
-        <label>主要用途</label>
-        <input type="text" id="inp-new-purpose" class="form-input" placeholder="選填，例：日常消費">
+        <label>繳費截止日（每月幾號）</label>
+        <input type="number" id="inp-new-dueday" class="form-input" placeholder="例：25" min="1" max="31">
       </div>
-      <div class="form-row">
-        <label>期初餘額</label>
-        <input type="number" id="inp-new-balance" class="form-input" placeholder="0" value="0">
-      </div>
-      <div class="form-row">
-        <label>基準日期</label>
-        <input type="date" id="inp-new-date" class="form-input" value="${today}">
-      </div>
-      <div class="modal-actions">
-        <button class="btn btn-primary btn-sm" id="btn-confirm-add">新增</button>
-        <button class="btn btn-outline btn-sm" id="btn-cancel-add">取消</button>
-      </div>
-    </div>`;
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-primary btn-sm" id="btn-confirm-add">新增</button>
+      <button class="btn btn-outline btn-sm" id="btn-cancel-add">取消</button>
+    </div>
+  </div>`;
     document.body.appendChild(modal);
     modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
     Utils.el('btn-cancel-add').addEventListener('click', () => modal.remove());
+
+    function getType() {
+      if (Utils.el('atype-cash').classList.contains('active')) return '現金';
+      if (Utils.el('atype-cc').classList.contains('active')) return '信用卡';
+      return '活存帳戶';
+    }
+
+    ['cash','bank','cc'].forEach(t => {
+      Utils.el(`atype-${t}`).addEventListener('click', () => {
+        ['cash','bank','cc'].forEach(x => Utils.el(`atype-${x}`).classList.remove('active'));
+        Utils.el(`atype-${t}`).classList.add('active');
+        Utils.el('cc-acct-fields').style.display = t === 'cc' ? 'block' : 'none';
+      });
+    });
+
     Utils.el('btn-confirm-add').addEventListener('click', () => {
       const name = Utils.el('inp-new-name').value.trim();
       if (!name) return Utils.toast('請輸入帳戶名稱', 'warn');
+      const type = getType();
+      const billingDate = type === '信用卡' ? parseInt(Utils.el('inp-new-billing').value) || 0 : 0;
+      const dueDate     = type === '信用卡' ? parseInt(Utils.el('inp-new-dueday').value) || 0 : 0;
       _acctState[role].push({
         name,
-        purpose:  Utils.el('inp-new-purpose').value.trim(),
-        balance:  parseFloat(Utils.el('inp-new-balance').value) || 0,
-        baseDate: Utils.el('inp-new-date').value.replace(/-/g, '/'),
+        purpose:     Utils.el('inp-new-purpose').value.trim(),
+        balance:     parseFloat(Utils.el('inp-new-balance').value) || 0,
+        baseDate:    Utils.el('inp-new-date').value.replace(/-/g, '/'),
+        type,
+        billingDate,
+        dueDate,
         _deleted: false,
         _new: true
       });
@@ -188,20 +234,20 @@ Router.register('settings', (() => {
     const rows = [];
     CFG.ROLES.forEach(role => {
       _acctState[role].filter(a => !a._deleted).forEach(a => {
-        rows.push([role, a.name, a.balance || 0, a.baseDate || '', a.purpose || '']);
+        rows.push([role, a.name, a.balance||0, a.baseDate||'', a.purpose||'', a.type||'', a.billingDate||'', a.dueDate||'']);
       });
     });
 
     // Pad to 100 rows to overwrite any old data
     const padded = [...rows];
-    while (padded.length < 100) padded.push(['', '', '', '', '']);
+    while (padded.length < 100) padded.push(['','','','','','','','']);
 
     const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID) || CFG.SHEET_ID;
     Utils.showLoading(true);
     try {
-      await API.updateRange(sid, 'Backend!L1:P1',
-        [['角色', '帳戶名稱', '期初餘額', '基準日期', '主要用途']]);
-      await API.updateRange(sid, 'Backend!L2:P101', padded);
+      await API.updateRange(sid, 'Backend!L1:S1',
+        [['角色','帳戶名稱','期初餘額','基準日期','主要用途','帳戶類型','帳單日','截止日']]);
+      await API.updateRange(sid, 'Backend!L2:S101', padded);
       Store.invalidate();
       Utils.toast('帳戶設定已儲存', 'success');
     } catch (e) {
@@ -214,8 +260,13 @@ Router.register('settings', (() => {
   async function initDefaultAccounts() {
     const today = new Date().toISOString().slice(0, 10).replace(/-/g, '/');
     CFG.ROLES.forEach(r => { _acctState[r] = []; });
+    function guessType(name) {
+      if (/信用卡/.test(name)) return '信用卡';
+      if (/現金|錢包/.test(name)) return '現金';
+      return '活存帳戶';
+    }
     CFG.INITIAL_ACCOUNTS.forEach(a => {
-      _acctState[a.role].push({ ...a, balance: 0, baseDate: today, _deleted: false, _new: true });
+      _acctState[a.role].push({ ...a, balance: 0, baseDate: today, type: guessType(a.name), billingDate: 0, dueDate: 0, _deleted: false, _new: true });
     });
     await saveAccounts();
     Store.invalidate();
