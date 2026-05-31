@@ -507,9 +507,14 @@ html, body {
   padding: 4px 10px; border-radius: 20px; font-size: 12px;
   font-weight: 600; white-space: nowrap; flex-shrink: 0;
 }
-.status-paid    { background: var(--success-light); color: #059669; }
-.status-pending { background: var(--warning-light); color: #92400E; }
-.status-urgent  { background: var(--danger-light); color: var(--danger); }
+.status-paid     { background: var(--success-light); color: #059669; }
+.status-pending  { background: var(--warning-light); color: #92400E; }
+.status-urgent   { background: var(--danger-light); color: var(--danger); }
+.status-progress { background: #EFF6FF; color: #3B82F6; }
+.billing-role-header {
+  font-size: .8rem; font-weight: 600; color: var(--text-muted);
+  letter-spacing: .05em; padding: 12px 4px 4px;
+}
 .cc-due-row { display: flex; align-items: center; gap: 10px; font-size: 13px; margin-bottom: 10px; }
 .cc-auto-pay {
   background: var(--success-light); color: #059669;
