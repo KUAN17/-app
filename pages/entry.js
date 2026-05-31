@@ -174,17 +174,17 @@ Router.register('entry', (() => {
       ? allAccts.filter(a => a.role === _s.roleOut)
       : (_s.type === '公積金提撥' ? allAccts.filter(a => a.role === '家用') : allAccts);
 
-    const TYPE_ORDER = ['現金', '活存帳戶', '信用卡'];
-    const usedTypes = TYPE_ORDER.filter(t => pool.some(a => (a.type || '活存帳戶') === t));
+    const TYPE_ORDER = ['現金', '銀行', '信用卡'];
+    const usedTypes = TYPE_ORDER.filter(t => pool.some(a => (a.type || '銀行') === t));
 
     // Default to tab of currently selected account
     const curName = side === 'out' ? _s.accountOut : _s.accountIn;
     const curObj  = pool.find(a => a.name === curName);
-    let activeType = (curObj?.type || '活存帳戶');
-    if (!usedTypes.includes(activeType)) activeType = usedTypes[0] || '活存帳戶';
+    let activeType = (curObj?.type || '銀行');
+    if (!usedTypes.includes(activeType)) activeType = usedTypes[0] || '銀行';
 
     function itemsHtml(type) {
-      const items = pool.filter(a => (a.type || '活存帳戶') === type);
+      const items = pool.filter(a => (a.type || '銀行') === type);
       if (!items.length) return '<p class="empty-hint">此類型無帳戶</p>';
       return items.map(a => {
         const cur = side === 'out' ? _s.accountOut === a.name : (_s.accountIn === a.name && _s.roleIn === a.role);
@@ -196,7 +196,7 @@ Router.register('entry', (() => {
       }).join('');
     }
 
-    const TYPE_ICONS = { '現金': '💵', '活存帳戶': '🏦', '信用卡': '💳' };
+    const TYPE_ICONS = { '現金': '💵', '銀行': '🏦', '信用卡': '💳' };
     const tabsHtml = usedTypes.length > 0
       ? `<div class="acct-type-tabs">${usedTypes.map(t =>
           `<button class="acct-type-tab${t===activeType?' active':''}" data-type="${t}">${TYPE_ICONS[t]||''} ${t}</button>`
@@ -306,11 +306,11 @@ Router.register('entry', (() => {
 
     const acctOutName = _s.accountOut || '選擇帳戶';
     const acctInName  = _s.accountIn  || '選擇帳戶';
-    const _acctIconMap = { '現金': '💵', '活存帳戶': '🏦', '信用卡': '💳' };
+    const _acctIconMap = { '現金': '💵', '銀行': '🏦', '信用卡': '💳' };
     function acctIcon(name) {
       const all = Store.allAccountsFlat();
       const a = all.find(x => x.name === name);
-      return _acctIconMap[a?.type || '活存帳戶'] || '🏦';
+      return _acctIconMap[a?.type || '銀行'] || '🏦';
     }
 
     const acctChips = isTransfer ? `

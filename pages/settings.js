@@ -102,17 +102,15 @@ Router.register('settings', (() => {
 
     return visible.map(a => {
       const typeClass = a.type === '現金' ? 'cash' : a.type === '信用卡' ? 'cc' : 'bank';
+      const typeLabel = a.type || '銀行';
       return `
       <div class="acct-item">
         <div class="acct-item-top">
+          <span class="acct-type-badge type-${typeClass}">${typeLabel}</span>
           <span class="acct-item-name">${a.name}</span>
           ${a.purpose ? `<span class="acct-item-purpose">${a.purpose}</span>` : ''}
-          <button class="btn btn-danger btn-sm acct-del-btn" data-role="${role}" data-i="${a._i}" style="margin-left:auto">✕</button>
-        </div>
-        <div class="acct-type-toggle acct-inline-type" style="margin:4px 0 6px">
-          <button type="button" class="proj-type-btn acct-type-pick${a.type==='現金'?' active':''}" data-role="${role}" data-i="${a._i}" data-t="現金">💵 現金</button>
-          <button type="button" class="proj-type-btn acct-type-pick${(!a.type||a.type==='活存帳戶')?' active':''}" data-role="${role}" data-i="${a._i}" data-t="活存帳戶">🏦 活存帳戶</button>
-          <button type="button" class="proj-type-btn acct-type-pick${a.type==='信用卡'?' active':''}" data-role="${role}" data-i="${a._i}" data-t="信用卡">💳 信用卡</button>
+          <button class="btn btn-outline btn-sm acct-edit-btn" data-role="${role}" data-i="${a._i}" style="margin-left:auto">編輯</button>
+          <button class="btn btn-danger btn-sm acct-del-btn" data-role="${role}" data-i="${a._i}">✕</button>
         </div>
         <div class="acct-item-inputs">
           <input type="number" class="form-input inp-acct-balance" data-role="${role}" data-i="${a._i}"
@@ -135,101 +133,120 @@ Router.register('settings', (() => {
         attachListListeners();
       });
     });
-    document.querySelectorAll('.acct-type-pick').forEach(btn => {
+    document.querySelectorAll('.acct-edit-btn').forEach(btn => {
       const fresh = btn.cloneNode(true);
       btn.replaceWith(fresh);
       fresh.addEventListener('click', () => {
-        const { role, i, t } = fresh.dataset;
-        _acctState[role][parseInt(i)].type = t;
-        Utils.el(`acct-list-${role}`).innerHTML = renderRoleList(role);
-        attachListListeners();
+        const { role, i } = fresh.dataset;
+        showEditModal(role, parseInt(i));
       });
     });
   }
 
-  function showAddModal(role) {
-    const today = new Date().toISOString().slice(0, 10);
+  function _acctTypeModal(opts) {
+    // Shared HTML builder for add/edit account modal
+    const { title, acct, onConfirm } = opts;
     const modal = document.createElement('div');
     modal.className = 'modal-overlay';
+    const today = new Date().toISOString().slice(0, 10);
+    const t = acct.type || '銀行';
     modal.innerHTML = `<div class="modal-card">
-    <div class="modal-title">新增帳戶（${role}）</div>
+    <div class="modal-title">${title}</div>
     <div class="form-row">
       <label>帳戶類型 *</label>
       <div class="acct-type-toggle">
-        <button type="button" class="proj-type-btn" id="atype-cash">現金</button>
-        <button type="button" class="proj-type-btn active" id="atype-bank">活存帳戶</button>
-        <button type="button" class="proj-type-btn" id="atype-cc">信用卡</button>
+        <button type="button" class="proj-type-btn${t==='現金'?' active':''}" id="atype-cash">💵 現金</button>
+        <button type="button" class="proj-type-btn${(t==='銀行'||!acct.type)?' active':''}" id="atype-bank">🏦 銀行</button>
+        <button type="button" class="proj-type-btn${t==='信用卡'?' active':''}" id="atype-cc">💳 信用卡</button>
       </div>
     </div>
     <div class="form-row">
       <label>帳戶名稱 *</label>
-      <input type="text" id="inp-new-name" class="form-input" placeholder="例：永豐數位帳戶">
+      <input type="text" id="inp-acct-name" class="form-input" placeholder="例：永豐數位帳戶" value="${acct.name||''}">
     </div>
     <div class="form-row">
       <label>主要用途</label>
-      <input type="text" id="inp-new-purpose" class="form-input" placeholder="選填，例：日常消費">
+      <input type="text" id="inp-acct-purpose" class="form-input" placeholder="選填，例：日常消費" value="${acct.purpose||''}">
     </div>
     <div class="form-row">
       <label>期初餘額</label>
-      <input type="number" id="inp-new-balance" class="form-input" placeholder="0" value="0">
+      <input type="number" id="inp-acct-balance2" class="form-input" placeholder="0" value="${acct.balance||0}">
     </div>
     <div class="form-row">
       <label>基準日期</label>
-      <input type="date" id="inp-new-date" class="form-input" value="${today}">
+      <input type="date" id="inp-acct-date2" class="form-input" value="${acct.baseDate ? acct.baseDate.replace(/\//g,'-') : today}">
     </div>
-    <div id="cc-acct-fields" style="display:none">
+    <div id="cc-acct-fields" style="display:${t==='信用卡'?'block':'none'}">
       <div class="form-row">
         <label>帳單結帳日（每月幾號）</label>
-        <input type="number" id="inp-new-billing" class="form-input" placeholder="例：15" min="1" max="31">
+        <input type="number" id="inp-acct-billing" class="form-input" placeholder="例：15" min="1" max="31" value="${acct.billingDate||''}">
       </div>
       <div class="form-row">
         <label>繳費截止日（每月幾號）</label>
-        <input type="number" id="inp-new-dueday" class="form-input" placeholder="例：25" min="1" max="31">
+        <input type="number" id="inp-acct-dueday" class="form-input" placeholder="例：25" min="1" max="31" value="${acct.dueDate||''}">
       </div>
     </div>
     <div class="modal-actions">
-      <button class="btn btn-primary btn-sm" id="btn-confirm-add">新增</button>
-      <button class="btn btn-outline btn-sm" id="btn-cancel-add">取消</button>
+      <button class="btn btn-primary btn-sm" id="btn-confirm-acct">確認</button>
+      <button class="btn btn-outline btn-sm" id="btn-cancel-acct">取消</button>
     </div>
   </div>`;
     document.body.appendChild(modal);
     modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
-    Utils.el('btn-cancel-add').addEventListener('click', () => modal.remove());
+    Utils.el('btn-cancel-acct').addEventListener('click', () => modal.remove());
 
     function getType() {
       if (Utils.el('atype-cash').classList.contains('active')) return '現金';
       if (Utils.el('atype-cc').classList.contains('active')) return '信用卡';
-      return '活存帳戶';
+      return '銀行';
     }
-
-    ['cash','bank','cc'].forEach(t => {
-      Utils.el(`atype-${t}`).addEventListener('click', () => {
+    ['cash','bank','cc'].forEach(key => {
+      Utils.el(`atype-${key}`).addEventListener('click', () => {
         ['cash','bank','cc'].forEach(x => Utils.el(`atype-${x}`).classList.remove('active'));
-        Utils.el(`atype-${t}`).classList.add('active');
-        Utils.el('cc-acct-fields').style.display = t === 'cc' ? 'block' : 'none';
+        Utils.el(`atype-${key}`).classList.add('active');
+        Utils.el('cc-acct-fields').style.display = key === 'cc' ? 'block' : 'none';
       });
     });
 
-    Utils.el('btn-confirm-add').addEventListener('click', () => {
-      const name = Utils.el('inp-new-name').value.trim();
+    Utils.el('btn-confirm-acct').addEventListener('click', () => {
+      const name = Utils.el('inp-acct-name').value.trim();
       if (!name) return Utils.toast('請輸入帳戶名稱', 'warn');
       const type = getType();
-      const billingDate = type === '信用卡' ? parseInt(Utils.el('inp-new-billing').value) || 0 : 0;
-      const dueDate     = type === '信用卡' ? parseInt(Utils.el('inp-new-dueday').value) || 0 : 0;
-      _acctState[role].push({
+      onConfirm({
         name,
-        purpose:     Utils.el('inp-new-purpose').value.trim(),
-        balance:     parseFloat(Utils.el('inp-new-balance').value) || 0,
-        baseDate:    Utils.el('inp-new-date').value.replace(/-/g, '/'),
+        purpose:     Utils.el('inp-acct-purpose').value.trim(),
+        balance:     parseFloat(Utils.el('inp-acct-balance2').value) || 0,
+        baseDate:    Utils.el('inp-acct-date2').value.replace(/-/g, '/'),
         type,
-        billingDate,
-        dueDate,
-        _deleted: false,
-        _new: true
+        billingDate: type === '信用卡' ? parseInt(Utils.el('inp-acct-billing').value) || 0 : 0,
+        dueDate:     type === '信用卡' ? parseInt(Utils.el('inp-acct-dueday').value) || 0 : 0,
       });
-      Utils.el(`acct-list-${role}`).innerHTML = renderRoleList(role);
-      attachListListeners();
       modal.remove();
+    });
+  }
+
+  function showAddModal(role) {
+    _acctTypeModal({
+      title: `新增帳戶（${role}）`,
+      acct: { name:'', purpose:'', balance:0, baseDate:'', type:'銀行', billingDate:0, dueDate:0 },
+      onConfirm(data) {
+        _acctState[role].push({ ...data, _deleted: false, _new: true });
+        Utils.el(`acct-list-${role}`).innerHTML = renderRoleList(role);
+        attachListListeners();
+      }
+    });
+  }
+
+  function showEditModal(role, idx) {
+    const acct = _acctState[role][idx];
+    _acctTypeModal({
+      title: `編輯帳戶（${role}）`,
+      acct,
+      onConfirm(data) {
+        _acctState[role][idx] = { ...acct, ...data };
+        Utils.el(`acct-list-${role}`).innerHTML = renderRoleList(role);
+        attachListListeners();
+      }
     });
   }
 
@@ -279,7 +296,7 @@ Router.register('settings', (() => {
     function guessType(name) {
       if (/信用卡/.test(name)) return '信用卡';
       if (/現金|錢包/.test(name)) return '現金';
-      return '活存帳戶';
+      return '銀行';
     }
     CFG.INITIAL_ACCOUNTS.forEach(a => {
       _acctState[a.role].push({ ...a, balance: 0, baseDate: today, type: guessType(a.name), billingDate: 0, dueDate: 0, _deleted: false, _new: true });
