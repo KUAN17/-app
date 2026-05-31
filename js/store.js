@@ -33,12 +33,14 @@ window.Store = (() => {
   function parseProjectRow(row) {
     return {
       status: row[0] || '',
-      name: row[1] || '',
+      name:   row[1] || '',
       budget: Utils.parseAmount(row[2]),
-      spent: Utils.parseAmount(row[3]),
-      remaining: Utils.parseAmount(row[4]),
-      allocated: Utils.parseAmount(row[5]),
-      gap: Utils.parseAmount(row[6])
+      spent: 0, remaining: 0, allocated: 0, gap: 0, // recalculated from ledger
+      // Loan plan fields — columns I-L (indices 8-11)
+      monthlyPayment: Utils.parseAmount(row[8]),
+      annualRate:     parseFloat(row[9]) || 0,
+      loanStartDate:  row[10] || '',
+      totalPeriods:   parseInt(row[11]) || 0
     };
   }
 
@@ -92,7 +94,7 @@ window.Store = (() => {
     try {
       const ranges = [
         'Ledger!A2:L',
-        'Projects!A2:G',
+        'Projects!A2:L',
         'Investments!A2:K',
         'Backend!L2:P'
       ];

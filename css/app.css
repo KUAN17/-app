@@ -343,6 +343,20 @@ html, body {
   background: var(--bg);
 }
 
+/* Project type toggle (new project modal) */
+.proj-type-toggle { display: flex; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); }
+.proj-type-btn {
+  flex: 1; padding: 9px 0; font-size: 13px; font-weight: 600;
+  background: var(--card); color: var(--text-muted); border: none; cursor: pointer;
+}
+.proj-type-btn.active { background: var(--primary); color: #fff; }
+
+/* Loan info section inside project card */
+.proj-loan-section {
+  margin-top: 10px; padding-top: 10px;
+  border-top: 1px dashed var(--border);
+}
+
 /* Date row */
 .entry-date-row {
   display: flex; align-items: center; gap: 10px;
