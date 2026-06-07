@@ -4,7 +4,7 @@ Router.register('entry', (() => {
     '娛樂':'🎮','家用':'🏠','電信':'📱','醫藥':'💊',
     '教育':'📚','醫療保險':'🏥','投資儲蓄':'📈','旅遊':'✈️',
     '訂閱':'📺','信用卡費':'💳',
-    '薪資收入':'💰','利息/股息':'📊','業外收入':'💵','現金回饋':'🎁'
+    '薪資收入':'💰','利息/股息':'📊','現金回饋':'🎁','其他':'💵'
   };
   const LS_LAST         = 'ff_entry_last';
   const LS_RECENT_MEMOS = 'ff_recent_memos';
@@ -237,14 +237,74 @@ Router.register('entry', (() => {
   function showAccountPicker(side) {
     const modal = document.createElement('div');
     modal.className = 'modal-overlay';
-    const allAccts = Store.allAccountsFlat();
-    // 轉帳 付款側：顯示所有帳戶（跨角色）；其他：依 roleOut 過濾
-    const pool = side === 'out'
-      ? (_s.type === '轉帳' ? allAccts : allAccts.filter(a => a.role === _s.roleOut))
-      : allAccts;
+    // 記帳頁不顯示證券帳戶
+    const allAccts = Store.allAccountsFlat().filter(a => a.type !== '證券帳戶');
+    const isTransfer = _s.type === '轉帳';
 
-    const TYPE_ORDER = ['現金', '銀行', '信用卡', '證券帳戶'];
-    const TYPE_ICONS = { '現金': '💵', '銀行': '🏦', '信用卡': '💳', '證券帳戶': '📊' };
+    if (isTransfer) {
+      // 轉帳：以角色分頁，方便跨角色選帳戶
+      const curRole = side === 'out' ? _s.roleOut : _s.roleIn;
+      const curAcct = side === 'out' ? _s.accountOut : _s.accountIn;
+      let activeRole = CFG.ROLES.includes(curRole) ? curRole : CFG.ROLES[0];
+
+      function roleItemsHtml(role) {
+        const items = allAccts.filter(a => a.role === role);
+        if (!items.length) return '<p class="empty-hint">此角色無帳戶</p>';
+        return items.map(a => {
+          const cur = a.name === curAcct && a.role === (side === 'out' ? _s.roleOut : _s.roleIn);
+          return `<div class="acct-pick-item${cur?' active':''}" data-role="${a.role}" data-acct="${a.name.replace(/"/g,'&quot;')}">
+            <span>${a.name}</span>
+            ${cur ? '<span class="acct-pick-check">✓</span>' : ''}
+          </div>`;
+        }).join('');
+      }
+
+      const tabsHtml = `<div class="acct-type-tabs">${CFG.ROLES.map(r =>
+        `<button class="acct-type-tab${r===activeRole?' active':''}" data-role-tab="${r}">${r}</button>`
+      ).join('')}</div>`;
+
+      modal.innerHTML = `<div class="modal-card">
+        <div class="modal-title">${side === 'out' ? '付款帳戶' : '對象帳戶'}</div>
+        ${tabsHtml}
+        <div id="acct-pick-list">${roleItemsHtml(activeRole)}</div>
+      </div>`;
+      document.body.appendChild(modal);
+
+      function attachItems() {
+        modal.querySelectorAll('.acct-pick-item').forEach(item => {
+          item.addEventListener('click', () => {
+            if (side === 'out') { _s.accountOut = item.dataset.acct; _s.roleOut = item.dataset.role; }
+            else { _s.roleIn = item.dataset.role; _s.accountIn = item.dataset.acct; }
+            modal.remove(); renderAll();
+          });
+        });
+      }
+      attachItems();
+
+      modal.querySelectorAll('[data-role-tab]').forEach(tab => {
+        tab.addEventListener('click', () => {
+          const role = tab.dataset.roleTab;
+          const items = allAccts.filter(a => a.role === role);
+          if (items.length === 1) {
+            // 單一帳戶直接自動選取
+            if (side === 'out') { _s.accountOut = items[0].name; _s.roleOut = items[0].role; }
+            else { _s.roleIn = items[0].role; _s.accountIn = items[0].name; }
+            modal.remove(); renderAll(); return;
+          }
+          modal.querySelectorAll('[data-role-tab]').forEach(t => t.classList.remove('active'));
+          tab.classList.add('active');
+          modal.querySelector('#acct-pick-list').innerHTML = roleItemsHtml(role);
+          attachItems();
+        });
+      });
+      modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+      return;
+    }
+
+    // 支出/收入：依 roleOut 過濾，以帳戶類型分頁
+    const pool = side === 'out' ? allAccts.filter(a => a.role === _s.roleOut) : allAccts;
+    const TYPE_ORDER = ['現金', '銀行', '信用卡'];
+    const TYPE_ICONS = { '現金': '💵', '銀行': '🏦', '信用卡': '💳' };
     const usedTypes  = TYPE_ORDER.filter(t => pool.some(a => (a.type || '銀行') === t));
     const curName    = side === 'out' ? _s.accountOut : _s.accountIn;
     const curRole    = side === 'out' ? _s.roleOut : _s.roleIn;
@@ -284,23 +344,27 @@ Router.register('entry', (() => {
     function attachItems() {
       modal.querySelectorAll('.acct-pick-item').forEach(item => {
         item.addEventListener('click', () => {
-          if (side === 'out') {
-            _s.accountOut = item.dataset.acct;
-            if (_s.type === '轉帳') _s.roleOut = item.dataset.role;
-          } else {
-            _s.roleIn = item.dataset.role;
-            _s.accountIn = item.dataset.acct;
-          }
+          if (side === 'out') { _s.accountOut = item.dataset.acct; }
+          else { _s.roleIn = item.dataset.role; _s.accountIn = item.dataset.acct; }
           modal.remove(); renderAll();
         });
       });
     }
     attachItems();
+
     modal.querySelectorAll('.acct-type-tab').forEach(tab => {
       tab.addEventListener('click', () => {
+        const type = tab.dataset.type;
+        const items = pool.filter(a => (a.type || '銀行') === type);
+        if (items.length === 1) {
+          // 單一帳戶直接自動選取
+          if (side === 'out') { _s.accountOut = items[0].name; }
+          else { _s.roleIn = items[0].role; _s.accountIn = items[0].name; }
+          modal.remove(); renderAll(); return;
+        }
         modal.querySelectorAll('.acct-type-tab').forEach(t => t.classList.remove('active'));
         tab.classList.add('active');
-        modal.querySelector('#acct-pick-list').innerHTML = itemsHtml(tab.dataset.type);
+        modal.querySelector('#acct-pick-list').innerHTML = itemsHtml(type);
         attachItems();
       });
     });
@@ -311,7 +375,7 @@ Router.register('entry', (() => {
   function showPayPicker() {
     const modal = document.createElement('div');
     modal.className = 'modal-overlay';
-    const allAccts = Store.allAccountsFlat().filter(a => a.name !== _s.accountOut);
+    const allAccts = Store.allAccountsFlat().filter(a => a.name !== _s.accountOut && a.type !== '證券帳戶');
 
     const TYPE_ORDER = ['信用卡', '現金', '銀行', '證券帳戶'];
     const TYPE_ICONS = { '現金': '💵', '銀行': '🏦', '信用卡': '💳', '證券帳戶': '📊' };
@@ -440,9 +504,9 @@ Router.register('entry', (() => {
     // 1. Date (最上方，type tabs 之前)
     const dateSection = `
       <div class="entry-date-standalone" id="date-trigger">
-        <span>📅</span>
+        <span style="position:absolute;left:16px">📅</span>
         <span id="date-label" style="font-weight:600">${dateLabel}</span>
-        <span style="margin-left:auto;color:var(--text-muted)">›</span>
+        <span style="position:absolute;right:16px;color:var(--text-muted)">›</span>
         <input type="date" id="inp-date" value="${_s.date}"
                style="position:absolute;opacity:0;pointer-events:none;width:1px;height:1px;border:none">
       </div>`;

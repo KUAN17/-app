@@ -393,7 +393,7 @@ html, body {
 
 /* Date standalone row */
 .entry-date-standalone {
-  position: relative; display: flex; align-items: center; gap: 10px;
+  position: relative; display: flex; align-items: center; justify-content: center;
   padding: 13px 16px; background: var(--card);
   border-bottom: 1px solid var(--border);
   cursor: pointer; font-size: 15px; color: var(--text);
@@ -749,6 +749,21 @@ html, body {
 .cc-tx-date { color: var(--text-muted); min-width: 40px; }
 .cc-tx-cat  { flex: 1; }
 .cc-tx-amt  { color: var(--danger); font-weight: 600; }
+
+/* Billing period sections */
+.cc-card-name { font-weight: 700; font-size: 15px; margin-bottom: 10px; }
+.cc-period-section { padding: 10px 0; }
+.cc-period-section + .cc-period-section { border-top: 1px dashed var(--border); }
+.cc-period-past { background: none; }
+.cc-period-header {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 4px;
+}
+.cc-period-label {
+  font-size: 11px; font-weight: 700; padding: 2px 7px;
+  border-radius: 6px; background: var(--bg); color: var(--text-muted);
+  flex-shrink: 0;
+}
+.cc-period-range { font-size: 12px; color: var(--text-muted); flex: 1; }
 
 /* ── Account type tabs (picker) ──────────────────────────── */
 .acct-type-tabs {

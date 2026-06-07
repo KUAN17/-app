@@ -9,10 +9,8 @@ Router.register('billing', (() => {
     const el = Utils.el('page-content');
     await Store.load();
     const { accounts, ledger } = Store.get();
-
     const today = new Date();
 
-    // Collect CC accounts grouped by role
     const byRole = {};
     CFG.ROLES.forEach(role => {
       (accounts[role] || []).forEach(a => {
@@ -31,43 +29,24 @@ Router.register('billing', (() => {
       return;
     }
 
-    // Build card data for every CC, filter out paid
-    const sections = roles.map(role => ({
-      role,
-      cards: byRole[role]
-        .map(acct => buildCardData(acct, ledger, today))
-        .filter(c => !c.isPaid)
-    }));
-
-    const anyVisible = sections.some(s => s.cards.length);
-
     let html = `<div class="page-inner">`;
-
-    if (!anyVisible) {
-      html += `<div class="card" style="text-align:center;padding:32px 16px">
-        <div style="font-size:2rem;margin-bottom:8px">✓</div>
-        <div style="font-weight:600;font-size:1.1rem">本期無待繳帳單</div>
-        <div style="color:var(--text-muted);margin-top:4px;font-size:.9rem">所有信用卡帳單均已繳清</div>
-      </div>`;
-    } else {
-      sections.forEach(({ role, cards }) => {
-        if (!cards.length) return;
-        html += `<div class="billing-role-header">${role}</div>`;
-        html += cards.map(renderCard).join('');
+    let idx = 0;
+    roles.forEach(role => {
+      const cards = byRole[role];
+      html += `<div class="billing-role-header">${role}</div>`;
+      cards.forEach(acct => {
+        html += renderCard(acct, ledger, today, idx++);
       });
-    }
-
+    });
     html += `<div style="height:16px"></div></div>`;
     el.innerHTML = html;
 
     el.querySelectorAll('.cc-toggle-paid').forEach(btn => {
       btn.addEventListener('click', () => {
-        const key = LS_PAID(btn.dataset.monthKey, btn.dataset.name);
-        localStorage.setItem(key, '1');
+        localStorage.setItem(LS_PAID(btn.dataset.monthKey, btn.dataset.name), '1');
         onMount();
       });
     });
-
     el.querySelectorAll('.cc-expand-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         const list = document.getElementById(`cc-tx-${btn.dataset.idx}`);
@@ -78,108 +57,136 @@ Router.register('billing', (() => {
     });
   }
 
-  function getBillingWindow(today, billingDay, dueDay) {
-    const bd = billingDay || 15;
-    const dd = dueDay || 25;
-    const y = today.getFullYear(), m = today.getMonth(), d = today.getDate();
-
-    const cycleEnd = d >= bd
-      ? new Date(y, m, bd)
-      : new Date(y, m - 1, bd);
-
-    const prevEnd = new Date(cycleEnd.getFullYear(), cycleEnd.getMonth() - 1, bd);
-    const cycleStart = new Date(prevEnd.getTime() + 86400000);
-    const nextDue = new Date(cycleEnd.getFullYear(), cycleEnd.getMonth() + 1, dd);
-
-    return { cycleStart, cycleEnd, nextDue };
-  }
-
   function fmtDate(d) {
     return `${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}`;
   }
 
-  function buildCardData(acct, ledger, today) {
-    const { cycleStart, cycleEnd, nextDue } = getBillingWindow(today, acct.billingDate, acct.dueDate);
-    const startStr = fmtDate(cycleStart);
-    const endStr   = fmtDate(cycleEnd);
-    const todayStr = fmtDate(today);
+  // 計算兩個時間窗口：上期（已結算，待繳款）& 本期（進行中）
+  function getBillingWindows(today, billingDay, dueDay) {
+    const bd = billingDay || 15;
+    const dd = dueDay || 25;
+    const y = today.getFullYear(), m = today.getMonth(), d = today.getDate();
 
-    const inProgress = todayStr <= endStr; // today is still within billing period
+    // 最近一次帳單截止日
+    const pastEnd = d >= bd ? new Date(y, m, bd) : new Date(y, m - 1, bd);
+    const pastStart = new Date(
+      new Date(pastEnd.getFullYear(), pastEnd.getMonth() - 1, bd).getTime() + 86400000
+    );
+    const pastDue = new Date(pastEnd.getFullYear(), pastEnd.getMonth() + 1, dd);
 
-    const cycleTxs = ledger.filter(tx =>
-      (tx.accountOut === acct.name || tx.payAccount === acct.name) &&
-      tx.type === '支出' &&
-      tx.date >= startStr && tx.date <= (inProgress ? todayStr : endStr)
-    ).sort((a, b) => b.date.localeCompare(a.date));
+    // 本期進行中（截止日後 +1 天起）
+    const curStart = new Date(pastEnd.getTime() + 86400000);
+    const curEnd   = new Date(pastEnd.getFullYear(), pastEnd.getMonth() + 1, bd);
 
-    const spending = cycleTxs.reduce((s, tx) => s + tx.amount, 0);
-
-    const paymentTx = !inProgress ? ledger.find(tx =>
-      tx.accountIn === acct.name && tx.type === '轉帳' &&
-      tx.date > endStr && tx.date <= fmtDate(nextDue)
-    ) : null;
-
-    const monthKey = endStr.slice(0, 7);
-    const manualPaid = !inProgress && localStorage.getItem(LS_PAID(monthKey, acct.name)) === '1';
-    const isPaid = !!(paymentTx || manualPaid);
-
-    const msLeft = nextDue - today;
-    const daysLeft = Math.ceil(msLeft / 86400000);
-
-    return { acct, cycleTxs, spending, paymentTx, isPaid, inProgress, daysLeft, nextDue, startStr, endStr, monthKey };
+    return {
+      past:    { start: pastStart, end: pastEnd, due: pastDue },
+      current: { start: curStart,  end: curEnd }
+    };
   }
 
-  let _cardIdx = 0;
+  function filterTxs(ledger, acctName, startStr, endStr) {
+    return ledger
+      .filter(tx =>
+        (tx.accountOut === acctName || tx.payAccount === acctName) &&
+        tx.type === '支出' &&
+        tx.date >= startStr && tx.date <= endStr
+      )
+      .sort((a, b) => b.date.localeCompare(a.date));
+  }
 
-  function renderCard(c) {
-    const { acct, cycleTxs, spending, paymentTx, inProgress, daysLeft, nextDue, startStr, endStr, monthKey } = c;
-    const idx = _cardIdx++;
-    const dueDateStr = fmtDate(nextDue);
-    const safeName = acct.name.replace(/"/g, '&quot;');
-
-    let statusClass, statusText;
-    if (inProgress) {
-      statusClass = 'status-progress'; statusText = '進行中';
-    } else if (daysLeft < 0) {
-      statusClass = 'status-urgent'; statusText = '⚠ 逾期';
-    } else if (daysLeft <= 5) {
-      statusClass = 'status-urgent'; statusText = `${daysLeft} 天後截止`;
-    } else {
-      statusClass = 'status-pending'; statusText = `${daysLeft} 天後截止`;
-    }
-
-    const txItems = cycleTxs.map(tx => `
+  function txListHtml(txs, listId) {
+    if (!txs.length) return '';
+    const items = txs.map(tx => `
       <div class="cc-tx-item">
         <span class="cc-tx-date">${tx.date.slice(5)}</span>
         <span class="cc-tx-cat">${tx.category}${tx.memo ? ' · ' + tx.memo : ''}</span>
         <span class="cc-tx-amt">${Utils.formatMoney(tx.amount)}</span>
       </div>`).join('');
+    return `<div id="${listId}" class="cc-tx-list hidden">${items}</div>`;
+  }
 
-    const cycleLabel = inProgress
-      ? `${startStr.slice(5)} ～ 今天`
-      : `${startStr.slice(5)} ～ ${endStr.slice(5)}`;
+  function renderCard(acct, ledger, today, baseIdx) {
+    const { past, current } = getBillingWindows(today, acct.billingDate, acct.dueDate);
+    const todayStr    = fmtDate(today);
+    const safeName    = acct.name.replace(/"/g, '&quot;');
+
+    // ── 本期（進行中）────────────────────────────────────
+    const curStartStr = fmtDate(current.start);
+    const curEndStr   = fmtDate(current.end);
+    const curTxs      = filterTxs(ledger, acct.name, curStartStr, todayStr);
+    const curSpending = curTxs.reduce((s, tx) => s + tx.amount, 0);
+    const curListId   = `cc-tx-${baseIdx * 2}`;
+
+    const curSection = `
+      <div class="cc-period-section">
+        <div class="cc-period-header">
+          <span class="cc-period-label">本期</span>
+          <span class="cc-period-range">${curStartStr.slice(5)} ～ ${curEndStr.slice(5)}</span>
+          <span class="cc-status status-progress">進行中</span>
+        </div>
+        <div class="cc-amount">${Utils.formatMoney(curSpending)}</div>
+        <div class="cc-actions">
+          ${curTxs.length ? `<button class="btn btn-outline btn-sm cc-expand-btn"
+              data-idx="${baseIdx * 2}" data-count="${curTxs.length}">展開明細（${curTxs.length}）</button>` : ''}
+        </div>
+        ${txListHtml(curTxs, curListId)}
+      </div>`;
+
+    // ── 上期（已結算，待繳款）────────────────────────────
+    const pastStartStr = fmtDate(past.start);
+    const pastEndStr   = fmtDate(past.end);
+    const pastTxs      = filterTxs(ledger, acct.name, pastStartStr, pastEndStr);
+    const pastSpending = pastTxs.reduce((s, tx) => s + tx.amount, 0);
+    const monthKey     = pastEndStr.slice(0, 7);
+    const pastListId   = `cc-tx-${baseIdx * 2 + 1}`;
+
+    const paymentTx = ledger.find(tx =>
+      tx.accountIn === acct.name && tx.type === '轉帳' &&
+      tx.date > pastEndStr && tx.date <= fmtDate(past.due)
+    );
+    const manualPaid = localStorage.getItem(LS_PAID(monthKey, acct.name)) === '1';
+    const pastPaid   = !!(paymentTx || manualPaid);
+
+    let pastSection = '';
+    if (!pastPaid) {
+      const msLeft   = past.due - today;
+      const daysLeft = Math.ceil(msLeft / 86400000);
+      let statusClass, statusText;
+      if (daysLeft < 0) {
+        statusClass = 'status-urgent'; statusText = '⚠ 逾期';
+      } else if (daysLeft <= 5) {
+        statusClass = 'status-urgent'; statusText = `${daysLeft} 天後截止`;
+      } else {
+        statusClass = 'status-pending'; statusText = `${daysLeft} 天後截止`;
+      }
+
+      pastSection = `
+        <div class="cc-period-section cc-period-past">
+          <div class="cc-period-header">
+            <span class="cc-period-label">上期</span>
+            <span class="cc-period-range">${pastStartStr.slice(5)} ～ ${pastEndStr.slice(5)}</span>
+            <span class="cc-status ${statusClass}">${statusText}</span>
+          </div>
+          <div class="cc-amount">${Utils.formatMoney(pastSpending)}</div>
+          <div class="cc-due-row">
+            <span class="label-sm">繳費截止</span>
+            <span>${fmtDate(past.due)}</span>
+            ${paymentTx ? `<span class="cc-auto-pay">已轉帳 ${Utils.formatMoney(paymentTx.amount)}</span>` : ''}
+          </div>
+          <div class="cc-actions">
+            ${pastTxs.length ? `<button class="btn btn-outline btn-sm cc-expand-btn"
+                data-idx="${baseIdx * 2 + 1}" data-count="${pastTxs.length}">展開明細（${pastTxs.length}）</button>` : ''}
+            ${!paymentTx ? `<button class="btn btn-primary btn-sm cc-toggle-paid"
+                data-name="${safeName}" data-month-key="${monthKey}">標記已繳</button>` : ''}
+          </div>
+          ${txListHtml(pastTxs, pastListId)}
+        </div>`;
+    }
 
     return `<div class="card cc-card">
-      <div class="cc-card-header">
-        <div>
-          <div class="cc-card-name">💳 ${acct.name}</div>
-          <div class="cc-card-cycle">${cycleLabel}</div>
-        </div>
-        <span class="cc-status ${statusClass}">${statusText}</span>
-      </div>
-      <div class="cc-amount">${Utils.formatMoney(spending)}</div>
-      ${!inProgress ? `<div class="cc-due-row">
-        <span class="label-sm">繳費截止</span>
-        <span>${dueDateStr}</span>
-        ${paymentTx ? `<span class="cc-auto-pay">已轉帳 ${Utils.formatMoney(paymentTx.amount)}</span>` : ''}
-      </div>` : ''}
-      <div class="cc-actions">
-        ${cycleTxs.length ? `<button class="btn btn-outline btn-sm cc-expand-btn"
-            data-idx="${idx}" data-count="${cycleTxs.length}">展開明細（${cycleTxs.length}）</button>` : ''}
-        ${!inProgress && !paymentTx ? `<button class="btn btn-primary btn-sm cc-toggle-paid"
-            data-name="${safeName}" data-month-key="${monthKey}">標記已繳</button>` : ''}
-      </div>
-      ${cycleTxs.length ? `<div id="cc-tx-${idx}" class="cc-tx-list hidden">${txItems}</div>` : ''}
+      <div class="cc-card-name">💳 ${acct.name}</div>
+      ${curSection}
+      ${pastSection}
     </div>`;
   }
 
