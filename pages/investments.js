@@ -530,35 +530,29 @@ Router.register('investments', (() => {
     }
 
     // 從回應物件中取收盤價（各 API 欄位名稱不同，防禦性讀取）
+    // STOCK_DAY_ALL / TPEX → ClosingPrice（英文）；MI_ETFCH_CLSPRC → 收盤價（中文）
     function px(obj) {
-      return parseFloat(obj['收盤價'] || obj['收盤'] || obj['Close'] || obj['close'] || 0) || 0;
+      const v = obj['ClosingPrice'] || obj['收盤價'] || obj['收盤'] || obj['Close'] || '';
+      return parseFloat(v) || 0;
     }
     function cd(obj) {
-      return (obj['證券代號'] || obj['代號'] || obj['SecuritiesCompanyCode'] ||
-              obj['Code'] || obj['公司代號'] || '').trim();
+      return (obj['Code'] || obj['證券代號'] || obj['SecuritiesCompanyCode'] ||
+              obj['代號'] || obj['公司代號'] || '').trim();
     }
 
     const priceMap = {};
 
     try {
-      // 三支 Open API 並行抓取：
-      //   1. t187ap03_L    → 上市股票（含收盤價）
-      //   2. MI_ETFCH_CLSPRC → 上市 ETF 收盤行情（含債券ETF）
-      //   3. tpex PE       → 上櫃股票（含收盤價）
-      const [twseRes, etfRes, tpexRes] = await Promise.allSettled([
-        fetch('https://openapi.twse.com.tw/v1/opendata/t187ap03_L').then(r => r.json()),
-        fetch('https://openapi.twse.com.tw/v1/exchangeReport/MI_ETFCH_CLSPRC').then(r => r.json()),
+      // 兩支 Open API 並行抓取（免認證、瀏覽器可 CORS）：
+      //   1. STOCK_DAY_ALL → 所有上市股票＋ETF 每日收盤行情（欄位：Code, ClosingPrice）
+      //   2. tpex PE       → 上櫃股票每日收盤行情（欄位：SecuritiesCompanyCode, ClosingPrice）
+      const [twseRes, tpexRes] = await Promise.allSettled([
+        fetch('https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL').then(r => r.json()),
         fetch('https://www.tpex.org.tw/openapi/v1/tpex_mainboard_peratio_analysis').then(r => r.json())
       ]);
 
       if (twseRes.status === 'fulfilled' && Array.isArray(twseRes.value)) {
         twseRes.value.forEach(s => {
-          const code = cd(s), price = px(s);
-          if (code && price > 0) priceMap['TPE:' + code] = price;
-        });
-      }
-      if (etfRes.status === 'fulfilled' && Array.isArray(etfRes.value)) {
-        etfRes.value.forEach(s => {
           const code = cd(s), price = px(s);
           if (code && price > 0) priceMap['TPE:' + code] = price;
         });
@@ -570,7 +564,7 @@ Router.register('investments', (() => {
         });
       }
 
-      if (!Object.keys(priceMap).length) throw new Error('三個端點均未取得報價，請確認網路連線');
+      if (!Object.keys(priceMap).length) throw new Error('兩個端點均未取得報價，可能為非交易日或網路問題');
     } catch (err) {
       Utils.toast('取得報價失敗：' + err.message, 'error');
       if (btn) { btn.disabled = false; btn.textContent = '更新報價'; }
