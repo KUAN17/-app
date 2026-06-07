@@ -541,11 +541,12 @@ Router.register('investments', (() => {
     }
 
     const priceMap = {};
+    let fetchError = null;
 
+    // 兩支 Open API 並行抓取（免認證、瀏覽器可 CORS）：
+    //   1. STOCK_DAY_ALL → 所有上市股票＋ETF 每日收盤行情（欄位：Code, ClosingPrice）
+    //   2. tpex PE       → 上櫃股票每日收盤行情（欄位：SecuritiesCompanyCode, ClosingPrice）
     try {
-      // 兩支 Open API 並行抓取（免認證、瀏覽器可 CORS）：
-      //   1. STOCK_DAY_ALL → 所有上市股票＋ETF 每日收盤行情（欄位：Code, ClosingPrice）
-      //   2. tpex PE       → 上櫃股票每日收盤行情（欄位：SecuritiesCompanyCode, ClosingPrice）
       const [twseRes, tpexRes] = await Promise.allSettled([
         fetch('https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL').then(r => r.json()),
         fetch('https://www.tpex.org.tw/openapi/v1/tpex_mainboard_peratio_analysis').then(r => r.json())
@@ -556,6 +557,8 @@ Router.register('investments', (() => {
           const code = cd(s), price = px(s);
           if (code && price > 0) priceMap['TPE:' + code] = price;
         });
+      } else if (twseRes.status === 'rejected') {
+        fetchError = twseRes.reason;
       }
       if (tpexRes.status === 'fulfilled' && Array.isArray(tpexRes.value)) {
         tpexRes.value.forEach(s => {
@@ -563,10 +566,17 @@ Router.register('investments', (() => {
           if (code && price > 0) priceMap['TPE:' + code] = price;
         });
       }
-
-      if (!Object.keys(priceMap).length) throw new Error('兩個端點均未取得報價，可能為非交易日或網路問題');
     } catch (err) {
       Utils.toast('取得報價失敗：' + err.message, 'error');
+      if (btn) { btn.disabled = false; btn.textContent = '更新報價'; }
+      return;
+    }
+
+    // 若取不到任何報價（非交易日或 API 無資料），保留現有報價並提示
+    if (!Object.keys(priceMap).length) {
+      const dow = new Date().getDay();
+      const reason = (dow === 0 || dow === 6) ? '今日為假日' : (fetchError ? fetchError.message : 'API 無資料');
+      Utils.toast(`無法取得報價（${reason}），顯示上次記錄`, 'warn');
       if (btn) { btn.disabled = false; btn.textContent = '更新報價'; }
       return;
     }
