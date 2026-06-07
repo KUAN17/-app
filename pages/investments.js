@@ -294,7 +294,7 @@ Router.register('investments', (() => {
       <div class="detail-stats-grid">
         <div class="detail-stat"><span class="label-sm">持有股數</span><span class="detail-stat-val">${pos.totalShares.toLocaleString()} 股</span></div>
         <div class="detail-stat"><span class="label-sm">加權均價</span><span class="detail-stat-val">$${pos.weightedAvg.toFixed(2)}</span></div>
-        <div class="detail-stat"><span class="label-sm">現價</span><span class="detail-stat-val">$${pos.price.toLocaleString()}</span></div>
+        <div class="detail-stat"><span class="label-sm">現價</span><span class="detail-stat-val">$${pos.price.toFixed(2)}</span></div>
         <div class="detail-stat"><span class="label-sm">總市值</span><span class="detail-stat-val">${Utils.formatMoney(pos.marketValue)}</span></div>
         <div class="detail-stat detail-stat-full">
           <span class="label-sm">未實現損益</span>
@@ -587,7 +587,10 @@ Router.register('investments', (() => {
     // 寫回 Investments!H2:H51
     try {
       const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID) || CFG.SHEET_ID;
-      const priceRows = activeLots.map(l => [priceMap[l.ticker] || l.price || '']);
+      const priceRows = activeLots.map(l => {
+        const p = priceMap[l.ticker] || l.price || 0;
+        return [p ? parseFloat(p).toFixed(2) : ''];
+      });
       while (priceRows.length < 50) priceRows.push(['']);
       await API.updateRange(sid, 'Investments!H2:H51', priceRows);
 
