@@ -129,6 +129,11 @@ Router.register('entry', (() => {
         _s.accountOut = Store.accountsForRole(val)[0] || '';
         renderAll(); break;
       }
+      case 'role-in': {
+        _s.roleIn = val;
+        _s.accountIn = Store.accountsForRole(val)[0] || '';
+        renderAll(); break;
+      }
       case 'sel-proj': {
         _s.projectTag = val;
         if (val) {
@@ -237,78 +242,15 @@ Router.register('entry', (() => {
   function showAccountPicker(side) {
     const modal = document.createElement('div');
     modal.className = 'modal-overlay';
-    // 記帳頁不顯示證券帳戶
-    const allAccts = Store.allAccountsFlat().filter(a => a.type !== '證券帳戶');
-    const isTransfer = _s.type === '轉帳';
+    // 不顯示證券帳戶；依目前已選角色過濾
+    const roleForSide = side === 'out' ? _s.roleOut : _s.roleIn;
+    const pool = Store.allAccountsFlat().filter(a => a.type !== '證券帳戶' && a.role === roleForSide);
 
-    if (isTransfer) {
-      // 轉帳：以角色分頁，方便跨角色選帳戶
-      const curRole = side === 'out' ? _s.roleOut : _s.roleIn;
-      const curAcct = side === 'out' ? _s.accountOut : _s.accountIn;
-      let activeRole = CFG.ROLES.includes(curRole) ? curRole : CFG.ROLES[0];
-
-      function roleItemsHtml(role) {
-        const items = allAccts.filter(a => a.role === role);
-        if (!items.length) return '<p class="empty-hint">此角色無帳戶</p>';
-        return items.map(a => {
-          const cur = a.name === curAcct && a.role === (side === 'out' ? _s.roleOut : _s.roleIn);
-          return `<div class="acct-pick-item${cur?' active':''}" data-role="${a.role}" data-acct="${a.name.replace(/"/g,'&quot;')}">
-            <span>${a.name}</span>
-            ${cur ? '<span class="acct-pick-check">✓</span>' : ''}
-          </div>`;
-        }).join('');
-      }
-
-      const tabsHtml = `<div class="acct-type-tabs">${CFG.ROLES.map(r =>
-        `<button class="acct-type-tab${r===activeRole?' active':''}" data-role-tab="${r}">${r}</button>`
-      ).join('')}</div>`;
-
-      modal.innerHTML = `<div class="modal-card">
-        <div class="modal-title">${side === 'out' ? '付款帳戶' : '對象帳戶'}</div>
-        ${tabsHtml}
-        <div id="acct-pick-list">${roleItemsHtml(activeRole)}</div>
-      </div>`;
-      document.body.appendChild(modal);
-
-      function attachItems() {
-        modal.querySelectorAll('.acct-pick-item').forEach(item => {
-          item.addEventListener('click', () => {
-            if (side === 'out') { _s.accountOut = item.dataset.acct; _s.roleOut = item.dataset.role; }
-            else { _s.roleIn = item.dataset.role; _s.accountIn = item.dataset.acct; }
-            modal.remove(); renderAll();
-          });
-        });
-      }
-      attachItems();
-
-      modal.querySelectorAll('[data-role-tab]').forEach(tab => {
-        tab.addEventListener('click', () => {
-          const role = tab.dataset.roleTab;
-          const items = allAccts.filter(a => a.role === role);
-          if (items.length === 1) {
-            // 單一帳戶直接自動選取
-            if (side === 'out') { _s.accountOut = items[0].name; _s.roleOut = items[0].role; }
-            else { _s.roleIn = items[0].role; _s.accountIn = items[0].name; }
-            modal.remove(); renderAll(); return;
-          }
-          modal.querySelectorAll('[data-role-tab]').forEach(t => t.classList.remove('active'));
-          tab.classList.add('active');
-          modal.querySelector('#acct-pick-list').innerHTML = roleItemsHtml(role);
-          attachItems();
-        });
-      });
-      modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
-      return;
-    }
-
-    // 支出/收入：依 roleOut 過濾，以帳戶類型分頁
-    const pool = side === 'out' ? allAccts.filter(a => a.role === _s.roleOut) : allAccts;
     const TYPE_ORDER = ['現金', '銀行', '信用卡'];
     const TYPE_ICONS = { '現金': '💵', '銀行': '🏦', '信用卡': '💳' };
     const usedTypes  = TYPE_ORDER.filter(t => pool.some(a => (a.type || '銀行') === t));
     const curName    = side === 'out' ? _s.accountOut : _s.accountIn;
-    const curRole    = side === 'out' ? _s.roleOut : _s.roleIn;
-    const curObj     = pool.find(a => a.name === curName && a.role === curRole);
+    const curObj     = pool.find(a => a.name === curName);
     let activeType   = curObj?.type || '銀行';
     if (!usedTypes.includes(activeType)) activeType = usedTypes[0] || '銀行';
 
@@ -316,11 +258,8 @@ Router.register('entry', (() => {
       const items = pool.filter(a => (a.type || '銀行') === type);
       if (!items.length) return '<p class="empty-hint">此類型無帳戶</p>';
       return items.map(a => {
-        const cur = side === 'out'
-          ? (_s.accountOut === a.name && _s.roleOut === a.role)
-          : (_s.accountIn === a.name && _s.roleIn === a.role);
+        const cur = a.name === (side === 'out' ? _s.accountOut : _s.accountIn);
         return `<div class="acct-pick-item${cur?' active':''}" data-role="${a.role}" data-acct="${a.name.replace(/"/g,'&quot;')}">
-          <span class="balance-role-badge">${a.role}</span>
           <span>${a.name}</span>
           ${cur ? '<span class="acct-pick-check">✓</span>' : ''}
         </div>`;
@@ -345,7 +284,7 @@ Router.register('entry', (() => {
       modal.querySelectorAll('.acct-pick-item').forEach(item => {
         item.addEventListener('click', () => {
           if (side === 'out') { _s.accountOut = item.dataset.acct; }
-          else { _s.roleIn = item.dataset.role; _s.accountIn = item.dataset.acct; }
+          else { _s.accountIn = item.dataset.acct; }
           modal.remove(); renderAll();
         });
       });
@@ -357,9 +296,8 @@ Router.register('entry', (() => {
         const type = tab.dataset.type;
         const items = pool.filter(a => (a.type || '銀行') === type);
         if (items.length === 1) {
-          // 單一帳戶直接自動選取
           if (side === 'out') { _s.accountOut = items[0].name; }
-          else { _s.roleIn = items[0].role; _s.accountIn = items[0].name; }
+          else { _s.accountIn = items[0].name; }
           modal.remove(); renderAll(); return;
         }
         modal.querySelectorAll('.acct-type-tab').forEach(t => t.classList.remove('active'));
@@ -535,49 +473,69 @@ Router.register('entry', (() => {
         </select>
       </div>` : '';
 
-    // 5. Role tabs（支出/收入；轉帳不顯示角色列）
-    let roleSection = '';
-    if (!isTransfer) {
-      if (isExpense && lockedProj?.ownerRole) {
-        roleSection = `
-          <div class="entry-role-tabs">
-            <div class="entry-role-locked">
-              <span>🔒</span>
-              <span>${lockedProj.ownerRole}</span>
-              <span class="entry-role-lock-hint">專案歸屬角色</span>
-            </div>
-          </div>`;
-      } else {
-        roleSection = `
-          <div class="entry-role-tabs">${CFG.ROLES.map(r =>
-            `<button type="button" class="entry-role-tab${_s.roleOut===r?' active':''}" data-action="role-out" data-val="${r}">${r}</button>`
-          ).join('')}</div>`;
-      }
-    }
-
-    // 6. Account row
-    let acctRow;
+    // 5 + 6. Role tabs & Account row
+    let roleAndAcctSection;
     if (isTransfer) {
+      // 轉帳：轉出 / 轉入 各自有角色 tabs + 帳戶按鈕
       const inLocked = isProjMode && lockedProj?.ownerRole;
-      const inDisplay = inLocked
-        ? `<div class="entry-acct-locked" style="flex:1">
+
+      const outRoleTabs = `<div class="entry-role-tabs">${CFG.ROLES.map(r =>
+        `<button type="button" class="entry-role-tab${_s.roleOut===r?' active':''}" data-action="role-out" data-val="${r}">${r}</button>`
+      ).join('')}</div>`;
+
+      const outAcctBtn = `<div class="entry-acct-row">
+        <button type="button" class="entry-acct-btn" data-action="pick-acct-out">
+          ${acctIcon(_s.accountOut)} ${_s.accountOut || '選擇帳戶'} <span class="entry-acct-caret">▾</span>
+        </button>
+      </div>`;
+
+      let inRoleTabs, inAcctBtn;
+      if (inLocked) {
+        inRoleTabs = '';
+        inAcctBtn = `<div class="entry-acct-row">
+          <div class="entry-acct-locked">
             <span>🔒</span>
             <span>${_s.accountIn || lockedProj.defaultAccount || lockedProj.ownerRole}</span>
             <span class="entry-acct-lock-hint">專案帳戶</span>
-           </div>`
-        : `<button type="button" class="entry-acct-btn entry-acct-btn-in" data-action="pick-acct-in" style="flex:1">
-            ${acctIcon(_s.accountIn)} ${_s.accountIn || '選擇帳戶'} <span class="entry-acct-caret">▾</span>
-           </button>`;
-      acctRow = `
-        <div class="entry-acct-row">
-          <button type="button" class="entry-acct-btn" data-action="pick-acct-out" style="flex:1">
-            ${acctIcon(_s.accountOut)} ${_s.accountOut || '選擇帳戶'} <span class="entry-acct-caret">▾</span>
-          </button>
-          <span style="color:var(--text-muted);flex-shrink:0">→</span>
-          ${inDisplay}
+          </div>
         </div>`;
+      } else {
+        inRoleTabs = `<div class="entry-role-tabs">${CFG.ROLES.map(r =>
+          `<button type="button" class="entry-role-tab${_s.roleIn===r?' active':''}" data-action="role-in" data-val="${r}">${r}</button>`
+        ).join('')}</div>`;
+        inAcctBtn = `<div class="entry-acct-row">
+          <button type="button" class="entry-acct-btn entry-acct-btn-in" data-action="pick-acct-in">
+            ${acctIcon(_s.accountIn)} ${_s.accountIn || '選擇帳戶'} <span class="entry-acct-caret">▾</span>
+          </button>
+        </div>`;
+      }
+
+      roleAndAcctSection = `
+        <div class="entry-transfer-label">轉出</div>
+        ${outRoleTabs}
+        ${outAcctBtn}
+        <div class="entry-transfer-arrow">↓</div>
+        <div class="entry-transfer-label">轉入</div>
+        ${inRoleTabs}
+        ${inAcctBtn}`;
     } else {
-      acctRow = `
+      // 支出/收入：角色 tabs + 帳戶按鈕
+      let roleTabs;
+      if (isExpense && lockedProj?.ownerRole) {
+        roleTabs = `<div class="entry-role-tabs">
+          <div class="entry-role-locked">
+            <span>🔒</span>
+            <span>${lockedProj.ownerRole}</span>
+            <span class="entry-role-lock-hint">專案歸屬角色</span>
+          </div>
+        </div>`;
+      } else {
+        roleTabs = `<div class="entry-role-tabs">${CFG.ROLES.map(r =>
+          `<button type="button" class="entry-role-tab${_s.roleOut===r?' active':''}" data-action="role-out" data-val="${r}">${r}</button>`
+        ).join('')}</div>`;
+      }
+      roleAndAcctSection = `
+        ${roleTabs}
         <div class="entry-acct-row">
           <button type="button" class="entry-acct-btn" data-action="pick-acct-out">
             ${acctIcon(_s.accountOut)} ${_s.accountOut || '選擇帳戶'} <span class="entry-acct-caret">▾</span>
@@ -654,8 +612,7 @@ Router.register('entry', (() => {
       <div class="entry-type-tabs">${typeTabs}</div>
       ${dimSection}
       ${projSelect}
-      ${roleSection}
-      ${acctRow}
+      ${roleAndAcctSection}
       ${amountSection}
       ${catSection}
       ${paySection}

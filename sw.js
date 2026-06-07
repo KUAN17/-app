@@ -1,4 +1,4 @@
-const CACHE = 'family-finance-v25';
+const CACHE = 'family-finance-v26';
 const SHELL = [
   '.', 'index.html', 'css/app.css',
   'js/config.js', 'js/utils.js', 'js/auth.js', 'js/api.js',
