@@ -178,7 +178,7 @@ Router.register('investments', (() => {
         <div class="invest-summary-row">
           <span class="label-sm">總成本</span>
           <span>${Utils.formatMoney(totalCost)}</span>
-          <button class="btn btn-outline btn-sm" id="btn-inv-refresh" style="margin-left:auto">重新整理</button>
+          <button class="btn btn-outline btn-sm" id="btn-inv-refresh" style="margin-left:auto">更新報價</button>
         </div>
       </div>
       ${roleTabs}
@@ -198,11 +198,7 @@ Router.register('investments', (() => {
       });
     }
 
-    Utils.el('btn-inv-refresh').addEventListener('click', async () => {
-      Store.invalidate(); Utils.showLoading(true);
-      try { await Store.load(true); buildState(); renderPage(); Utils.toast('已更新最新收盤價'); }
-      finally { Utils.showLoading(false); }
-    });
+    Utils.el('btn-inv-refresh').addEventListener('click', () => fetchPrices());
   }
 
   function renderRoleSection(role) {
@@ -519,6 +515,72 @@ Router.register('investments', (() => {
       modal.remove();
       saveLots();
     });
+  }
+
+  // ── Yahoo Finance price fetch ─────────────────────────────────────────
+  function toYahooSymbol(ticker) {
+    const code = ticker.replace(/^TPE:/i, '');
+    if (!/^\d/.test(code)) return code; // 美股直接用原代號（AAPL 等）
+    const stock = _stockList.find(s => s.code === code);
+    return code + (stock?.market === '上櫃' ? '.TWO' : '.TW');
+  }
+
+  async function fetchPrices() {
+    const btn = document.getElementById('btn-inv-refresh');
+    if (btn) { btn.disabled = true; btn.textContent = '更新中…'; }
+
+    const activeLots = _lots.filter(l => !l._deleted);
+    const uniqueTickers = [...new Set(activeLots.map(l => l.ticker))];
+    if (!uniqueTickers.length) {
+      if (btn) { btn.disabled = false; btn.textContent = '更新報價'; }
+      return;
+    }
+
+    // Build symbol → original ticker map for reverse lookup
+    const symbolMap = {};
+    uniqueTickers.forEach(t => { symbolMap[toYahooSymbol(t)] = t; });
+    const symbols = Object.keys(symbolMap).join(',');
+
+    try {
+      const yahooUrl = `https://query2.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(symbols)}&fields=regularMarketPrice`;
+      const res = await fetch('https://corsproxy.io/?' + encodeURIComponent(yahooUrl));
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const quotes = data?.quoteResponse?.result || [];
+      if (!quotes.length) throw new Error('無報價資料');
+
+      const priceMap = {}; // original ticker → price
+      quotes.forEach(q => {
+        const orig = symbolMap[q.symbol];
+        if (orig && q.regularMarketPrice) priceMap[orig] = q.regularMarketPrice;
+      });
+
+      // Update _lots in memory
+      _lots.forEach(l => { if (priceMap[l.ticker]) l.price = priceMap[l.ticker]; });
+
+      // Write prices to Investments!H2:H51 (one row per active lot, same order as saveLots)
+      const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID) || CFG.SHEET_ID;
+      const priceRows = activeLots.map(l => [priceMap[l.ticker] || l.price || '']);
+      while (priceRows.length < 50) priceRows.push(['']);
+      await API.updateRange(sid, 'Investments!H2:H51', priceRows);
+
+      Store.invalidate();
+      await Store.load(true);
+      buildState();
+      renderPage();
+
+      const got    = Object.keys(priceMap).length;
+      const failed = uniqueTickers.length - got;
+      if (failed > 0) {
+        const missing = uniqueTickers.filter(t => !priceMap[t]).map(t => t.replace(/^TPE:/i, '')).join('、');
+        Utils.toast(`已更新 ${got} 筆，${missing} 無法取得`, 'warn');
+      } else {
+        Utils.toast(`報價已更新（${got} 筆）`, 'success');
+      }
+    } catch (err) {
+      Utils.toast('報價更新失敗：' + err.message, 'error');
+      if (btn) { btn.disabled = false; btn.textContent = '更新報價'; }
+    }
   }
 
   // ── Save ───────────────────────────────────────────────────────────────
