@@ -179,6 +179,7 @@ Router.register('projects', (() => {
   function showNewProjModal() {
     const modal = document.createElement('div');
     modal.className = 'modal-overlay';
+    const roleOpts = CFG.ROLES.map(r => `<option value="${r}">${r}</option>`).join('');
     modal.innerHTML = `<div class="modal-card">
       <div class="modal-title">新增專案</div>
       <div class="form-row">
@@ -195,6 +196,18 @@ Router.register('projects', (() => {
       <div class="form-row">
         <label id="lbl-budget">目標預算</label>
         <input type="number" id="inp-proj-budget" class="form-input" placeholder="0" min="0">
+      </div>
+      <div class="form-row">
+        <label>費用歸屬角色 *</label>
+        <select id="inp-proj-owner-role" class="form-select">
+          <option value="">請選擇</option>${roleOpts}
+        </select>
+      </div>
+      <div class="form-row">
+        <label>預設扣款帳戶</label>
+        <select id="inp-proj-default-acct" class="form-select">
+          <option value="">（不指定）</option>
+        </select>
       </div>
       <div id="loan-extra" style="display:none">
         <div class="form-row">
@@ -224,6 +237,13 @@ Router.register('projects', (() => {
     Utils.el('btn-cancel-proj').addEventListener('click', () => modal.remove());
     Utils.el('btn-save-proj').addEventListener('click', () => saveNewProject(modal));
 
+    Utils.el('inp-proj-owner-role').addEventListener('change', e => {
+      const accts = Store.accountsForRole(e.target.value);
+      Utils.el('inp-proj-default-acct').innerHTML =
+        '<option value="">（不指定）</option>' +
+        accts.map(a => `<option value="${a}">${a}</option>`).join('');
+    });
+
     Utils.el('ptype-general').addEventListener('click', () => {
       Utils.el('ptype-general').classList.add('active');
       Utils.el('ptype-loan').classList.remove('active');
@@ -239,11 +259,14 @@ Router.register('projects', (() => {
   }
 
   async function saveNewProject(modal) {
-    const name   = Utils.el('inp-proj-name').value.trim();
-    const budget = parseFloat(Utils.el('inp-proj-budget').value) || 0;
-    const isLoan = Utils.el('ptype-loan').classList.contains('active');
-    if (!name)        return Utils.toast('請輸入專案名稱', 'warn');
-    if (budget <= 0)  return Utils.toast('請輸入金額', 'warn');
+    const name         = Utils.el('inp-proj-name').value.trim();
+    const budget       = parseFloat(Utils.el('inp-proj-budget').value) || 0;
+    const ownerRole    = Utils.el('inp-proj-owner-role').value;
+    const defaultAcct  = Utils.el('inp-proj-default-acct').value;
+    const isLoan       = Utils.el('ptype-loan').classList.contains('active');
+    if (!name)       return Utils.toast('請輸入專案名稱', 'warn');
+    if (budget <= 0) return Utils.toast('請輸入金額', 'warn');
+    if (!ownerRole)  return Utils.toast('請選擇費用歸屬角色', 'warn');
 
     let monthly = 0, rate = 0, startDate = '', periods = 0;
     if (isLoan) {
@@ -256,14 +279,14 @@ Router.register('projects', (() => {
     }
 
     const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID);
-    // Columns D-H are legacy formula placeholders, leave empty; I-L = loan fields
+    // A-C: status/name/budget, D-H: formula placeholders, I-L: loan fields, M-N: ownerRole/defaultAccount
     const row = isLoan
-      ? ['進行中', name, budget, '', '', '', '', '', monthly, rate, startDate, periods]
-      : ['進行中', name, budget];
+      ? ['進行中', name, budget, '', '', '', '', '', monthly, rate, startDate, periods, ownerRole, defaultAcct]
+      : ['進行中', name, budget, '', '', '', '', '', '', '', '', '', ownerRole, defaultAcct];
 
     Utils.showLoading(true);
     try {
-      await API.append(sid, 'Projects!A:L', row);
+      await API.append(sid, 'Projects!A:N', row);
       Store.invalidate();
       await Store.load(true);
       modal.remove();
@@ -282,6 +305,13 @@ Router.register('projects', (() => {
     const isLoan = p.monthlyPayment > 0;
     const modal = document.createElement('div');
     modal.className = 'modal-overlay';
+    const roleOpts = CFG.ROLES.map(r =>
+      `<option value="${r}"${p.ownerRole===r?' selected':''}>${r}</option>`
+    ).join('');
+    const accts = p.ownerRole ? Store.accountsForRole(p.ownerRole) : [];
+    const acctOpts = accts.map(a =>
+      `<option value="${a}"${p.defaultAccount===a?' selected':''}>${a}</option>`
+    ).join('');
     modal.innerHTML = `<div class="modal-card">
       <div class="modal-title">編輯專案</div>
       <div class="form-row">
@@ -291,6 +321,18 @@ Router.register('projects', (() => {
       <div class="form-row">
         <label>${isLoan ? '貸款總額' : '目標預算'}</label>
         <input type="number" id="inp-edit-proj-budget" class="form-input" value="${p.budget}" min="0">
+      </div>
+      <div class="form-row">
+        <label>費用歸屬角色 *</label>
+        <select id="inp-edit-owner-role" class="form-select">
+          <option value="">請選擇</option>${roleOpts}
+        </select>
+      </div>
+      <div class="form-row">
+        <label>預設扣款帳戶</label>
+        <select id="inp-edit-default-acct" class="form-select">
+          <option value="">（不指定）</option>${acctOpts}
+        </select>
       </div>
       ${isLoan ? `
       <div class="form-row">
@@ -318,19 +360,30 @@ Router.register('projects', (() => {
     modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
     Utils.el('btn-cancel-edit-proj').addEventListener('click', () => modal.remove());
     Utils.el('btn-save-edit-proj').addEventListener('click', () => saveEditProject(p, isLoan, sheetRow, modal));
+
+    Utils.el('inp-edit-owner-role').addEventListener('change', e => {
+      const accts = Store.accountsForRole(e.target.value);
+      Utils.el('inp-edit-default-acct').innerHTML =
+        '<option value="">（不指定）</option>' +
+        accts.map(a => `<option value="${a}">${a}</option>`).join('');
+    });
   }
 
   async function saveEditProject(oldProj, isLoan, sheetRow, modal) {
-    const newName   = Utils.el('inp-edit-proj-name').value.trim();
-    const newBudget = parseFloat(Utils.el('inp-edit-proj-budget').value) || 0;
-    if (!newName)       return Utils.toast('請輸入專案名稱', 'warn');
+    const newName    = Utils.el('inp-edit-proj-name').value.trim();
+    const newBudget  = parseFloat(Utils.el('inp-edit-proj-budget').value) || 0;
+    const ownerRole  = Utils.el('inp-edit-owner-role').value;
+    const defaultAcct = Utils.el('inp-edit-default-acct').value;
+    if (!newName)    return Utils.toast('請輸入專案名稱', 'warn');
     if (newBudget <= 0) return Utils.toast('請輸入金額', 'warn');
+    if (!ownerRole)  return Utils.toast('請選擇費用歸屬角色', 'warn');
 
     const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID);
     const saveBtn = Utils.el('btn-save-edit-proj');
     if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = '儲存中…'; }
     try {
       await API.updateRange(sid, `Projects!B${sheetRow}:C${sheetRow}`, [[newName, newBudget]]);
+      await API.updateRange(sid, `Projects!M${sheetRow}:N${sheetRow}`, [[ownerRole, defaultAcct]]);
       if (isLoan) {
         const monthly   = parseFloat(Utils.el('inp-edit-monthly').value) || 0;
         const rate      = parseFloat(Utils.el('inp-edit-rate').value) || 0;
