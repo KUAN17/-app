@@ -173,6 +173,67 @@ html, body {
 .invest-summary { padding: 14px; }
 .invest-row { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; }
 
+/* dash chips (role / period tabs) */
+.dash-chips-row { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+.dash-chip {
+  border: 1.5px solid var(--border); background: var(--card); border-radius: 99px;
+  padding: 5px 14px; font-size: 13px; font-weight: 500; cursor: pointer; color: var(--text-muted);
+  transition: all .15s;
+}
+.dash-chip.active { background: var(--primary); border-color: var(--primary); color: #fff; font-weight: 600; }
+
+/* dash nav (month / year picker) */
+.dash-nav-row {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 10px;
+}
+.dash-nav-btn {
+  width: 36px; height: 36px; border: 1.5px solid var(--border); border-radius: 50%;
+  background: var(--card); font-size: 18px; line-height: 1; cursor: pointer; color: var(--text);
+  display: flex; align-items: center; justify-content: center;
+}
+.dash-nav-btn:disabled { opacity: .3; cursor: default; }
+.dash-nav-label { font-size: 16px; font-weight: 700; }
+
+/* dash summary 3-col grid */
+.dash-summary-grid {
+  display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 4px;
+}
+.dash-sum-card {
+  background: var(--card); border-radius: var(--radius);
+  box-shadow: 0 1px 4px rgba(0,0,0,.07); padding: 12px 10px; text-align: center;
+}
+.dash-sum-label { font-size: 11px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: .4px; margin-bottom: 6px; }
+.dash-sum-val { font-size: 14px; font-weight: 700; line-height: 1.2; word-break: break-all; }
+
+/* dash category bars */
+.dash-cat-card { padding: 4px 14px; }
+.dash-cat-row { display: flex; align-items: center; gap: 8px; padding: 7px 0; border-bottom: 1px solid var(--border); }
+.dash-cat-row:last-child { border-bottom: none; }
+.dash-cat-name { font-size: 13px; color: var(--text); width: 64px; flex-shrink: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dash-cat-bar-wrap { flex: 1; height: 6px; background: var(--bg); border-radius: 3px; overflow: hidden; }
+.dash-cat-bar { height: 100%; background: var(--danger); border-radius: 3px; transition: width .3s ease; }
+.dash-cat-amt { font-size: 12px; font-weight: 600; color: var(--text); width: 52px; text-align: right; flex-shrink: 0; }
+
+/* dash year bar chart */
+.dash-bar-chart {
+  display: flex; align-items: flex-end; justify-content: space-around;
+  padding: 12px 8px 8px; gap: 0; overflow: hidden;
+}
+.dash-bar-col { display: flex; flex-direction: column; align-items: center; gap: 4px; flex: 1; }
+.dash-bar-pair { display: flex; gap: 2px; align-items: flex-end; height: 80px; }
+.dash-bar-in  { width: 7px; background: #059669; border-radius: 3px 3px 0 0; min-height: 2px; }
+.dash-bar-out { width: 7px; background: var(--danger); border-radius: 3px 3px 0 0; min-height: 2px; }
+.dash-bar-label { font-size: 10px; color: var(--text-muted); }
+
+/* dash account section */
+.dash-acct-role { font-size: 12px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; margin: 10px 0 4px; }
+.dash-acct-card { padding: 0 14px; }
+.dash-acct-row { display: flex; justify-content: space-between; align-items: center; padding: 11px 0; border-bottom: 1px solid var(--border); }
+.dash-acct-row:last-child { border-bottom: none; }
+.dash-acct-name { font-size: 14px; color: var(--text); }
+.dash-acct-bal { font-size: 14px; font-weight: 600; }
+
 /* ── Progress bars ──────────────────────────────────────── */
 .progress-wrap { background: #E5E7EB; border-radius: 4px; height: 8px; margin: 8px 0; overflow: hidden; }
 .progress-bar { height: 100%; border-radius: 4px; background: var(--success); transition: width .4s ease; }
