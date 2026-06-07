@@ -1,6 +1,6 @@
 Router.register('settings', (() => {
-  // In-memory account state for the management UI
-  let _acctState = {}; // { role: [{name, purpose, balance, baseDate, _deleted, _new}] }
+  let _acctState = {};
+  let _projState = []; // [{ _row, name, status, ownerRole, defaultAccount }]
 
   // ── Render shell ─────────────────────────────────────────────────────────
   function render(el) {
@@ -25,6 +25,10 @@ Router.register('settings', (() => {
       <div class="section-label">帳戶管理</div>
       <p class="section-hint">新增、刪除各角色的帳戶，並設定期初餘額。</p>
       <div id="acct-mgmt-section"><div class="spinner"></div></div>
+
+      <div class="section-label">專案設定</div>
+      <p class="section-hint">設定各專案的費用歸屬角色與預設扣款帳戶，記帳時選擇專案後自動帶入。</p>
+      <div id="proj-settings-section"><div class="spinner"></div></div>
 
       <div class="section-label">後端試算表初始化</div>
       <div class="card settings-card">
@@ -292,6 +296,99 @@ Router.register('settings', (() => {
     }
   }
 
+  // ── Project settings section ─────────────────────────────────────────────
+  async function loadProjSection() {
+    const el = Utils.el('proj-settings-section');
+    try {
+      await Store.load();
+      const projects = Store.get().projects;
+      _projState = projects.map(p => ({
+        _row: p._row, name: p.name, status: p.status,
+        ownerRole: p.ownerRole || '', defaultAccount: p.defaultAccount || ''
+      }));
+      renderProjSection();
+    } catch(e) {
+      el.innerHTML = `<p class="error-msg">${e.message}</p>`;
+    }
+  }
+
+  function renderProjSection() {
+    const el = Utils.el('proj-settings-section');
+    if (!_projState.length) {
+      el.innerHTML = `<div class="card settings-card"><p class="empty-hint" style="padding:10px 0">尚無專案資料</p></div>`;
+      return;
+    }
+
+    const rows = _projState.map((p, i) => {
+      const statusClass = p.status === '進行中' ? 'type-bank' : 'type-cash';
+      const roleOpts = CFG.ROLES.map(r =>
+        `<option value="${r}"${p.ownerRole===r?' selected':''}>${r}</option>`
+      ).join('');
+      const accts = p.ownerRole ? Store.accountsForRole(p.ownerRole) : [];
+      const acctOpts = accts.map(a =>
+        `<option value="${a}"${p.defaultAccount===a?' selected':''}>${a}</option>`
+      ).join('');
+      return `<div class="proj-setting-row">
+        <div class="proj-setting-name">
+          ${p.name}
+          <span class="acct-type-badge ${statusClass}" style="font-size:10px">${p.status}</span>
+        </div>
+        <div class="proj-setting-fields">
+          <select class="form-select inp-proj-owner" data-i="${i}" style="flex:1;font-size:13px">
+            <option value="">歸屬角色</option>${roleOpts}
+          </select>
+          <select class="form-select inp-proj-acct" data-i="${i}" style="flex:1;font-size:13px">
+            <option value="">預設帳戶</option>${acctOpts}
+          </select>
+        </div>
+      </div>`;
+    }).join('');
+
+    el.innerHTML = `<div class="card settings-card">
+      ${rows}
+      <button class="btn btn-primary btn-full" id="btn-save-proj" style="margin-top:12px">儲存專案設定</button>
+    </div>`;
+
+    el.querySelectorAll('.inp-proj-owner').forEach(sel => {
+      sel.addEventListener('change', () => {
+        const i = parseInt(sel.dataset.i);
+        _projState[i].ownerRole = sel.value;
+        _projState[i].defaultAccount = '';
+        const accts = Store.accountsForRole(sel.value);
+        const acctSel = el.querySelector(`.inp-proj-acct[data-i="${i}"]`);
+        if (acctSel) acctSel.innerHTML = '<option value="">預設帳戶</option>' +
+          accts.map(a => `<option value="${a}">${a}</option>`).join('');
+      });
+    });
+
+    el.querySelectorAll('.inp-proj-acct').forEach(sel => {
+      sel.addEventListener('change', () => {
+        _projState[parseInt(sel.dataset.i)].defaultAccount = sel.value;
+      });
+    });
+
+    Utils.el('btn-save-proj').addEventListener('click', saveProjSettings);
+  }
+
+  async function saveProjSettings() {
+    if (!_projState.length) return;
+    const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID) || CFG.SHEET_ID;
+    const maxRow = Math.max(..._projState.map(p => p._row));
+    const data = Array.from({ length: maxRow - 1 }, () => ['', '']);
+    _projState.forEach(p => { data[p._row - 2] = [p.ownerRole || '', p.defaultAccount || '']; });
+
+    Utils.showLoading(true);
+    try {
+      await API.updateRange(sid, `Projects!M2:N${maxRow}`, data);
+      Store.invalidate();
+      Utils.toast('專案設定已儲存', 'success');
+    } catch(e) {
+      Utils.toast('儲存失敗：' + e.message, 'error');
+    } finally {
+      Utils.showLoading(false);
+    }
+  }
+
   async function initDefaultAccounts() {
     const today = new Date().toISOString().slice(0, 10).replace(/-/g, '/');
     CFG.ROLES.forEach(r => { _acctState[r] = []; });
@@ -413,6 +510,7 @@ Router.register('settings', (() => {
     });
 
     loadAccountSection();
+    loadProjSection();
   }
 
   return { render, onMount };

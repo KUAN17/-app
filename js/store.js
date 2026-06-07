@@ -25,13 +25,16 @@ window.Store = (() => {
       amount: Utils.parseAmount(row[8]),
       accountOut: row[9] || '',
       roleIn: row[10] || '',
-      accountIn: row[11] || ''
+      accountIn: row[11] || '',
+      payRole: row[12] || '',
+      payAccount: row[13] || ''
     };
   }
 
   // ── Projects row → object ────────────────────────────────────────────────
-  function parseProjectRow(row) {
+  function parseProjectRow(row, idx) {
     return {
+      _row: idx + 2,
       status: row[0] || '',
       name:   row[1] || '',
       budget: Utils.parseAmount(row[2]),
@@ -40,7 +43,10 @@ window.Store = (() => {
       monthlyPayment: Utils.parseAmount(row[8]),
       annualRate:     parseFloat(row[9]) || 0,
       loanStartDate:  row[10] || '',
-      totalPeriods:   parseInt(row[11]) || 0
+      totalPeriods:   parseInt(row[11]) || 0,
+      // Project owner config — columns M-N (indices 12-13)
+      ownerRole:      row[12] || '',
+      defaultAccount: row[13] || ''
     };
   }
 
@@ -96,15 +102,15 @@ window.Store = (() => {
     Utils.showLoading(true);
     try {
       const ranges = [
-        'Ledger!A2:L',
-        'Projects!A2:L',
+        'Ledger!A2:N',
+        'Projects!A2:N',
         'Investments!A2:K',
         'Backend!L2:S'
       ];
       const [ledgerRows, projRows, invRows, acctRows] = await API.batchGet(sid, ranges);
 
       _data.ledger = ledgerRows.filter(r => r[0]).map(parseLedgerRow);
-      _data.projects = projRows.filter(r => r[1]).map(parseProjectRow);
+      _data.projects = projRows.filter(r => r[1]).map((row, idx) => parseProjectRow(row, idx));
       _data.investments = invRows.filter(r => r[2]).map(parseInvestRow);
       _data.accounts = parseAccountConfig(acctRows);
       _data.activeProjects = _data.projects.filter(p => p.status === '進行中').map(p => p.name);
@@ -147,8 +153,13 @@ window.Store = (() => {
       if (baseDate && tx.date < baseDate) return;
       if (tx.type === '收入' && tx.roleOut === role && tx.accountOut === accountName) {
         balance += tx.amount;
-      } else if (tx.type === '支出' && tx.roleOut === role && tx.accountOut === accountName) {
-        balance -= tx.amount;
+      } else if (tx.type === '支出') {
+        if (tx.payAccount) {
+          // 代付：實際從 payAccount 扣款，accountOut 為費用歸屬（待帳單轉帳時才扣）
+          if (tx.payAccount === accountName) balance -= tx.amount;
+        } else if (tx.roleOut === role && tx.accountOut === accountName) {
+          balance -= tx.amount;
+        }
       } else if ((tx.type === '轉帳' || tx.type === '公積金提撥')) {
         if (tx.roleOut === role && tx.accountOut === accountName) balance -= tx.amount;
         if (tx.roleIn === role && tx.accountIn === accountName) balance += tx.amount;

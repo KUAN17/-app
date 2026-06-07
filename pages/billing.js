@@ -107,7 +107,8 @@ Router.register('billing', (() => {
     const inProgress = todayStr <= endStr; // today is still within billing period
 
     const cycleTxs = ledger.filter(tx =>
-      tx.accountOut === acct.name && tx.type === '支出' &&
+      (tx.accountOut === acct.name || tx.payAccount === acct.name) &&
+      tx.type === '支出' &&
       tx.date >= startStr && tx.date <= (inProgress ? todayStr : endStr)
     ).sort((a, b) => b.date.localeCompare(a.date));
 
