@@ -81,6 +81,12 @@ Router.register('entry', (() => {
   }
 
   function attachListeners() {
+    document.getElementById('date-trigger')?.addEventListener('click', () => {
+      const inp = document.getElementById('inp-date');
+      if (!inp) return;
+      try { inp.showPicker(); } catch { inp.click(); }
+    });
+
     document.getElementById('inp-date')?.addEventListener('change', e => {
       _s.date = e.target.value;
       const today = new Date().toISOString().slice(0, 10);
@@ -432,15 +438,15 @@ Router.register('entry', (() => {
       return `<button type="button" class="entry-type-tab${_s.type===t?' active':''}" data-action="type" data-val="${t}">${label}</button>`;
     }).join('');
 
-    // 2. Date (standalone row)
+    // 2. Date (standalone row) — 用 showPicker() 觸發，避免 iOS opacity:0 無法點擊
     const dateSection = `
-      <label class="entry-date-standalone" for="inp-date">
+      <div class="entry-date-standalone" id="date-trigger">
         <span>📅</span>
         <span id="date-label" style="font-weight:600">${dateLabel}</span>
         <span style="margin-left:auto;color:var(--text-muted)">›</span>
         <input type="date" id="inp-date" value="${_s.date}"
-               style="position:absolute;opacity:0;width:100%;height:100%;top:0;left:0;cursor:pointer;border:none">
-      </label>`;
+               style="position:absolute;opacity:0;pointer-events:none;width:1px;height:1px;border:none">
+      </div>`;
 
     // 3. Dim tabs (支出 only)
     const dimSection = isExpense ? `
