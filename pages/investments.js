@@ -517,7 +517,7 @@ Router.register('investments', (() => {
     });
   }
 
-  // ── TWSE MI API price fetch ───────────────────────────────────────────
+  // ── Price fetch via TWSE/TPEX Open API (no auth, CORS-friendly) ──────
   async function fetchPrices() {
     const btn = document.getElementById('btn-inv-refresh');
     if (btn) { btn.disabled = true; btn.textContent = '更新中…'; }
@@ -529,39 +529,55 @@ Router.register('investments', (() => {
       return;
     }
 
-    // 僅處理台股（TPE: 開頭）；美股跳過（保留原價）
-    const twTickers = uniqueTickers.filter(t => /^TPE:/i.test(t));
-    const priceMap  = {};
-
-    if (twTickers.length) {
-      const exCh = twTickers.map(t => {
-        const code  = t.replace(/^TPE:/i, '');
-        const stock = _stockList.find(s => s.code === code);
-        return (stock?.market === '上櫃' ? 'otc' : 'tse') + '_' + code + '.tw';
-      }).join('|');
-
-      try {
-        // TWSE MI API：官方端點，有 CORS，支援所有上市/上櫃/債券ETF
-        const res = await fetch(
-          `https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=${encodeURIComponent(exCh)}&json=1&delay=0`
-        );
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
-
-        (data.msgArray || []).forEach(item => {
-          if (!item.c) return;
-          // z = 最新成交價（盤中）；盤後 z 為 '-'，改用 y（昨日收盤）
-          const price = (item.z && item.z !== '-') ? parseFloat(item.z) : parseFloat(item.y || 0);
-          if (price > 0) priceMap['TPE:' + item.c] = price;
-        });
-      } catch (err) {
-        Utils.toast('TWSE API 失敗：' + err.message, 'error');
-        if (btn) { btn.disabled = false; btn.textContent = '更新報價'; }
-        return;
-      }
+    // 從回應物件中取收盤價（各 API 欄位名稱不同，防禦性讀取）
+    function px(obj) {
+      return parseFloat(obj['收盤價'] || obj['收盤'] || obj['Close'] || obj['close'] || 0) || 0;
+    }
+    function cd(obj) {
+      return (obj['證券代號'] || obj['代號'] || obj['SecuritiesCompanyCode'] ||
+              obj['Code'] || obj['公司代號'] || '').trim();
     }
 
-    // 更新記憶體中的 price
+    const priceMap = {};
+
+    try {
+      // 三支 Open API 並行抓取：
+      //   1. t187ap03_L    → 上市股票（含收盤價）
+      //   2. MI_ETFCH_CLSPRC → 上市 ETF 收盤行情（含債券ETF）
+      //   3. tpex PE       → 上櫃股票（含收盤價）
+      const [twseRes, etfRes, tpexRes] = await Promise.allSettled([
+        fetch('https://openapi.twse.com.tw/v1/opendata/t187ap03_L').then(r => r.json()),
+        fetch('https://openapi.twse.com.tw/v1/exchangeReport/MI_ETFCH_CLSPRC').then(r => r.json()),
+        fetch('https://www.tpex.org.tw/openapi/v1/tpex_mainboard_peratio_analysis').then(r => r.json())
+      ]);
+
+      if (twseRes.status === 'fulfilled' && Array.isArray(twseRes.value)) {
+        twseRes.value.forEach(s => {
+          const code = cd(s), price = px(s);
+          if (code && price > 0) priceMap['TPE:' + code] = price;
+        });
+      }
+      if (etfRes.status === 'fulfilled' && Array.isArray(etfRes.value)) {
+        etfRes.value.forEach(s => {
+          const code = cd(s), price = px(s);
+          if (code && price > 0) priceMap['TPE:' + code] = price;
+        });
+      }
+      if (tpexRes.status === 'fulfilled' && Array.isArray(tpexRes.value)) {
+        tpexRes.value.forEach(s => {
+          const code = cd(s), price = px(s);
+          if (code && price > 0) priceMap['TPE:' + code] = price;
+        });
+      }
+
+      if (!Object.keys(priceMap).length) throw new Error('三個端點均未取得報價，請確認網路連線');
+    } catch (err) {
+      Utils.toast('取得報價失敗：' + err.message, 'error');
+      if (btn) { btn.disabled = false; btn.textContent = '更新報價'; }
+      return;
+    }
+
+    // 更新記憶體
     _lots.forEach(l => { if (priceMap[l.ticker]) l.price = priceMap[l.ticker]; });
 
     // 寫回 Investments!H2:H51
@@ -576,8 +592,8 @@ Router.register('investments', (() => {
       buildState();
       renderPage();
 
-      const got     = Object.keys(priceMap).length;
-      const missing = twTickers.filter(t => !priceMap[t]).map(t => t.replace(/^TPE:/i, ''));
+      const got     = uniqueTickers.filter(t => priceMap[t]).length;
+      const missing = uniqueTickers.filter(t => !priceMap[t]).map(t => t.replace(/^TPE:/i, ''));
       if (missing.length) {
         Utils.toast(`已更新 ${got} 筆，${missing.join('、')} 無法取得`, 'warn');
       } else {
