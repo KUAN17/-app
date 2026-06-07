@@ -368,6 +368,29 @@ html, body {
 }
 .entry-role-tab.active { background: var(--primary); border-color: var(--primary); color: #fff; }
 
+/* Locked role display (支出+專案 with project selected) */
+.entry-role-locked {
+  display: flex; align-items: center; gap: 8px; flex: 1;
+  padding: 7px 14px; border-radius: 8px; font-size: 13px; font-weight: 600;
+  background: var(--primary-light); color: var(--primary);
+  border: 1.5px solid var(--primary);
+}
+.entry-role-lock-hint {
+  font-size: 11px; color: var(--text-muted); margin-left: auto; font-weight: 400;
+}
+
+/* Locked account display (轉帳+專案 in side) */
+.entry-acct-locked {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 8px 12px; border-radius: 10px;
+  border: 1.5px solid #6EE7B7;
+  background: var(--success-light); color: #059669;
+  font-size: 13px; font-weight: 600;
+}
+.entry-acct-lock-hint {
+  font-size: 11px; color: var(--text-muted); margin-left: auto; font-weight: 400;
+}
+
 /* Date standalone row */
 .entry-date-standalone {
   position: relative; display: flex; align-items: center; gap: 10px;

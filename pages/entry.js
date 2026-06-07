@@ -4,9 +4,7 @@ Router.register('entry', (() => {
     '娛樂':'🎮','家用':'🏠','電信':'📱','醫藥':'💊',
     '教育':'📚','醫療保險':'🏥','投資儲蓄':'📈','旅遊':'✈️',
     '訂閱':'📺','信用卡費':'💳',
-    '薪資收入':'💰','利息/股息':'📊','業外收入':'💵','現金回饋':'🎁',
-    'ATM領現':'🏧','轉帳':'🔄',
-    '常態家用':'🏡','專案預備金':'🗂️'
+    '薪資收入':'💰','利息/股息':'📊','業外收入':'💵','現金回饋':'🎁'
   };
   const LS_LAST         = 'ff_entry_last';
   const LS_RECENT_MEMOS = 'ff_recent_memos';
@@ -31,8 +29,8 @@ Router.register('entry', (() => {
 
   function initState() {
     const last    = loadLast();
-    const role    = CFG.ROLES.includes(last.roleOut) ? last.roleOut : CFG.ROLES[0];
     const type    = CFG.TX_TYPES.includes(last.type) ? last.type : '支出';
+    const role    = CFG.ROLES.includes(last.roleOut) ? last.roleOut : CFG.ROLES[0];
     const accts   = Store.accountsForRole(role);
     const acctOut = accts.includes(last.accountOut) ? last.accountOut : (accts[0] || '');
     const roleIn  = CFG.ROLES.includes(last.roleIn) ? last.roleIn : CFG.ROLES[0];
@@ -47,12 +45,6 @@ Router.register('entry', (() => {
       memo: '', amount: '',
       payRole: '', payAccount: ''
     };
-
-    if (type === '公積金提撥') {
-      _s.roleIn = '家用';
-      const ha = Store.accountsForRole('家用');
-      _s.accountIn = ha[0] || '';
-    }
   }
 
   function saveLast() {
@@ -100,10 +92,6 @@ Router.register('entry', (() => {
       handleAction('sel-proj', e.target.value);
     });
 
-    document.getElementById('sel-project-reserve')?.addEventListener('change', e => {
-      _s.projectTag = e.target.value;
-    });
-
     const projCatEl = document.getElementById('inp-proj-cat');
     if (projCatEl) {
       projCatEl.addEventListener('input', e => {
@@ -129,10 +117,6 @@ Router.register('entry', (() => {
       case 'type': {
         _s.type = val; _s.category = ''; _s.dimension = '日常';
         _s.projectTag = ''; _s.payRole = ''; _s.payAccount = '';
-        if (val === '公積金提撥') {
-          _s.roleIn = '家用';
-          _s.accountIn = Store.accountsForRole('家用')[0] || '';
-        }
         renderAll(); break;
       }
       case 'set-dim': {
@@ -149,11 +133,22 @@ Router.register('entry', (() => {
         _s.projectTag = val;
         if (val) {
           const proj = Store.get().projects.find(p => p.name === val);
-          if (proj?.ownerRole && CFG.ROLES.includes(proj.ownerRole)) {
-            _s.roleOut = proj.ownerRole;
-            const accts = Store.accountsForRole(proj.ownerRole);
-            _s.accountOut = (proj.defaultAccount && accts.includes(proj.defaultAccount))
-              ? proj.defaultAccount : (accts[0] || '');
+          if (_s.type === '轉帳') {
+            // 轉帳+專案：鎖定轉入角色/帳戶為專案綁定
+            if (proj?.ownerRole && CFG.ROLES.includes(proj.ownerRole)) {
+              _s.roleIn = proj.ownerRole;
+              const accts = Store.accountsForRole(proj.ownerRole);
+              _s.accountIn = (proj.defaultAccount && accts.includes(proj.defaultAccount))
+                ? proj.defaultAccount : (accts[0] || '');
+            }
+          } else {
+            // 支出+專案：鎖定轉出角色/帳戶為專案歸屬
+            if (proj?.ownerRole && CFG.ROLES.includes(proj.ownerRole)) {
+              _s.roleOut = proj.ownerRole;
+              const accts = Store.accountsForRole(proj.ownerRole);
+              _s.accountOut = (proj.defaultAccount && accts.includes(proj.defaultAccount))
+                ? proj.defaultAccount : (accts[0] || '');
+            }
           }
         }
         renderAll(); break;
@@ -162,7 +157,6 @@ Router.register('entry', (() => {
         _s.category = val;
         _el.querySelectorAll('.entry-cat-chip').forEach(c =>
           c.classList.toggle('selected', c.dataset.val === val));
-        if (_s.type === '公積金提撥') { _s.projectTag = ''; renderAll(); }
         break;
       case 'proj-cat-sugg': {
         _s.category = val;
@@ -244,15 +238,17 @@ Router.register('entry', (() => {
     const modal = document.createElement('div');
     modal.className = 'modal-overlay';
     const allAccts = Store.allAccountsFlat();
+    // 轉帳 付款側：顯示所有帳戶（跨角色）；其他：依 roleOut 過濾
     const pool = side === 'out'
-      ? allAccts.filter(a => a.role === _s.roleOut)
-      : (_s.type === '公積金提撥' ? allAccts.filter(a => a.role === '家用') : allAccts);
+      ? (_s.type === '轉帳' ? allAccts : allAccts.filter(a => a.role === _s.roleOut))
+      : allAccts;
 
     const TYPE_ORDER = ['現金', '銀行', '信用卡', '證券帳戶'];
     const TYPE_ICONS = { '現金': '💵', '銀行': '🏦', '信用卡': '💳', '證券帳戶': '📊' };
     const usedTypes  = TYPE_ORDER.filter(t => pool.some(a => (a.type || '銀行') === t));
     const curName    = side === 'out' ? _s.accountOut : _s.accountIn;
-    const curObj     = pool.find(a => a.name === curName);
+    const curRole    = side === 'out' ? _s.roleOut : _s.roleIn;
+    const curObj     = pool.find(a => a.name === curName && a.role === curRole);
     let activeType   = curObj?.type || '銀行';
     if (!usedTypes.includes(activeType)) activeType = usedTypes[0] || '銀行';
 
@@ -260,7 +256,8 @@ Router.register('entry', (() => {
       const items = pool.filter(a => (a.type || '銀行') === type);
       if (!items.length) return '<p class="empty-hint">此類型無帳戶</p>';
       return items.map(a => {
-        const cur = side === 'out' ? _s.accountOut === a.name
+        const cur = side === 'out'
+          ? (_s.accountOut === a.name && _s.roleOut === a.role)
           : (_s.accountIn === a.name && _s.roleIn === a.role);
         return `<div class="acct-pick-item${cur?' active':''}" data-role="${a.role}" data-acct="${a.name.replace(/"/g,'&quot;')}">
           <span class="balance-role-badge">${a.role}</span>
@@ -287,8 +284,13 @@ Router.register('entry', (() => {
     function attachItems() {
       modal.querySelectorAll('.acct-pick-item').forEach(item => {
         item.addEventListener('click', () => {
-          if (side === 'out') { _s.accountOut = item.dataset.acct; }
-          else { _s.roleIn = item.dataset.role; _s.accountIn = item.dataset.acct; }
+          if (side === 'out') {
+            _s.accountOut = item.dataset.acct;
+            if (_s.type === '轉帳') _s.roleOut = item.dataset.role;
+          } else {
+            _s.roleIn = item.dataset.role;
+            _s.accountIn = item.dataset.acct;
+          }
           modal.remove(); renderAll();
         });
       });
@@ -364,24 +366,23 @@ Router.register('entry', (() => {
 
   // ── Submit ────────────────────────────────────────────────────────────────
   async function handleSubmit() {
-    const isTransfer = _s.type === '轉帳' || _s.type === '公積金提撥';
+    const isTransfer = _s.type === '轉帳';
     const isExpense  = _s.type === '支出';
+    const isProjMode = (isExpense || isTransfer) && _s.dimension === '專案';
     const amount     = parseFloat(_s.amount);
-    const needsProjTag = (isExpense && _s.dimension === '專案') ||
-                         (_s.type === '公積金提撥' && _s.category === '專案預備金');
-    const catRequired  = !(isExpense && _s.dimension === '專案');
+    const catRequired = !isTransfer && !(isExpense && _s.dimension === '專案');
 
     if (catRequired && !_s.category) return Utils.toast('請選擇分類', 'warn');
     if (!_s.accountOut)              return Utils.toast('請選擇付款帳戶', 'warn');
     if (!amount || amount <= 0)      return Utils.toast('請輸入有效金額', 'warn');
-    if (needsProjTag && !_s.projectTag) return Utils.toast('請選擇專案', 'warn');
-    if (isTransfer && !_s.accountIn)    return Utils.toast('請選擇對象帳戶', 'warn');
+    if (isProjMode && !_s.projectTag) return Utils.toast('請選擇專案', 'warn');
+    if (isTransfer && !_s.accountIn)  return Utils.toast('請選擇對象帳戶', 'warn');
 
     const memo = _s.memo.trim();
     const row = [
       Utils.uid(), _s.roleOut,
-      isExpense ? _s.dimension : '',
-      needsProjTag ? _s.projectTag : '',
+      (isExpense || isTransfer) ? _s.dimension : '',
+      isProjMode ? _s.projectTag : '',
       _s.type, _s.category, memo,
       _s.date.replace(/-/g, '/'), amount, _s.accountOut,
       isTransfer ? _s.roleIn : '', isTransfer ? _s.accountIn : '',
@@ -418,9 +419,9 @@ Router.register('entry', (() => {
 
   // ── Build HTML ────────────────────────────────────────────────────────────
   function buildHTML() {
-    const isTransfer = _s.type === '轉帳' || _s.type === '公積金提撥';
+    const isTransfer = _s.type === '轉帳';
     const isExpense  = _s.type === '支出';
-    const isProjMode = isExpense && _s.dimension === '專案';
+    const isProjMode = (isExpense || isTransfer) && _s.dimension === '專案';
     const cats  = CFG.CATEGORIES[_s.type] || [];
     const today = new Date().toISOString().slice(0, 10);
     const dateLabel = _s.date === today ? '今天' : _s.date.replace(/-/g, '/');
@@ -432,13 +433,11 @@ Router.register('entry', (() => {
       return _acctIconMap[a?.type || '銀行'] || '🏦';
     }
 
-    // 1. Type tabs
-    const typeTabs = CFG.TX_TYPES.map(t => {
-      const label = t === '公積金提撥' ? '公積金' : t;
-      return `<button type="button" class="entry-type-tab${_s.type===t?' active':''}" data-action="type" data-val="${t}">${label}</button>`;
-    }).join('');
+    const lockedProj = isProjMode && _s.projectTag
+      ? Store.get().projects.find(p => p.name === _s.projectTag)
+      : null;
 
-    // 2. Date (standalone row) — 用 showPicker() 觸發，避免 iOS opacity:0 無法點擊
+    // 1. Date (最上方，type tabs 之前)
     const dateSection = `
       <div class="entry-date-standalone" id="date-trigger">
         <span>📅</span>
@@ -448,14 +447,19 @@ Router.register('entry', (() => {
                style="position:absolute;opacity:0;pointer-events:none;width:1px;height:1px;border:none">
       </div>`;
 
-    // 3. Dim tabs (支出 only)
-    const dimSection = isExpense ? `
+    // 2. Type tabs
+    const typeTabs = CFG.TX_TYPES.map(t =>
+      `<button type="button" class="entry-type-tab${_s.type===t?' active':''}" data-action="type" data-val="${t}">${t}</button>`
+    ).join('');
+
+    // 3. Dim tabs（支出 和 轉帳 都有）
+    const dimSection = (isExpense || isTransfer) ? `
       <div class="entry-dim-section">
         <button type="button" class="entry-dim-tab${_s.dimension==='日常'?' active':''}" data-action="set-dim" data-val="日常">☀️ 日常</button>
         <button type="button" class="entry-dim-tab${_s.dimension==='專案'?' active':''}" data-action="set-dim" data-val="專案">📁 專案</button>
       </div>` : '';
 
-    // 4. Project selector (支出+專案 only)
+    // 4. Project selector
     const activeProjList = Store.get().projects.filter(p => p.status === '進行中');
     const projSelect = isProjMode ? `
       <div class="entry-proj-select-row">
@@ -467,24 +471,46 @@ Router.register('entry', (() => {
         </select>
       </div>` : '';
 
-    // 5. Role tabs
-    const roleTabs = `
-      <div class="entry-role-tabs">${CFG.ROLES.map(r =>
-        `<button type="button" class="entry-role-tab${_s.roleOut===r?' active':''}" data-action="role-out" data-val="${r}">${r}</button>`
-      ).join('')}</div>`;
+    // 5. Role tabs（支出/收入；轉帳不顯示角色列）
+    let roleSection = '';
+    if (!isTransfer) {
+      if (isExpense && lockedProj?.ownerRole) {
+        roleSection = `
+          <div class="entry-role-tabs">
+            <div class="entry-role-locked">
+              <span>🔒</span>
+              <span>${lockedProj.ownerRole}</span>
+              <span class="entry-role-lock-hint">專案歸屬角色</span>
+            </div>
+          </div>`;
+      } else {
+        roleSection = `
+          <div class="entry-role-tabs">${CFG.ROLES.map(r =>
+            `<button type="button" class="entry-role-tab${_s.roleOut===r?' active':''}" data-action="role-out" data-val="${r}">${r}</button>`
+          ).join('')}</div>`;
+      }
+    }
 
     // 6. Account row
     let acctRow;
     if (isTransfer) {
+      const inLocked = isProjMode && lockedProj?.ownerRole;
+      const inDisplay = inLocked
+        ? `<div class="entry-acct-locked" style="flex:1">
+            <span>🔒</span>
+            <span>${_s.accountIn || lockedProj.defaultAccount || lockedProj.ownerRole}</span>
+            <span class="entry-acct-lock-hint">專案帳戶</span>
+           </div>`
+        : `<button type="button" class="entry-acct-btn entry-acct-btn-in" data-action="pick-acct-in" style="flex:1">
+            ${acctIcon(_s.accountIn)} ${_s.accountIn || '選擇帳戶'} <span class="entry-acct-caret">▾</span>
+           </button>`;
       acctRow = `
         <div class="entry-acct-row">
           <button type="button" class="entry-acct-btn" data-action="pick-acct-out" style="flex:1">
             ${acctIcon(_s.accountOut)} ${_s.accountOut || '選擇帳戶'} <span class="entry-acct-caret">▾</span>
           </button>
           <span style="color:var(--text-muted);flex-shrink:0">→</span>
-          <button type="button" class="entry-acct-btn entry-acct-btn-in" data-action="pick-acct-in" style="flex:1">
-            ${acctIcon(_s.accountIn)} ${_s.accountIn || '選擇帳戶'} <span class="entry-acct-caret">▾</span>
-          </button>
+          ${inDisplay}
         </div>`;
     } else {
       acctRow = `
@@ -501,44 +527,35 @@ Router.register('entry', (() => {
         <div class="entry-amount-big${!_s.amount?' entry-amount-zero':''}" id="entry-amount-display">${_s.amount || '0'}</div>
       </div>`;
 
-    // 8. Category
-    let catSection;
-    if (isProjMode) {
-      const initSugg = getProjectCatSuggestions();
-      catSection = `<div class="entry-cat-section">
-        <div class="proj-cat-area">
-          <input type="text" id="inp-proj-cat" class="form-input proj-cat-input"
-                 placeholder="分類（選填，例：建材、家電）"
-                 value="${_s.category.replace(/"/g,'&quot;')}" autocomplete="off">
-          <div class="proj-cat-suggestions" id="proj-cat-sugg">
-            ${initSugg.map(c => `<button type="button" class="proj-cat-sugg-item" data-action="proj-cat-sugg" data-val="${c}">${c}</button>`).join('')}
+    // 8. Category（轉帳無分類；支出+專案用自由輸入）
+    let catSection = '';
+    if (!isTransfer) {
+      if (isExpense && isProjMode) {
+        const initSugg = getProjectCatSuggestions();
+        catSection = `<div class="entry-cat-section">
+          <div class="proj-cat-area">
+            <input type="text" id="inp-proj-cat" class="form-input proj-cat-input"
+                   placeholder="分類（選填，例：建材、家電）"
+                   value="${_s.category.replace(/"/g,'&quot;')}" autocomplete="off">
+            <div class="proj-cat-suggestions" id="proj-cat-sugg">
+              ${initSugg.map(c => `<button type="button" class="proj-cat-sugg-item" data-action="proj-cat-sugg" data-val="${c}">${c}</button>`).join('')}
+            </div>
           </div>
-        </div>
-      </div>`;
-    } else {
-      const reserveProjectRow = (_s.type === '公積金提撥' && _s.category === '專案預備金') ? `
-        <div style="margin-top:8px">
-          <select id="sel-project-reserve" class="form-select" style="font-size:13px;padding:8px 12px">
-            <option value="">選擇要提撥的專案</option>
-            ${Store.get().activeProjects.map(p =>
-              `<option value="${p}"${_s.projectTag===p?' selected':''}>${p}</option>`
-            ).join('')}
-          </select>
-        </div>` : '';
-
-      catSection = `<div class="entry-cat-section">
-        <div class="entry-cat-grid">${cats.map(c =>
-          `<button type="button" class="entry-cat-chip${_s.category===c?' selected':''}" data-action="cat" data-val="${c}">
-            <span class="cat-icon">${CAT_ICONS[c]||'📌'}</span><span>${c}</span>
-          </button>`
-        ).join('')}</div>
-        ${reserveProjectRow}
-      </div>`;
+        </div>`;
+      } else {
+        catSection = `<div class="entry-cat-section">
+          <div class="entry-cat-grid">${cats.map(c =>
+            `<button type="button" class="entry-cat-chip${_s.category===c?' selected':''}" data-action="cat" data-val="${c}">
+              <span class="cat-icon">${CAT_ICONS[c]||'📌'}</span><span>${c}</span>
+            </button>`
+          ).join('')}</div>
+        </div>`;
+      }
     }
 
-    // 9. 代付帳戶 (支出+專案 only)
+    // 9. 代付帳戶（支出+專案 only）
     let paySection = '';
-    if (isProjMode) {
+    if (isExpense && isProjMode) {
       paySection = _s.payAccount
         ? `<div class="entry-pay-row">
             <span class="entry-pay-label">代付</span>
@@ -569,11 +586,11 @@ Router.register('entry', (() => {
       </div>`;
 
     return `<div class="entry-wrapper">
-      <div class="entry-type-tabs">${typeTabs}</div>
       ${dateSection}
+      <div class="entry-type-tabs">${typeTabs}</div>
       ${dimSection}
       ${projSelect}
-      ${roleTabs}
+      ${roleSection}
       ${acctRow}
       ${amountSection}
       ${catSection}

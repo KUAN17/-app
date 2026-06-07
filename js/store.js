@@ -121,7 +121,10 @@ window.Store = (() => {
           .filter(tx => tx.projectTag === proj.name && tx.type === '支出')
           .reduce((s, tx) => s + tx.amount, 0);
         proj.allocated = _data.ledger
-          .filter(tx => tx.projectTag === proj.name && tx.type === '公積金提撥')
+          .filter(tx => tx.projectTag === proj.name && (
+            tx.type === '公積金提撥' ||
+            (tx.type === '轉帳' && tx.dimension === '專案')
+          ))
           .reduce((s, tx) => s + tx.amount, 0);
         proj.remaining = proj.budget - proj.spent;
         proj.gap = proj.allocated < proj.spent ? proj.spent - proj.allocated : 0;
