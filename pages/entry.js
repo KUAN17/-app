@@ -73,12 +73,6 @@ Router.register('entry', (() => {
   }
 
   function attachListeners() {
-    document.getElementById('date-trigger')?.addEventListener('click', () => {
-      const inp = document.getElementById('inp-date');
-      if (!inp) return;
-      try { inp.showPicker(); } catch { inp.click(); }
-    });
-
     document.getElementById('inp-date')?.addEventListener('change', e => {
       _s.date = e.target.value;
       const today = new Date().toISOString().slice(0, 10);
@@ -441,12 +435,12 @@ Router.register('entry', (() => {
 
     // 1. Date (最上方，type tabs 之前)
     const dateSection = `
-      <div class="entry-date-standalone" id="date-trigger">
-        <span style="position:absolute;left:16px">📅</span>
-        <span id="date-label" style="font-weight:600">${dateLabel}</span>
-        <span style="position:absolute;right:16px;color:var(--text-muted)">›</span>
+      <div class="entry-date-standalone" style="position:relative">
+        <span style="position:absolute;left:16px;pointer-events:none">📅</span>
+        <span id="date-label" style="font-weight:600;pointer-events:none">${dateLabel}</span>
+        <span style="position:absolute;right:16px;color:var(--text-muted);pointer-events:none">›</span>
         <input type="date" id="inp-date" value="${_s.date}"
-               style="position:absolute;opacity:0;pointer-events:none;width:1px;height:1px;border:none">
+               style="position:absolute;inset:0;opacity:0;width:100%;height:100%;cursor:pointer;border:none;background:none">
       </div>`;
 
     // 2. Type tabs
