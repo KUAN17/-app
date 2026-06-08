@@ -73,6 +73,12 @@ Router.register('entry', (() => {
   }
 
   function attachListeners() {
+    const inpDate = document.getElementById('inp-date');
+    // iOS PWA standalone 模式需要明確呼叫 showPicker()
+    inpDate?.addEventListener('click', e => {
+      try { e.currentTarget.showPicker(); } catch {}
+    });
+
     document.getElementById('inp-date')?.addEventListener('change', e => {
       _s.date = e.target.value;
       const today = new Date().toISOString().slice(0, 10);
@@ -434,14 +440,15 @@ Router.register('entry', (() => {
       : null;
 
     // 1. Date (最上方，type tabs 之前)
+    // label 包裹讓 iOS PWA 也能正確觸發原生日期選擇器
     const dateSection = `
-      <div class="entry-date-standalone" style="position:relative">
+      <label class="entry-date-standalone" style="cursor:pointer;-webkit-tap-highlight-color:transparent">
         <span style="position:absolute;left:16px;pointer-events:none">📅</span>
         <span id="date-label" style="font-weight:600;pointer-events:none">${dateLabel}</span>
         <span style="position:absolute;right:16px;color:var(--text-muted);pointer-events:none">›</span>
         <input type="date" id="inp-date" value="${_s.date}"
-               style="position:absolute;inset:0;opacity:0;width:100%;height:100%;cursor:pointer;border:none;background:none">
-      </div>`;
+               style="position:absolute;inset:0;opacity:0;width:100%;height:100%;cursor:pointer;border:none;background:none;font-size:16px">
+      </label>`;
 
     // 2. Type tabs
     const typeTabs = CFG.TX_TYPES.map(t =>
