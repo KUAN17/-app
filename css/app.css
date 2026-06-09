@@ -161,6 +161,24 @@ html, body {
 .amount-primary { color: var(--primary); font-weight: 600; }
 .label-sm { font-size: 13px; color: var(--text-muted); }
 
+/* ── Entry auto-transfer ────────────────────────────────── */
+.entry-auto-transfer { margin: 0 16px 4px; }
+.entry-auto-transfer-toggle {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 14px; font-weight: 600; cursor: pointer; padding: 8px 0;
+}
+.entry-auto-transfer-toggle input[type="checkbox"] {
+  width: 18px; height: 18px; accent-color: var(--primary); flex-shrink: 0;
+}
+.entry-auto-transfer-detail {
+  background: var(--primary-light); border-radius: 10px;
+  padding: 10px 12px; margin-bottom: 4px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.entry-auto-transfer-row { display: flex; align-items: center; gap: 10px; }
+.entry-auto-transfer-sel { flex: 1; font-size: 13px; padding: 6px 10px; }
+.entry-auto-transfer-dest { font-size: 13px; font-weight: 600; color: var(--primary); }
+
 /* ── Dashboard ──────────────────────────────────────────── */
 .role-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 4px; }
 @media (max-width: 360px) { .role-cards { grid-template-columns: 1fr; } }

@@ -60,6 +60,7 @@ Router.register('settings', (() => {
           type:        a.type || '',
           billingDate: a.billingDate || 0,
           dueDate:     a.dueDate || 0,
+          paymentAccount: a.paymentAccount || '',
           _deleted: false, _new: false
         }));
       });
@@ -113,6 +114,7 @@ Router.register('settings', (() => {
           <span class="acct-type-badge type-${typeClass}">${typeLabel}</span>
           <span class="acct-item-name">${a.name}</span>
           ${a.purpose ? `<span class="acct-item-purpose">${a.purpose}</span>` : ''}
+          ${a.type === '信用卡' && a.paymentAccount ? `<span class="acct-item-purpose">扣款：${a.paymentAccount}</span>` : ''}
           <button class="btn btn-outline btn-sm acct-edit-btn" data-role="${role}" data-i="${a._i}" style="margin-left:auto">編輯</button>
           <button class="btn btn-danger btn-sm acct-del-btn" data-role="${role}" data-i="${a._i}">✕</button>
         </div>
@@ -149,7 +151,7 @@ Router.register('settings', (() => {
 
   function _acctTypeModal(opts) {
     // Shared HTML builder for add/edit account modal
-    const { title, acct, onConfirm } = opts;
+    const { title, acct, role, onConfirm } = opts;
     const modal = document.createElement('div');
     modal.className = 'modal-overlay';
     const today = new Date().toISOString().slice(0, 10);
@@ -190,6 +192,13 @@ Router.register('settings', (() => {
         <label>繳費截止日（每月幾號）</label>
         <input type="number" id="inp-acct-dueday" class="form-input" placeholder="例：25" min="1" max="31" value="${acct.dueDate||''}">
       </div>
+      <div class="form-row">
+        <label>扣款帳戶（選填）</label>
+        <select id="inp-acct-payment" class="form-select">
+          <option value="">不設定</option>
+          ${(_acctState[role]||[]).filter(a=>!a._deleted&&a.type!=='信用卡'&&a.type!=='證券帳戶').map(a=>`<option value="${a.name}"${acct.paymentAccount===a.name?' selected':''}>${a.name}</option>`).join('')}
+        </select>
+      </div>
     </div>
     <div class="modal-actions">
       <button class="btn btn-primary btn-sm" id="btn-confirm-acct">確認</button>
@@ -226,6 +235,7 @@ Router.register('settings', (() => {
         type,
         billingDate: type === '信用卡' ? parseInt(Utils.el('inp-acct-billing').value) || 0 : 0,
         dueDate:     type === '信用卡' ? parseInt(Utils.el('inp-acct-dueday').value) || 0 : 0,
+        paymentAccount: type === '信用卡' ? (Utils.el('inp-acct-payment')?.value || '') : '',
       });
       modal.remove();
     });
@@ -234,7 +244,8 @@ Router.register('settings', (() => {
   function showAddModal(role) {
     _acctTypeModal({
       title: `新增帳戶（${role}）`,
-      acct: { name:'', purpose:'', balance:0, baseDate:'', type:'銀行', billingDate:0, dueDate:0 },
+      role,
+      acct: { name:'', purpose:'', balance:0, baseDate:'', type:'銀行', billingDate:0, dueDate:0, paymentAccount:'' },
       onConfirm(data) {
         _acctState[role].push({ ...data, _deleted: false, _new: true });
         Utils.el(`acct-list-${role}`).innerHTML = renderRoleList(role);
@@ -247,6 +258,7 @@ Router.register('settings', (() => {
     const acct = _acctState[role][idx];
     _acctTypeModal({
       title: `編輯帳戶（${role}）`,
+      role,
       acct,
       onConfirm(data) {
         _acctState[role][idx] = { ...acct, ...data };
@@ -273,20 +285,20 @@ Router.register('settings', (() => {
     const rows = [];
     CFG.ROLES.forEach(role => {
       _acctState[role].filter(a => !a._deleted).forEach(a => {
-        rows.push([role, a.name, a.balance||0, a.baseDate||'', a.purpose||'', a.type||'', a.billingDate||'', a.dueDate||'']);
+        rows.push([role, a.name, a.balance||0, a.baseDate||'', a.purpose||'', a.type||'', a.billingDate||'', a.dueDate||'', a.paymentAccount||'']);
       });
     });
 
     // Pad to 100 rows to overwrite any old data
     const padded = [...rows];
-    while (padded.length < 100) padded.push(['','','','','','','','']);
+    while (padded.length < 100) padded.push(['','','','','','','','','']);
 
     const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID) || CFG.SHEET_ID;
     Utils.showLoading(true);
     try {
-      await API.updateRange(sid, 'Backend!L1:S1',
-        [['角色','帳戶名稱','期初餘額','基準日期','主要用途','帳戶類型','帳單日','截止日']]);
-      await API.updateRange(sid, 'Backend!L2:S101', padded);
+      await API.updateRange(sid, 'Backend!L1:T1',
+        [['角色','帳戶名稱','期初餘額','基準日期','主要用途','帳戶類型','帳單日','截止日','扣款帳戶']]);
+      await API.updateRange(sid, 'Backend!L2:T101', padded);
       Store.invalidate();
       Utils.toast('帳戶設定已儲存', 'success');
     } catch (e) {
@@ -399,7 +411,7 @@ Router.register('settings', (() => {
       return '銀行';
     }
     CFG.INITIAL_ACCOUNTS.forEach(a => {
-      _acctState[a.role].push({ ...a, balance: 0, baseDate: today, type: guessType(a.name), billingDate: 0, dueDate: 0, _deleted: false, _new: true });
+      _acctState[a.role].push({ ...a, balance: 0, baseDate: today, type: guessType(a.name), billingDate: 0, dueDate: 0, paymentAccount: '', _deleted: false, _new: true });
     });
     await saveAccounts();
     Store.invalidate();

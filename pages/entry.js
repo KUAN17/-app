@@ -43,7 +43,8 @@ Router.register('entry', (() => {
       roleIn, accountIn: acctIn,
       date: new Date().toISOString().slice(0, 10),
       memo: '', amount: '',
-      payRole: '', payAccount: ''
+      payRole: '', payAccount: '',
+      autoTransfer: false, transferFrom: ''
     };
   }
 
@@ -92,6 +93,14 @@ Router.register('entry', (() => {
       handleAction('sel-proj', e.target.value);
     });
 
+    document.getElementById('chk-auto-transfer')?.addEventListener('change', e => {
+      _s.autoTransfer = e.target.checked;
+      renderAll();
+    });
+    document.getElementById('sel-transfer-from')?.addEventListener('change', e => {
+      _s.transferFrom = e.target.value;
+    });
+
     const projCatEl = document.getElementById('inp-proj-cat');
     if (projCatEl) {
       projCatEl.addEventListener('input', e => {
@@ -117,11 +126,13 @@ Router.register('entry', (() => {
       case 'type': {
         _s.type = val; _s.category = ''; _s.dimension = '日常';
         _s.projectTag = ''; _s.payRole = ''; _s.payAccount = '';
+        _s.autoTransfer = false; _s.transferFrom = '';
         renderAll(); break;
       }
       case 'set-dim': {
         _s.dimension = val; _s.projectTag = ''; _s.category = '';
         _s.payRole = ''; _s.payAccount = '';
+        _s.autoTransfer = false; _s.transferFrom = '';
         renderAll(); break;
       }
       case 'role-out': {
@@ -177,6 +188,7 @@ Router.register('entry', (() => {
       case 'add-pay':   showPayPicker(); break;
       case 'clear-pay':
         _s.payRole = ''; _s.payAccount = '';
+        _s.autoTransfer = false; _s.transferFrom = '';
         renderAll(); break;
       case 'memo-chip': {
         _s.memo = val;
@@ -309,6 +321,15 @@ Router.register('entry', (() => {
     modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
   }
 
+  // ── 代付補款資訊 ──────────────────────────────────────────────────────────
+  function getPaymentInfo(cardName) {
+    const all = Store.allAccountsFlat();
+    const card = all.find(a => a.name === cardName);
+    if (!card?.paymentAccount) return null;
+    const owner = all.find(a => a.name === card.paymentAccount);
+    return { account: card.paymentAccount, role: owner?.role || '' };
+  }
+
   // ── 代付帳戶 picker ───────────────────────────────────────────────────────
   function showPayPicker() {
     const modal = document.createElement('div');
@@ -350,6 +371,15 @@ Router.register('entry', (() => {
         item.addEventListener('click', () => {
           _s.payRole = item.dataset.role;
           _s.payAccount = item.dataset.acct;
+          const payInfo = getPaymentInfo(item.dataset.acct);
+          if (payInfo && _s.roleOut !== item.dataset.role) {
+            _s.autoTransfer = true;
+            const defAccts = Store.allAccountsFlat()
+              .filter(a => a.role === _s.roleOut && a.type !== '信用卡' && a.type !== '證券帳戶');
+            _s.transferFrom = defAccts[0]?.name || '';
+          } else {
+            _s.autoTransfer = false; _s.transferFrom = '';
+          }
           modal.remove(); renderAll();
         });
       });
@@ -397,12 +427,25 @@ Router.register('entry', (() => {
 
     try {
       await API.append(sid, 'Ledger!A:N', row);
+      if (_s.autoTransfer && _s.payAccount) {
+        const payInfo = getPaymentInfo(_s.payAccount);
+        if (payInfo && _s.transferFrom) {
+          const transferRow = [
+            Utils.uid(), _s.roleOut, '日常', '',
+            '轉帳', '', `代付補款／${_s.payAccount}`,
+            _s.date.replace(/-/g, '/'), amount,
+            _s.transferFrom, payInfo.role, payInfo.account, '', ''
+          ];
+          await API.append(sid, 'Ledger!A:N', transferRow);
+        }
+      }
       Store.invalidate();
       saveLast();
       if (memo) addRecentMemo(memo);
       Utils.toast('記帳成功！', 'success');
       _s.category = ''; _s.projectTag = ''; _s.memo = ''; _s.amount = '';
       _s.payRole = ''; _s.payAccount = '';
+      _s.autoTransfer = false; _s.transferFrom = '';
       _s.date = new Date().toISOString().slice(0, 10);
       renderAll();
     } catch (err) {
@@ -579,17 +622,48 @@ Router.register('entry', (() => {
     // 9. 代付帳戶（支出+專案 only）
     let paySection = '';
     if (isExpense && isProjMode) {
-      paySection = _s.payAccount
-        ? `<div class="entry-pay-row">
+      if (_s.payAccount) {
+        const payInfo = getPaymentInfo(_s.payAccount);
+        const canAutoTransfer = !!payInfo && _s.roleOut !== _s.payRole;
+
+        const transferFromOpts = Store.allAccountsFlat()
+          .filter(a => a.role === _s.roleOut && a.type !== '信用卡' && a.type !== '證券帳戶')
+          .map(a => `<option value="${a.name}"${_s.transferFrom === a.name ? ' selected' : ''}>${a.name}</option>`)
+          .join('');
+
+        const autoBlock = canAutoTransfer ? `
+          <div class="entry-auto-transfer">
+            <label class="entry-auto-transfer-toggle">
+              <input type="checkbox" id="chk-auto-transfer"${_s.autoTransfer ? ' checked' : ''}>
+              <span>同步補款轉帳</span>
+            </label>
+            ${_s.autoTransfer ? `
+              <div class="entry-auto-transfer-detail">
+                <div class="entry-auto-transfer-row">
+                  <span class="label-sm">轉出</span>
+                  <select id="sel-transfer-from" class="form-select entry-auto-transfer-sel">${transferFromOpts}</select>
+                </div>
+                <div class="entry-auto-transfer-row">
+                  <span class="label-sm">轉入</span>
+                  <span class="entry-auto-transfer-dest">${payInfo.role} ／ ${payInfo.account}</span>
+                </div>
+              </div>` : ''}
+          </div>` : '';
+
+        paySection = `
+          <div class="entry-pay-row">
             <span class="entry-pay-label">代付</span>
             <span class="entry-pay-chip">
               ${acctIcon(_s.payAccount)} ${_s.payRole} / ${_s.payAccount}
               <button type="button" class="entry-pay-clear" data-action="clear-pay">✕</button>
             </span>
-           </div>`
-        : `<div class="entry-pay-row">
-            <button type="button" class="entry-pay-add-btn" data-action="add-pay">＋ 代付帳戶</button>
-           </div>`;
+          </div>
+          ${autoBlock}`;
+      } else {
+        paySection = `<div class="entry-pay-row">
+          <button type="button" class="entry-pay-add-btn" data-action="add-pay">＋ 代付帳戶</button>
+        </div>`;
+      }
     }
 
     // 10. Memo

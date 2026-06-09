@@ -81,7 +81,8 @@ window.Store = (() => {
         purpose:     row[4] || '',
         type:        row[5] || '',
         billingDate: parseInt(row[6]) || 0,
-        dueDate:     parseInt(row[7]) || 0
+        dueDate:     parseInt(row[7]) || 0,
+        paymentAccount: row[8] || ''
       });
     });
     return map;
@@ -105,7 +106,7 @@ window.Store = (() => {
         'Ledger!A2:N',
         'Projects!A2:N',
         'Investments!A2:K',
-        'Backend!L2:S'
+        'Backend!L2:T'
       ];
       const [ledgerRows, projRows, invRows, acctRows] = await API.batchGet(sid, ranges);
 
