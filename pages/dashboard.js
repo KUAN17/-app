@@ -27,9 +27,15 @@ Router.register('dashboard', (() => {
     return ledger.filter(tx => tx.roleOut === _role || tx.roleIn === _role);
   }
 
+  // 統一以斜線格式比對（Ledger 日期存為 2026/06/10，_month 為 2026-06）
+  function normDate(d) { return d.replace(/-/g, '/'); }
+
   function periodTxs(ledger) {
-    const prefix = _period === 'month' ? _month : String(_year);
-    return byRole(ledger).filter(tx => tx.date.startsWith(prefix));
+    if (_period === 'month') {
+      const prefix = normDate(_month); // '2026-06' → '2026/06'
+      return byRole(ledger).filter(tx => normDate(tx.date).startsWith(prefix));
+    }
+    return byRole(ledger).filter(tx => tx.date.startsWith(String(_year)));
   }
 
   function sumIO(txs) {
@@ -150,11 +156,11 @@ Router.register('dashboard', (() => {
 
   function trendChart(ledger) {
     if (_period !== 'year') return '';
-    const txs = byRole(ledger).filter(tx => tx.date.startsWith(String(_year)));
+    const txs = byRole(ledger).filter(tx => normDate(tx.date).startsWith(String(_year)));
     const BAR_H = 64;
     const months = Array.from({ length: 12 }, (_, i) => {
       const mm = String(i + 1).padStart(2, '0');
-      const mTxs = txs.filter(tx => tx.date.startsWith(`${_year}-${mm}`));
+      const mTxs = txs.filter(tx => normDate(tx.date).startsWith(`${_year}/${mm}`));
       const io = sumIO(mTxs);
       return { m: i + 1, in: io.income, out: io.expense };
     });

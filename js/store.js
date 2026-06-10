@@ -152,9 +152,10 @@ window.Store = (() => {
     const initial = cfg ? cfg.balance : 0;
     const baseDate = cfg ? cfg.baseDate : '';
 
+    const normBase = baseDate ? baseDate.replace(/-/g, '/') : '';
     let balance = initial;
     _data.ledger.forEach(tx => {
-      if (baseDate && tx.date < baseDate) return;
+      if (normBase && tx.date.replace(/-/g, '/') < normBase) return;
       if (tx.type === '收入' && tx.roleOut === role && tx.accountOut === accountName) {
         balance += tx.amount;
       } else if (tx.type === '支出') {
