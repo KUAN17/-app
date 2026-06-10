@@ -252,6 +252,86 @@ html, body {
 .dash-acct-name { font-size: 14px; color: var(--text); }
 .dash-acct-bal { font-size: 14px; font-weight: 600; }
 
+/* dash top row（角色 chips + 版型切換） */
+.dash-top-row { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 4px; }
+.dash-top-row .dash-chips-row { flex: 1; }
+.dash-ver-btn {
+  border: 1.5px solid var(--border); background: var(--card); border-radius: 99px;
+  padding: 5px 12px; font-size: 12px; font-weight: 600; cursor: pointer;
+  color: var(--text-muted); white-space: nowrap; flex-shrink: 0;
+}
+
+/* dash nav 內嵌 月/年 mini toggle */
+.dash-nav-row { justify-content: flex-start; gap: 8px; }
+.dash-nav-spacer { flex: 1; }
+.dash-pmini-group { display: flex; border: 1.5px solid var(--border); border-radius: 8px; overflow: hidden; }
+.dash-pmini {
+  border: none; background: var(--card); padding: 6px 12px; font-size: 13px;
+  font-weight: 600; cursor: pointer; color: var(--text-muted);
+}
+.dash-pmini.active { background: var(--primary); color: #fff; }
+
+/* dash 環圈圖 */
+.dash-donut-card { padding: 16px 14px 8px; }
+.dash-donut-wrap { position: relative; width: 176px; margin: 0 auto; }
+.dash-donut-center {
+  position: absolute; inset: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; pointer-events: none;
+}
+.dash-donut-center-label { font-size: 11px; color: var(--text-muted); font-weight: 600; }
+.dash-donut-center-val { font-size: 18px; font-weight: 800; color: var(--text); }
+.dash-io-row {
+  display: flex; justify-content: space-around; font-size: 13px; color: var(--text-muted);
+  padding: 12px 0 10px; border-bottom: 1px solid var(--border); margin-bottom: 4px;
+}
+.dash-io-row b { font-weight: 700; margin-left: 2px; }
+
+/* dash 分類清單（含色點與百分比） */
+.dash-catl-row { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.dash-catl-row:last-child { border-bottom: none; }
+.dash-catl-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.dash-catl-name { flex: 1; font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dash-catl-pct { font-size: 12px; color: var(--text-muted); width: 36px; text-align: right; flex-shrink: 0; }
+.dash-catl-amt { font-size: 13px; font-weight: 600; color: var(--text); width: 72px; text-align: right; flex-shrink: 0; }
+
+/* dash 2 欄小卡（分析版底部） */
+.dash-mini-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
+.dash-mini-card { padding: 12px 14px; }
+.dash-mini-label { font-size: 11px; color: var(--text-muted); font-weight: 600; letter-spacing: .4px; margin-bottom: 4px; }
+.dash-mini-val { font-size: 17px; font-weight: 800; line-height: 1.2; word-break: break-all; }
+.dash-mini-sub { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+
+/* dash 2×2 卡片網格（卡片版） */
+.dash-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
+.dash-g-card { padding: 12px 14px; }
+.dash-g-val { font-size: 17px; font-weight: 800; line-height: 1.2; word-break: break-all; }
+.dash-g-io { display: flex; flex-direction: column; gap: 2px; font-size: 14px; font-weight: 700; }
+
+/* dash 小環圈 + Top 分類 橫排（卡片版） */
+.dash-donut-sm-card { display: flex; align-items: center; gap: 14px; padding: 14px; }
+.dash-donut-sm-wrap { position: relative; width: 108px; flex-shrink: 0; }
+.dash-donut-center-sm { padding: 0 14px; }
+.dash-donut-center-val-sm { font-size: 12px; font-weight: 800; color: var(--text); text-align: center; word-break: break-all; }
+.dash-catl-sm { flex: 1; min-width: 0; }
+.dash-catl-sm .dash-catl-amt { width: 60px; }
+
+/* dash 摺疊區塊 */
+.dash-collapse { margin-bottom: 8px; }
+.dash-collapse summary {
+  display: flex; align-items: center; gap: 6px; cursor: pointer; list-style: none;
+  font-size: 13px; font-weight: 700; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: .5px; padding: 8px 2px;
+  -webkit-tap-highlight-color: transparent;
+}
+.dash-collapse summary::-webkit-details-marker { display: none; }
+.dash-collapse summary::after { content: '▸'; font-size: 12px; transition: transform .15s; }
+.dash-collapse[open] summary::after { transform: rotate(90deg); }
+.dash-collapse-badge {
+  background: var(--primary); color: #fff; border-radius: 99px;
+  font-size: 11px; padding: 1px 7px; font-weight: 700;
+}
+.dash-collapse-body { padding-top: 2px; }
+
 /* ── Progress bars ──────────────────────────────────────── */
 .progress-wrap { background: #E5E7EB; border-radius: 4px; height: 8px; margin: 8px 0; overflow: hidden; }
 .progress-bar { height: 100%; border-radius: 4px; background: var(--success); transition: width .4s ease; }
