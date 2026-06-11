@@ -91,6 +91,7 @@ Router.register('settings', (() => {
       </div>
     `).join('') +
     `<button class="btn btn-primary btn-full" id="btn-save-accounts">儲存帳戶設定</button>
+     <button class="btn btn-outline btn-full" id="btn-reconcile" style="margin-top:8px">📋 更新期初餘額</button>
      <div style="height:8px"></div>`;
 
     CFG.ROLES.forEach(role => {
@@ -98,6 +99,7 @@ Router.register('settings', (() => {
         .addEventListener('click', () => showAddModal(role));
     });
     Utils.el('btn-save-accounts').addEventListener('click', saveAccounts);
+    Utils.el('btn-reconcile').addEventListener('click', showReconcileModal);
     attachListListeners();
   }
 
@@ -276,6 +278,68 @@ Router.register('settings', (() => {
     document.querySelectorAll('.inp-acct-date').forEach(inp => {
       const { role, i } = inp.dataset;
       _acctState[role][parseInt(i)].baseDate = inp.value.replace(/-/g, '/');
+    });
+  }
+
+  function showReconcileModal() {
+    const today = new Date().toISOString().slice(0, 10);
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+
+    const rows = CFG.ROLES.flatMap(role =>
+      (_acctState[role] || [])
+        .map((a, i) => ({ ...a, _i: i, role }))
+        .filter(a => !a._deleted && a.type !== '信用卡' && a.type !== '證券帳戶')
+    );
+
+    const rowsHtml = rows.map(a => {
+      const curBal = Store.calcBalance(a.role, a.name);
+      return `<div class="reconcile-row" data-role="${a.role}" data-i="${a._i}">
+        <div class="reconcile-name">
+          <span class="balance-role-badge">${a.role}</span>
+          <span>${a.name}</span>
+          <span class="reconcile-cur">app: ${Utils.formatMoney(curBal)}</span>
+        </div>
+        <div class="reconcile-inputs">
+          <input type="number" class="form-input reconcile-bal" placeholder="實際餘額（留空=不更新）" style="flex:2">
+          <input type="date" class="form-input reconcile-date" value="${today}" style="flex:1">
+        </div>
+      </div>`;
+    }).join('');
+
+    modal.innerHTML = `<div class="modal-card" style="max-height:80vh;overflow-y:auto">
+      <div class="modal-title">更新期初餘額</div>
+      <p class="input-hint" style="margin:0 0 12px">填入各帳戶今日實際餘額，留空的帳戶不會更新。確認後寫入 Google Sheets。</p>
+      ${rowsHtml}
+      <div class="modal-actions" style="margin-top:16px">
+        <button class="btn btn-outline" id="reconcile-cancel">取消</button>
+        <button class="btn btn-primary" id="reconcile-confirm">確認儲存</button>
+      </div>
+    </div>`;
+
+    document.body.appendChild(modal);
+
+    modal.querySelector('#reconcile-cancel').addEventListener('click', () => modal.remove());
+    modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+
+    modal.querySelector('#reconcile-confirm').addEventListener('click', async () => {
+      let updated = 0;
+      modal.querySelectorAll('.reconcile-row').forEach(row => {
+        const balInput = row.querySelector('.reconcile-bal');
+        const dateInput = row.querySelector('.reconcile-date');
+        const val = balInput.value.trim();
+        if (val === '') return; // 留空 → 不更新
+        const { role, i } = row.dataset;
+        const idx = parseInt(i);
+        _acctState[role][idx].balance  = parseFloat(val);
+        _acctState[role][idx].baseDate = dateInput.value.replace(/-/g, '/');
+        updated++;
+      });
+
+      if (!updated) { Utils.toast('未填入任何餘額', 'warn'); return; }
+
+      modal.remove();
+      await saveAccounts();
     });
   }
 

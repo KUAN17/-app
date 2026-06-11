@@ -488,6 +488,13 @@ html, body {
 .acct-role-card { padding: 14px; }
 .acct-role-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 .acct-item { border-top: 1px solid var(--border); padding: 10px 0; }
+
+/* reconcile modal */
+.reconcile-row { border-top: 1px solid var(--border); padding: 10px 0; }
+.reconcile-row:first-child { border-top: none; }
+.reconcile-name { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; margin-bottom: 6px; }
+.reconcile-cur { font-size: 12px; color: var(--text-muted); margin-left: auto; font-weight: 400; }
+.reconcile-inputs { display: flex; gap: 8px; }
 .acct-item:first-child { border-top: none; }
 .acct-item-top { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
 .acct-item-name { font-size: 14px; font-weight: 600; }
