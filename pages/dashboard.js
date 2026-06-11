@@ -64,13 +64,13 @@ Router.register('dashboard', (() => {
     return { entries, total };
   }
 
-  function assetInfo(accounts, investments) {
+  function assetInfo(accounts, investments, balances) {
     const roles = _role === '全部' ? CFG.ROLES : [_role];
     let acctSum = 0;
     roles.forEach(role => {
       (accounts[role] || []).forEach(a => {
         if (a.type === '信用卡' || a.type === '證券帳戶') return;
-        acctSum += Store.calcBalance(role, a.name);
+        acctSum += (balances[role] || {})[a.name] || 0;
       });
     });
     const invs = investments.filter(i => _role === '全部' || i.role === _role);
@@ -178,7 +178,7 @@ Router.register('dashboard', (() => {
       </div>`;
   }
 
-  function acctCollapse(accounts) {
+  function acctCollapse(accounts, balances) {
     const roles = _role === '全部' ? CFG.ROLES : [_role];
     let inner = '';
     roles.forEach(role => {
@@ -187,7 +187,7 @@ Router.register('dashboard', (() => {
       if (_role === '全部') inner += `<div class="dash-acct-role">${role}</div>`;
       inner += `<div class="card dash-acct-card">
         ${accts.map(a => {
-          const bal = Store.calcBalance(role, a.name);
+          const bal = (balances[role] || {})[a.name] || 0;
           return `<div class="dash-acct-row">
             <span class="dash-acct-name">${a.name}</span>
             <span class="dash-acct-bal ${bal < 0 ? 'amount-out' : ''}">${Utils.formatMoney(bal)}</span>
@@ -225,12 +225,12 @@ Router.register('dashboard', (() => {
   }
 
   // ── 版型一：分析版（環圈圖為主角） ─────────────────────────────────────────
-  function buildV1(ledger, accounts, investments) {
+  function buildV1(ledger, accounts, investments, balances) {
     const txs = periodTxs(ledger);
     const { income, expense } = sumIO(txs);
     const net = income - expense;
     const { entries, total } = catData(txs);
-    const assets = assetInfo(accounts, investments);
+    const assets = assetInfo(accounts, investments, balances);
 
     const donutBlock = `
       <div class="card dash-donut-card">
@@ -266,12 +266,12 @@ Router.register('dashboard', (() => {
   }
 
   // ── 版型二：卡片版（2×2 網格為主角） ──────────────────────────────────────
-  function buildV2(ledger, accounts, investments) {
+  function buildV2(ledger, accounts, investments, balances) {
     const txs = periodTxs(ledger);
     const { income, expense } = sumIO(txs);
     const net = income - expense;
     const { entries, total } = catData(txs, 3);
-    const assets = assetInfo(accounts, investments);
+    const assets = assetInfo(accounts, investments, balances);
 
     const grid = `
       <div class="dash-grid2">
@@ -314,16 +314,17 @@ Router.register('dashboard', (() => {
   function renderAll() {
     const el = Utils.el('page-content');
     const { ledger, projects, investments, accounts } = Store.get();
+    const balances = Store.calcAllBalances(); // 一次掃描算出所有帳戶餘額，本次渲染共用
 
     const main = _ver === 'v1'
-      ? buildV1(ledger, accounts, investments)
-      : buildV2(ledger, accounts, investments);
+      ? buildV1(ledger, accounts, investments, balances)
+      : buildV2(ledger, accounts, investments, balances);
 
     el.innerHTML = `<div class="page-inner">
       ${topRow()}
       ${navRow()}
       ${main}
-      ${acctCollapse(accounts)}
+      ${acctCollapse(accounts, balances)}
       ${projCollapse(projects)}
       <div style="height:16px"></div>
     </div>`;

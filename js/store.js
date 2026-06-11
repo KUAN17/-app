@@ -52,18 +52,20 @@ window.Store = (() => {
 
   // ── Investments row → object ─────────────────────────────────────────────
   function parseInvestRow(row) {
+    const shares  = Utils.parseAmount(row[4]);
+    const avgCost = Utils.parseAmount(row[5]);
+    const price   = Utils.parseAmount(row[7]);
+    // 市值/損益由股數×價格直接計算，不依賴試算表公式欄（I-K），公式失效也不影響顯示
+    const totalCost   = shares * avgCost;
+    const marketValue = price > 0 ? shares * price : totalCost;
+    const unrealized  = marketValue - totalCost;
     return {
       role:        row[0] || '',
       account:     row[1] || '',
       ticker:      row[2] || '',
       name:        row[3] || '',
-      shares:      Utils.parseAmount(row[4]),
-      avgCost:     Utils.parseAmount(row[5]),
-      totalCost:   Utils.parseAmount(row[6]),
-      price:       Utils.parseAmount(row[7]),
-      marketValue: Utils.parseAmount(row[8]),
-      unrealized:  Utils.parseAmount(row[9]),
-      returnRate:  parseFloat(row[10]) || 0
+      shares, avgCost, price, totalCost, marketValue, unrealized,
+      returnRate:  totalCost > 0 ? unrealized / totalCost : 0
     };
   }
 
@@ -155,13 +157,14 @@ window.Store = (() => {
     const normBase = baseDate ? baseDate.replace(/-/g, '/') : '';
     let balance = initial;
     _data.ledger.forEach(tx => {
-      if (normBase && tx.date.replace(/-/g, '/') < normBase) return;
+      if (normBase && tx.date < normBase) return;
       if (tx.type === '收入' && tx.roleOut === role && tx.accountOut === accountName) {
         balance += tx.amount;
       } else if (tx.type === '支出') {
         if (tx.payAccount) {
           // 代付：實際從 payAccount 扣款，accountOut 為費用歸屬（待帳單轉帳時才扣）
-          if (tx.payAccount === accountName) balance -= tx.amount;
+          // payRole 為空的舊資料退回僅比對帳戶名稱
+          if (tx.payAccount === accountName && (!tx.payRole || tx.payRole === role)) balance -= tx.amount;
         } else if (tx.roleOut === role && tx.accountOut === accountName) {
           balance -= tx.amount;
         }
@@ -171,6 +174,48 @@ window.Store = (() => {
       }
     });
     return balance;
+  }
+
+  // 單次掃描帳本，一次算出所有帳戶餘額：{ role: { accountName: balance } }
+  function calcAllBalances() {
+    const map = {};
+    Object.entries(_data.accounts).forEach(([role, accts]) => {
+      accts.forEach(a => {
+        map[`${role}||${a.name}`] = { bal: a.balance, base: (a.baseDate || '').replace(/-/g, '/') };
+      });
+    });
+    function apply(role, name, date, amt) {
+      const e = map[`${role}||${name}`];
+      if (!e || (e.base && date < e.base)) return;
+      e.bal += amt;
+    }
+    _data.ledger.forEach(tx => {
+      if (tx.type === '收入') {
+        apply(tx.roleOut, tx.accountOut, tx.date, tx.amount);
+      } else if (tx.type === '支出') {
+        if (tx.payAccount) {
+          if (tx.payRole) {
+            apply(tx.payRole, tx.payAccount, tx.date, -tx.amount);
+          } else {
+            // 舊資料無 payRole：所有同名帳戶都扣（與 calcBalance 退回邏輯一致）
+            Object.keys(map).forEach(k => {
+              if (k.split('||')[1] === tx.payAccount) apply(...k.split('||'), tx.date, -tx.amount);
+            });
+          }
+        } else {
+          apply(tx.roleOut, tx.accountOut, tx.date, -tx.amount);
+        }
+      } else if (tx.type === '轉帳' || tx.type === '公積金提撥') {
+        apply(tx.roleOut, tx.accountOut, tx.date, -tx.amount);
+        apply(tx.roleIn, tx.accountIn, tx.date, tx.amount);
+      }
+    });
+    const res = {};
+    Object.entries(map).forEach(([k, e]) => {
+      const [role, name] = k.split('||');
+      (res[role] = res[role] || {})[name] = e.bal;
+    });
+    return res;
   }
 
   function accountsForRole(role) {
@@ -199,5 +244,5 @@ window.Store = (() => {
   function get() { return _data; }
   function isDirty() { return _dirty; }
 
-  return { load, invalidate, calcBalance, accountsForRole, brokersForRole, allAccountsFlat, getSheetId, get, isDirty };
+  return { load, invalidate, calcBalance, calcAllBalances, accountsForRole, brokersForRole, allAccountsFlat, getSheetId, get, isDirty };
 })();

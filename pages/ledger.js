@@ -1,5 +1,7 @@
 Router.register('ledger', (() => {
   let _filter = { role: '', type: '', month: Utils.monthLabel() };
+  let _limit = 50;          // 一次最多渲染筆數，按「載入更多」遞增
+  const PAGE_SIZE = 50;
 
   const TYPE_ICON = { '支出': '↑', '收入': '↓', '轉帳': '⇄', '公積金提撥': '⊕' };
   const TYPE_CLASS = { '支出': 'amount-out', '收入': 'amount-in', '轉帳': 'amount-neutral', '公積金提撥': 'amount-primary' };
@@ -12,6 +14,9 @@ Router.register('ledger', (() => {
     if (_filter.type) rows = rows.filter(tx => tx.type === _filter.type);
 
     if (rows.length === 0) return `<p class="empty-hint">無符合記錄</p>`;
+
+    const hasMore = rows.length > _limit;
+    if (hasMore) rows = rows.slice(0, _limit);
 
     const grouped = {};
     rows.forEach(tx => {
@@ -37,7 +42,8 @@ Router.register('ledger', (() => {
         </div>
         ${items}
       </div>`;
-    }).join('');
+    }).join('') +
+    (hasMore ? `<button class="btn btn-outline btn-full" id="btn-load-more" style="margin:8px 0">載入更多</button>` : '');
   }
 
   function render(el) {
@@ -73,6 +79,11 @@ Router.register('ledger', (() => {
 
     listEl.querySelectorAll('.ledger-item').forEach(item => {
       item.addEventListener('click', () => showDetail(item.dataset.id));
+    });
+
+    Utils.el('btn-load-more')?.addEventListener('click', () => {
+      _limit += PAGE_SIZE;
+      refreshList();
     });
   }
 
@@ -252,6 +263,7 @@ Router.register('ledger', (() => {
       Utils.el(id)?.addEventListener('change', e => {
         const key = { 'fil-month': 'month', 'fil-role': 'role', 'fil-type': 'type' }[id];
         _filter[key] = e.target.value;
+        _limit = PAGE_SIZE; // 換篩選條件時回到第一頁
         refreshList();
       });
     });
