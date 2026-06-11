@@ -7,7 +7,7 @@ Router.register('ledger', (() => {
   function renderList(ledger) {
     let rows = [...ledger].sort((a, b) => b.date.localeCompare(a.date));
 
-    if (_filter.month) rows = rows.filter(tx => tx.date.startsWith(_filter.month.replace('/', '-').slice(0,7)) || tx.date.slice(0,7) === _filter.month.slice(0,7));
+    if (_filter.month) rows = rows.filter(tx => tx.date.startsWith(_filter.month));
     if (_filter.role) rows = rows.filter(tx => tx.roleOut === _filter.role);
     if (_filter.type) rows = rows.filter(tx => tx.type === _filter.type);
 

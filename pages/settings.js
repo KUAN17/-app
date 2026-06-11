@@ -339,12 +339,13 @@ Router.register('settings', (() => {
       if (!updated) { Utils.toast('未填入任何餘額', 'warn'); return; }
 
       modal.remove();
-      await saveAccounts();
+      await saveAccounts(true);
+      renderAccountMgmt();
     });
   }
 
-  async function saveAccounts() {
-    readInputsIntoState();
+  async function saveAccounts(skipDOMRead = false) {
+    if (!skipDOMRead) readInputsIntoState();
 
     const rows = [];
     CFG.ROLES.forEach(role => {

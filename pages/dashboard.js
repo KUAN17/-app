@@ -33,7 +33,7 @@ Router.register('dashboard', (() => {
   function periodTxs(ledger) {
     if (_period === 'month') {
       const prefix = normDate(_month); // '2026-06' → '2026/06'
-      return byRole(ledger).filter(tx => normDate(tx.date).startsWith(prefix));
+      return byRole(ledger).filter(tx => tx.date.startsWith(prefix));
     }
     return byRole(ledger).filter(tx => tx.date.startsWith(String(_year)));
   }
@@ -156,11 +156,11 @@ Router.register('dashboard', (() => {
 
   function trendChart(ledger) {
     if (_period !== 'year') return '';
-    const txs = byRole(ledger).filter(tx => normDate(tx.date).startsWith(String(_year)));
+    const txs = byRole(ledger).filter(tx => tx.date.startsWith(String(_year)));
     const BAR_H = 64;
     const months = Array.from({ length: 12 }, (_, i) => {
       const mm = String(i + 1).padStart(2, '0');
-      const mTxs = txs.filter(tx => normDate(tx.date).startsWith(`${_year}/${mm}`));
+      const mTxs = txs.filter(tx => tx.date.startsWith(`${_year}/${mm}`));
       const io = sumIO(mTxs);
       return { m: i + 1, in: io.income, out: io.expense };
     });

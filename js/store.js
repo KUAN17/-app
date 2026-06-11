@@ -21,7 +21,7 @@ window.Store = (() => {
       type: row[4] || '',
       category: row[5] || '',
       memo: row[6] || '',
-      date: row[7] || '',
+      date: (row[7] || '').replace(/-/g, '/'),
       amount: Utils.parseAmount(row[8]),
       accountOut: row[9] || '',
       roleIn: row[10] || '',
