@@ -63,6 +63,22 @@ Router.register('entry', (() => {
     _el = Utils.el('page-content');
     await Store.load();
     initState();
+
+    // 從帳單頁「前往繳費」帶入的預填資料（用完即清）
+    try {
+      const raw = localStorage.getItem('ff_entry_prefill');
+      if (raw) {
+        localStorage.removeItem('ff_entry_prefill');
+        const p = JSON.parse(raw);
+        if (p.type) _s.type = p.type;
+        if (p.roleIn && CFG.ROLES.includes(p.roleIn)) {
+          _s.roleIn = p.roleIn;
+          _s.accountIn = p.accountIn || Store.accountsForRole(p.roleIn)[0] || '';
+        }
+        if (p.amount) _s.amount = String(p.amount);
+      }
+    } catch {}
+
     renderAll();
   }
 
