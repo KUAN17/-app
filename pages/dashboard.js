@@ -1,5 +1,5 @@
 Router.register('dashboard', (() => {
-  let _role   = '全部';
+  let _scope  = '';   // 我的 / 全部 / 單一角色
   let _period = 'month';
   let _month  = '';
   let _year   = 0;
@@ -9,6 +9,14 @@ Router.register('dashboard', (() => {
 
   const COLORS = ['#5B8DEF', '#FF8A65', '#34C99A', '#FFC757', '#A78BFA', '#F472B6', '#94A3B8'];
 
+  function identity() { return localStorage.getItem('ff_identity') || ''; }
+  function scopeRoles() {
+    const id = identity();
+    if (_scope === '我的') return id === '家用' ? ['家用'] : [id, '家用'];
+    if (_scope === '全部') return [...CFG.ROLES];
+    return [_scope];
+  }
+
   function render(el) {
     el.innerHTML = `<div class="page-inner"><div class="spinner"></div></div>`;
   }
@@ -17,14 +25,19 @@ Router.register('dashboard', (() => {
     const now = new Date();
     if (!_month) _month = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
     if (!_year)  _year  = now.getFullYear();
+    if (!_scope) {
+      const id = identity();
+      _scope = (id && id !== '家用') ? '我的' : '全部';
+    }
     await Store.load();
     renderAll();
   }
 
   // ── 共用計算 ──────────────────────────────────────────────────────────────
   function byRole(ledger) {
-    if (_role === '全部') return ledger;
-    return ledger.filter(tx => tx.roleOut === _role || tx.roleIn === _role);
+    if (_scope === '全部') return ledger;
+    const set = new Set(scopeRoles());
+    return ledger.filter(tx => set.has(tx.roleOut) || set.has(tx.roleIn));
   }
 
   // 統一以斜線格式比對（Ledger 日期存為 2026/06/10，_month 為 2026-06）
@@ -39,17 +52,19 @@ Router.register('dashboard', (() => {
   }
 
   function sumIO(txs) {
+    const set = new Set(scopeRoles());
     let income = 0, expense = 0;
     txs.forEach(tx => {
-      if (tx.type === '收入' && (_role === '全部' || tx.roleOut === _role)) income  += tx.amount;
-      if (tx.type === '支出' && (_role === '全部' || tx.roleOut === _role)) expense += tx.amount;
+      if (tx.type === '收入' && set.has(tx.roleOut)) income  += tx.amount;
+      if (tx.type === '支出' && set.has(tx.roleOut)) expense += tx.amount;
     });
     return { income, expense };
   }
 
   function catData(txs, topN = 5) {
+    const set = new Set(scopeRoles());
     const map = {};
-    txs.filter(t => t.type === '支出' && (_role === '全部' || t.roleOut === _role))
+    txs.filter(t => t.type === '支出' && set.has(t.roleOut))
        .forEach(t => {
          const c = t.category || (t.projectTag ? `📁${t.projectTag}` : '未分類');
          map[c] = (map[c] || 0) + t.amount;
@@ -65,18 +80,24 @@ Router.register('dashboard', (() => {
   }
 
   function assetInfo(accounts, investments, balances) {
-    const roles = _role === '全部' ? CFG.ROLES : [_role];
-    let acctSum = 0;
+    const roles = scopeRoles();
+    const set = new Set(roles);
+    let acctSum = 0, ccDebt = 0;
     roles.forEach(role => {
       (accounts[role] || []).forEach(a => {
-        if (a.type === '信用卡' || a.type === '證券帳戶') return;
-        acctSum += (balances[role] || {})[a.name] || 0;
+        const bal = (balances[role] || {})[a.name] || 0;
+        if (a.type === '信用卡') {
+          if (bal < 0) ccDebt += -bal; // 已刷未繳金額
+          return;
+        }
+        if (a.type === '證券帳戶') return;
+        acctSum += bal;
       });
     });
-    const invs = investments.filter(i => _role === '全部' || i.role === _role);
+    const invs = investments.filter(i => set.has(i.role));
     const invSum = invs.reduce((s, i) => s + i.marketValue, 0);
     const unreal = invs.reduce((s, i) => s + i.unrealized, 0);
-    return { acctSum, invSum, unreal, total: acctSum + invSum };
+    return { acctSum, invSum, unreal, ccDebt, total: acctSum + invSum };
   }
 
   function shiftMonth(d) {
@@ -87,8 +108,10 @@ Router.register('dashboard', (() => {
 
   // ── 共用 UI 片段 ──────────────────────────────────────────────────────────
   function topRow() {
-    const chips = ['全部', ...CFG.ROLES].map(r =>
-      `<button class="dash-chip ${_role === r ? 'active' : ''}" data-val="${r}" data-act="role">${r}</button>`
+    const id = identity();
+    const opts = (id && id !== '家用') ? ['我的', '全部', ...CFG.ROLES] : ['全部', ...CFG.ROLES];
+    const chips = opts.map(r =>
+      `<button class="dash-chip ${_scope === r ? 'active' : ''}" data-val="${r}" data-act="role">${r}</button>`
     ).join('');
     return `<div class="dash-top-row">
       <div class="dash-chips-row">${chips}</div>
@@ -179,12 +202,12 @@ Router.register('dashboard', (() => {
   }
 
   function acctCollapse(accounts, balances) {
-    const roles = _role === '全部' ? CFG.ROLES : [_role];
+    const roles = scopeRoles();
     let inner = '';
     roles.forEach(role => {
       const accts = (accounts[role] || []).filter(a => a.type !== '信用卡' && a.type !== '證券帳戶');
       if (!accts.length) return;
-      if (_role === '全部') inner += `<div class="dash-acct-role">${role}</div>`;
+      if (roles.length > 1) inner += `<div class="dash-acct-role">${role}</div>`;
       inner += `<div class="card dash-acct-card">
         ${accts.map(a => {
           const bal = (balances[role] || {})[a.name] || 0;
@@ -254,6 +277,7 @@ Router.register('dashboard', (() => {
           <div class="dash-mini-label">總資產</div>
           <div class="dash-mini-val">${Utils.formatMoney(assets.total)}</div>
           <div class="dash-mini-sub">帳戶 ${Utils.formatMoney(assets.acctSum)}</div>
+          ${assets.ccDebt > 0 ? `<div class="dash-cc-debt">信用卡待繳 -${Utils.formatMoney(assets.ccDebt)}</div>` : ''}
         </div>
         <div class="card dash-mini-card">
           <div class="dash-mini-label">投資</div>
@@ -282,6 +306,7 @@ Router.register('dashboard', (() => {
         <div class="card dash-g-card">
           <div class="dash-mini-label">總資產</div>
           <div class="dash-g-val">${Utils.formatMoney(assets.total)}</div>
+          ${assets.ccDebt > 0 ? `<div class="dash-cc-debt">信用卡待繳 -${Utils.formatMoney(assets.ccDebt)}</div>` : ''}
         </div>
         <div class="card dash-g-card">
           <div class="dash-mini-label">收入 / 支出</div>
@@ -332,7 +357,7 @@ Router.register('dashboard', (() => {
     el.querySelectorAll('[data-act]').forEach(btn => {
       btn.addEventListener('click', () => {
         const { act, val } = btn.dataset;
-        if (act === 'role')   _role   = val;
+        if (act === 'role')   _scope  = val;
         if (act === 'period') _period = val;
         if (act === 'prev-m') shiftMonth(-1);
         if (act === 'next-m') shiftMonth(1);

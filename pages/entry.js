@@ -6,19 +6,31 @@ Router.register('entry', (() => {
     '訂閱':'📺','信用卡費':'💳',
     '薪資收入':'💰','利息/股息':'📊','現金回饋':'🎁','其他':'💵'
   };
-  const LS_LAST         = 'ff_entry_last';
   const LS_RECENT_MEMOS = 'ff_recent_memos';
-  let _s  = {};
+  const LS_LAST_ROLE = 'ff_entry_role';
+  const LS_LAST_ACCT = r => `ff_entry_acct_${r}`;
+
   let _el = null;
+  let _role = '';
+  let _showAll = false;   // 角色列是否展開全部成員
+  let _date = '';
+  let _sh = null;         // bottom sheet 狀態
+  let _sheetEl = null;
 
-  function loadLast() {
-    try { return JSON.parse(localStorage.getItem(LS_LAST) || '{}'); } catch { return {}; }
+  // ── 身份 ──────────────────────────────────────────────────────────────────
+  function identity() { return localStorage.getItem('ff_identity') || ''; }
+  function primaryRoles() {
+    const id = identity();
+    if (!id) return [...CFG.ROLES];
+    return id === '家用' ? ['家用'] : [id, '家用'];
   }
+  function visibleRoles() { return _showAll ? [...CFG.ROLES] : primaryRoles(); }
 
+  // ── 小工具 ────────────────────────────────────────────────────────────────
+  function todayISO() { return new Date().toISOString().slice(0, 10); }
   function getRecentMemos() {
     try { return JSON.parse(localStorage.getItem(LS_RECENT_MEMOS) || '[]'); } catch { return []; }
   }
-
   function addRecentMemo(memo) {
     if (!memo?.trim()) return;
     const m = memo.trim();
@@ -26,318 +38,19 @@ Router.register('entry', (() => {
     list.unshift(m);
     localStorage.setItem(LS_RECENT_MEMOS, JSON.stringify(list.slice(0, 8)));
   }
-
-  function initState() {
-    const last    = loadLast();
-    const type    = CFG.TX_TYPES.includes(last.type) ? last.type : '支出';
-    const role    = CFG.ROLES.includes(last.roleOut) ? last.roleOut : CFG.ROLES[0];
-    const accts   = Store.accountsForRole(role);
-    const acctOut = accts.includes(last.accountOut) ? last.accountOut : (accts[0] || '');
-    const roleIn  = CFG.ROLES.includes(last.roleIn) ? last.roleIn : CFG.ROLES[0];
-    const acctsIn = Store.accountsForRole(roleIn);
-    const acctIn  = acctsIn.includes(last.accountIn) ? last.accountIn : (acctsIn[0] || '');
-
-    _s = {
-      type, dimension: '日常', projectTag: '', category: '',
-      roleOut: role, accountOut: acctOut,
-      roleIn, accountIn: acctIn,
-      date: new Date().toISOString().slice(0, 10),
-      memo: '', amount: '',
-      payRole: '', payAccount: '',
-      autoTransfer: false, transferFrom: ''
-    };
+  function acctsForRole(role) {
+    return Store.allAccountsFlat().filter(a => a.role === role && a.type !== '證券帳戶');
   }
-
-  function saveLast() {
-    localStorage.setItem(LS_LAST, JSON.stringify({
-      roleOut: _s.roleOut, type: _s.type,
-      accountOut: _s.accountOut, roleIn: _s.roleIn, accountIn: _s.accountIn
-    }));
+  function lastAcct(role) {
+    const saved = localStorage.getItem(LS_LAST_ACCT(role));
+    const names = acctsForRole(role).map(a => a.name);
+    return names.includes(saved) ? saved : (names[0] || '');
   }
-
-  function render(el) {
-    el.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:200px"><div class="spinner"></div></div>`;
+  function acctIcon(name) {
+    const map = { '現金': '💵', '銀行': '🏦', '信用卡': '💳', '證券帳戶': '📊' };
+    const a = Store.allAccountsFlat().find(x => x.name === name);
+    return map[a?.type || '銀行'] || '🏦';
   }
-
-  async function onMount() {
-    _el = Utils.el('page-content');
-    await Store.load();
-    initState();
-
-    // 從帳單頁「前往繳費」帶入的預填資料（用完即清）
-    try {
-      const raw = localStorage.getItem('ff_entry_prefill');
-      if (raw) {
-        localStorage.removeItem('ff_entry_prefill');
-        const p = JSON.parse(raw);
-        if (p.type) _s.type = p.type;
-        if (p.roleIn && CFG.ROLES.includes(p.roleIn)) {
-          _s.roleIn = p.roleIn;
-          _s.accountIn = p.accountIn || Store.accountsForRole(p.roleIn)[0] || '';
-        }
-        if (p.amount) _s.amount = String(p.amount);
-      }
-    } catch {}
-
-    renderAll();
-  }
-
-  function renderAll() {
-    _el.removeEventListener('click', handleClick);
-    _el.innerHTML = buildHTML();
-    _el.addEventListener('click', handleClick);
-    attachListeners();
-  }
-
-  function attachListeners() {
-    const inpDate = document.getElementById('inp-date');
-    // iOS PWA standalone 模式需要明確呼叫 showPicker()
-    inpDate?.addEventListener('click', e => {
-      try { e.currentTarget.showPicker(); } catch {}
-    });
-
-    document.getElementById('inp-date')?.addEventListener('change', e => {
-      _s.date = e.target.value;
-      const today = new Date().toISOString().slice(0, 10);
-      const label = document.getElementById('date-label');
-      if (label) label.textContent = _s.date === today ? '今天' : _s.date.replace(/-/g, '/');
-    });
-
-    document.getElementById('inp-memo')?.addEventListener('input', e => { _s.memo = e.target.value; });
-
-    document.getElementById('sel-project-main')?.addEventListener('change', e => {
-      handleAction('sel-proj', e.target.value);
-    });
-
-    document.getElementById('chk-auto-transfer')?.addEventListener('change', e => {
-      _s.autoTransfer = e.target.checked;
-      renderAll();
-    });
-    document.getElementById('sel-transfer-from')?.addEventListener('change', e => {
-      _s.transferFrom = e.target.value;
-    });
-
-    const projCatEl = document.getElementById('inp-proj-cat');
-    if (projCatEl) {
-      projCatEl.addEventListener('input', e => {
-        _s.category = e.target.value;
-        const q = e.target.value;
-        const sugg = document.getElementById('proj-cat-sugg');
-        if (sugg) sugg.innerHTML = getProjectCatSuggestions()
-          .filter(c => !q || c.includes(q))
-          .map(c => `<button type="button" class="proj-cat-sugg-item" data-action="proj-cat-sugg" data-val="${c}">${c}</button>`)
-          .join('');
-      });
-    }
-  }
-
-  function handleClick(e) {
-    const btn = e.target.closest('[data-action]');
-    if (!btn || btn.disabled) return;
-    handleAction(btn.dataset.action, btn.dataset.val);
-  }
-
-  function handleAction(action, val) {
-    switch (action) {
-      case 'type': {
-        _s.type = val; _s.category = ''; _s.dimension = '日常';
-        _s.projectTag = ''; _s.payRole = ''; _s.payAccount = '';
-        _s.autoTransfer = false; _s.transferFrom = '';
-        renderAll(); break;
-      }
-      case 'set-dim': {
-        _s.dimension = val; _s.projectTag = ''; _s.category = '';
-        _s.payRole = ''; _s.payAccount = '';
-        _s.autoTransfer = false; _s.transferFrom = '';
-        renderAll(); break;
-      }
-      case 'role-out': {
-        _s.roleOut = val;
-        _s.accountOut = Store.accountsForRole(val)[0] || '';
-        renderAll(); break;
-      }
-      case 'role-in': {
-        _s.roleIn = val;
-        _s.accountIn = Store.accountsForRole(val)[0] || '';
-        renderAll(); break;
-      }
-      case 'sel-proj': {
-        _s.projectTag = val;
-        if (val) {
-          const proj = Store.get().projects.find(p => p.name === val);
-          if (_s.type === '轉帳') {
-            // 轉帳+專案：鎖定轉入角色/帳戶為專案綁定
-            if (proj?.ownerRole && CFG.ROLES.includes(proj.ownerRole)) {
-              _s.roleIn = proj.ownerRole;
-              const accts = Store.accountsForRole(proj.ownerRole);
-              _s.accountIn = (proj.defaultAccount && accts.includes(proj.defaultAccount))
-                ? proj.defaultAccount : (accts[0] || '');
-            }
-          } else {
-            // 支出+專案：鎖定轉出角色/帳戶為專案歸屬
-            if (proj?.ownerRole && CFG.ROLES.includes(proj.ownerRole)) {
-              _s.roleOut = proj.ownerRole;
-              const accts = Store.accountsForRole(proj.ownerRole);
-              _s.accountOut = (proj.defaultAccount && accts.includes(proj.defaultAccount))
-                ? proj.defaultAccount : (accts[0] || '');
-            }
-          }
-        }
-        renderAll(); break;
-      }
-      case 'cat':
-        _s.category = val;
-        _el.querySelectorAll('.entry-cat-chip').forEach(c =>
-          c.classList.toggle('selected', c.dataset.val === val));
-        break;
-      case 'proj-cat-sugg': {
-        _s.category = val;
-        const inp = document.getElementById('inp-proj-cat');
-        if (inp) inp.value = val;
-        const sugg = document.getElementById('proj-cat-sugg');
-        if (sugg) sugg.innerHTML = '';
-        break;
-      }
-      case 'open-numpad':  showNumpad(); break;
-      case 'pick-acct-out': showAccountPicker('out'); break;
-      case 'pick-acct-in':  showAccountPicker('in');  break;
-      case 'add-pay':   showPayPicker(); break;
-      case 'clear-pay':
-        _s.payRole = ''; _s.payAccount = '';
-        _s.autoTransfer = false; _s.transferFrom = '';
-        renderAll(); break;
-      case 'memo-chip': {
-        _s.memo = val;
-        const inp = document.getElementById('inp-memo');
-        if (inp) inp.value = val;
-        _el.querySelectorAll('.entry-memo-chip').forEach(c =>
-          c.classList.toggle('active', c.dataset.val === val));
-        break;
-      }
-      case 'submit': handleSubmit(); break;
-    }
-  }
-
-  // ── Numpad bottom sheet ───────────────────────────────────────────────────
-  function showNumpad() {
-    document.getElementById('numpad-overlay')?.remove();
-    const overlay = document.createElement('div');
-    overlay.id = 'numpad-overlay';
-    overlay.className = 'numpad-overlay';
-    let cur = _s.amount || '';
-
-    overlay.innerHTML = `
-      <div class="numpad-sheet" id="numpad-sheet">
-        <div class="numpad-sheet-handle"></div>
-        <div class="numpad-display" id="numpad-disp">${cur || '0'}</div>
-        <div class="numpad-keys">
-          ${['1','2','3','4','5','6','7','8','9','.','0','⌫'].map(k =>
-            `<button type="button" class="numpad-key${k==='⌫'?' numpad-del':''}" data-key="${k}">${k}</button>`
-          ).join('')}
-        </div>
-        <button type="button" class="numpad-done" id="numpad-done">完成</button>
-      </div>`;
-
-    document.body.appendChild(overlay);
-    requestAnimationFrame(() => overlay.querySelector('#numpad-sheet')?.classList.add('open'));
-
-    function commit() {
-      _s.amount = cur;
-      const disp = document.getElementById('entry-amount-display');
-      if (disp) {
-        disp.textContent = cur || '0';
-        disp.classList.toggle('entry-amount-zero', !cur);
-      }
-      overlay.querySelector('#numpad-sheet')?.classList.remove('open');
-      setTimeout(() => overlay.remove(), 280);
-    }
-
-    overlay.addEventListener('click', e => {
-      if (e.target === overlay) { commit(); return; }
-      if (e.target.closest('#numpad-done')) { commit(); return; }
-      const key = e.target.closest('[data-key]');
-      if (!key) return;
-      const k = key.dataset.key;
-      if (k === '⌫') { cur = cur.slice(0, -1); }
-      else if (k === '.') { if (!cur.includes('.')) cur = (cur || '0') + '.'; }
-      else { cur = cur === '0' ? k : cur + k; }
-      const disp = overlay.querySelector('#numpad-disp');
-      if (disp) disp.textContent = cur || '0';
-    });
-  }
-
-  // ── Account picker ────────────────────────────────────────────────────────
-  function showAccountPicker(side) {
-    const modal = document.createElement('div');
-    modal.className = 'modal-overlay';
-    // 不顯示證券帳戶；依目前已選角色過濾
-    const roleForSide = side === 'out' ? _s.roleOut : _s.roleIn;
-    const pool = Store.allAccountsFlat().filter(a => a.type !== '證券帳戶' && a.role === roleForSide);
-
-    const TYPE_ORDER = ['現金', '銀行', '信用卡'];
-    const TYPE_ICONS = { '現金': '💵', '銀行': '🏦', '信用卡': '💳' };
-    const usedTypes  = TYPE_ORDER.filter(t => pool.some(a => (a.type || '銀行') === t));
-    const curName    = side === 'out' ? _s.accountOut : _s.accountIn;
-    const curObj     = pool.find(a => a.name === curName);
-    let activeType   = curObj?.type || '銀行';
-    if (!usedTypes.includes(activeType)) activeType = usedTypes[0] || '銀行';
-
-    function itemsHtml(type) {
-      const items = pool.filter(a => (a.type || '銀行') === type);
-      if (!items.length) return '<p class="empty-hint">此類型無帳戶</p>';
-      return items.map(a => {
-        const cur = a.name === (side === 'out' ? _s.accountOut : _s.accountIn);
-        return `<div class="acct-pick-item${cur?' active':''}" data-role="${a.role}" data-acct="${a.name.replace(/"/g,'&quot;')}">
-          <span>${a.name}</span>
-          ${cur ? '<span class="acct-pick-check">✓</span>' : ''}
-        </div>`;
-      }).join('');
-    }
-
-    const tabsHtml = usedTypes.length > 0
-      ? `<div class="acct-type-tabs">${usedTypes.map(t =>
-          `<button class="acct-type-tab${t===activeType?' active':''}" data-type="${t}">${TYPE_ICONS[t]||''} ${t}</button>`
-        ).join('')}</div>`
-      : '';
-
-    modal.innerHTML = `<div class="modal-card">
-      <div class="modal-title">${side === 'out' ? '付款帳戶' : '對象帳戶'}</div>
-      ${tabsHtml}
-      <div id="acct-pick-list">${itemsHtml(activeType)}</div>
-      ${!pool.length ? '<p class="empty-hint">無帳戶，請至設定新增</p>' : ''}
-    </div>`;
-    document.body.appendChild(modal);
-
-    function attachItems() {
-      modal.querySelectorAll('.acct-pick-item').forEach(item => {
-        item.addEventListener('click', () => {
-          if (side === 'out') { _s.accountOut = item.dataset.acct; }
-          else { _s.accountIn = item.dataset.acct; }
-          modal.remove(); renderAll();
-        });
-      });
-    }
-    attachItems();
-
-    modal.querySelectorAll('.acct-type-tab').forEach(tab => {
-      tab.addEventListener('click', () => {
-        const type = tab.dataset.type;
-        const items = pool.filter(a => (a.type || '銀行') === type);
-        if (items.length === 1) {
-          if (side === 'out') { _s.accountOut = items[0].name; }
-          else { _s.accountIn = items[0].name; }
-          modal.remove(); renderAll(); return;
-        }
-        modal.querySelectorAll('.acct-type-tab').forEach(t => t.classList.remove('active'));
-        tab.classList.add('active');
-        modal.querySelector('#acct-pick-list').innerHTML = itemsHtml(type);
-        attachItems();
-      });
-    });
-    modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
-  }
-
-  // ── 代付補款資訊 ──────────────────────────────────────────────────────────
   function getPaymentInfo(cardName) {
     const all = Store.allAccountsFlat();
     const card = all.find(a => a.name === cardName);
@@ -345,131 +58,6 @@ Router.register('entry', (() => {
     const owner = all.find(a => a.name === card.paymentAccount);
     return { account: card.paymentAccount, role: owner?.role || '' };
   }
-
-  // ── 代付帳戶 picker ───────────────────────────────────────────────────────
-  function showPayPicker() {
-    const modal = document.createElement('div');
-    modal.className = 'modal-overlay';
-    const allAccts = Store.allAccountsFlat().filter(a => a.name !== _s.accountOut && a.type !== '證券帳戶');
-
-    const TYPE_ORDER = ['信用卡', '現金', '銀行', '證券帳戶'];
-    const TYPE_ICONS = { '現金': '💵', '銀行': '🏦', '信用卡': '💳', '證券帳戶': '📊' };
-    const usedTypes  = TYPE_ORDER.filter(t => allAccts.some(a => (a.type || '銀行') === t));
-    let activeType   = usedTypes.includes('信用卡') ? '信用卡' : (usedTypes[0] || '銀行');
-
-    function itemsHtml(type) {
-      const items = allAccts.filter(a => (a.type || '銀行') === type);
-      if (!items.length) return '<p class="empty-hint">此類型無帳戶</p>';
-      return items.map(a => {
-        const cur = _s.payAccount === a.name && _s.payRole === a.role;
-        return `<div class="acct-pick-item${cur?' active':''}" data-role="${a.role}" data-acct="${a.name.replace(/"/g,'&quot;')}">
-          <span class="balance-role-badge">${a.role}</span>
-          <span>${a.name}</span>
-          ${cur ? '<span class="acct-pick-check">✓</span>' : ''}
-        </div>`;
-      }).join('');
-    }
-
-    const tabsHtml = `<div class="acct-type-tabs">${usedTypes.map(t =>
-      `<button class="acct-type-tab${t===activeType?' active':''}" data-type="${t}">${TYPE_ICONS[t]||''} ${t}</button>`
-    ).join('')}</div>`;
-
-    modal.innerHTML = `<div class="modal-card">
-      <div class="modal-title">代付帳戶</div>
-      <p class="input-hint" style="margin:0 0 8px">實際刷卡的帳戶，費用仍歸屬上方角色</p>
-      ${tabsHtml}
-      <div id="pay-pick-list">${itemsHtml(activeType)}</div>
-    </div>`;
-    document.body.appendChild(modal);
-
-    function attachItems() {
-      modal.querySelectorAll('.acct-pick-item').forEach(item => {
-        item.addEventListener('click', () => {
-          _s.payRole = item.dataset.role;
-          _s.payAccount = item.dataset.acct;
-          const payInfo = getPaymentInfo(item.dataset.acct);
-          if (payInfo && _s.roleOut !== item.dataset.role) {
-            _s.autoTransfer = true;
-            const defAccts = Store.allAccountsFlat()
-              .filter(a => a.role === _s.roleOut && a.type !== '信用卡' && a.type !== '證券帳戶');
-            _s.transferFrom = defAccts[0]?.name || '';
-          } else {
-            _s.autoTransfer = false; _s.transferFrom = '';
-          }
-          modal.remove(); renderAll();
-        });
-      });
-    }
-    attachItems();
-    modal.querySelectorAll('.acct-type-tab').forEach(tab => {
-      tab.addEventListener('click', () => {
-        modal.querySelectorAll('.acct-type-tab').forEach(t => t.classList.remove('active'));
-        tab.classList.add('active');
-        modal.querySelector('#pay-pick-list').innerHTML = itemsHtml(tab.dataset.type);
-        attachItems();
-      });
-    });
-    modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
-  }
-
-  // ── Submit ────────────────────────────────────────────────────────────────
-  async function handleSubmit() {
-    const isTransfer = _s.type === '轉帳';
-    const isExpense  = _s.type === '支出';
-    const isProjMode = (isExpense || isTransfer) && _s.dimension === '專案';
-    const amount     = parseFloat(_s.amount);
-    const catRequired = !isTransfer && !(isExpense && _s.dimension === '專案');
-
-    if (catRequired && !_s.category) return Utils.toast('請選擇分類', 'warn');
-    if (!_s.accountOut)              return Utils.toast('請選擇付款帳戶', 'warn');
-    if (!amount || amount <= 0)      return Utils.toast('請輸入有效金額', 'warn');
-    if (isProjMode && !_s.projectTag) return Utils.toast('請選擇專案', 'warn');
-    if (isTransfer && !_s.accountIn)  return Utils.toast('請選擇對象帳戶', 'warn');
-
-    const memo = _s.memo.trim();
-    const row = [
-      Utils.uid(), _s.roleOut,
-      (isExpense || isTransfer) ? _s.dimension : '',
-      isProjMode ? _s.projectTag : '',
-      _s.type, _s.category, memo,
-      _s.date.replace(/-/g, '/'), amount, _s.accountOut,
-      isTransfer ? _s.roleIn : '', isTransfer ? _s.accountIn : '',
-      _s.payRole || '', _s.payAccount || ''
-    ];
-
-    const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID) || CFG.SHEET_ID;
-    const btn = document.getElementById('btn-submit');
-    if (btn) { btn.disabled = true; btn.textContent = '儲存中…'; }
-
-    try {
-      await API.append(sid, 'Ledger!A:N', row);
-      if (_s.autoTransfer && _s.payAccount) {
-        const payInfo = getPaymentInfo(_s.payAccount);
-        if (payInfo && _s.transferFrom) {
-          const transferRow = [
-            Utils.uid(), _s.roleOut, '日常', '',
-            '轉帳', '', `代付補款／${_s.payAccount}`,
-            _s.date.replace(/-/g, '/'), amount,
-            _s.transferFrom, payInfo.role, payInfo.account, '', ''
-          ];
-          await API.append(sid, 'Ledger!A:N', transferRow);
-        }
-      }
-      Store.invalidate();
-      saveLast();
-      if (memo) addRecentMemo(memo);
-      Utils.toast('記帳成功！', 'success');
-      _s.category = ''; _s.projectTag = ''; _s.memo = ''; _s.amount = '';
-      _s.payRole = ''; _s.payAccount = '';
-      _s.autoTransfer = false; _s.transferFrom = '';
-      _s.date = new Date().toISOString().slice(0, 10);
-      renderAll();
-    } catch (err) {
-      Utils.toast('儲存失敗：' + err.message, 'error');
-      if (btn) { btn.disabled = false; btn.textContent = '記帳 ✓'; }
-    }
-  }
-
   function getProjectCatSuggestions() {
     return [...new Set(
       Store.get().ledger
@@ -477,241 +65,459 @@ Router.register('entry', (() => {
         .map(tx => tx.category)
     )];
   }
+  // 該角色的支出分類，依使用頻率排序
+  function catOrder(role) {
+    const counts = {};
+    Store.get().ledger.forEach(tx => {
+      if (tx.type === '支出' && tx.roleOut === role && tx.category) {
+        counts[tx.category] = (counts[tx.category] || 0) + 1;
+      }
+    });
+    return [...CFG.CATEGORIES['支出']].sort((a, b) => (counts[b] || 0) - (counts[a] || 0));
+  }
 
-  // ── Build HTML ────────────────────────────────────────────────────────────
-  function buildHTML() {
-    const isTransfer = _s.type === '轉帳';
-    const isExpense  = _s.type === '支出';
-    const isProjMode = (isExpense || isTransfer) && _s.dimension === '專案';
-    const cats  = CFG.CATEGORIES[_s.type] || [];
-    const today = new Date().toISOString().slice(0, 10);
-    const dateLabel = _s.date === today ? '今天' : _s.date.replace(/-/g, '/');
-    const recentMemos = getRecentMemos();
+  // ── Lifecycle ─────────────────────────────────────────────────────────────
+  function render(el) {
+    el.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:200px"><div class="spinner"></div></div>`;
+  }
 
-    const _acctIconMap = { '現金': '💵', '銀行': '🏦', '信用卡': '💳', '證券帳戶': '📊' };
-    function acctIcon(name) {
-      const a = Store.allAccountsFlat().find(x => x.name === name);
-      return _acctIconMap[a?.type || '銀行'] || '🏦';
-    }
+  async function onMount() {
+    _el = Utils.el('page-content');
+    await Store.load();
 
-    const lockedProj = isProjMode && _s.projectTag
-      ? Store.get().projects.find(p => p.name === _s.projectTag)
-      : null;
+    const pr = primaryRoles();
+    const saved = localStorage.getItem(LS_LAST_ROLE);
+    _role = pr.includes(saved) ? saved : pr[0];
+    if (!_date) _date = todayISO();
 
-    // 1. Date (最上方，type tabs 之前)
-    // label 包裹讓 iOS PWA 也能正確觸發原生日期選擇器
-    const dateSection = `
+    // 帳單頁「前往繳費」帶入的預填（用完即清）
+    let prefill = null;
+    try {
+      const raw = localStorage.getItem('ff_entry_prefill');
+      if (raw) { localStorage.removeItem('ff_entry_prefill'); prefill = JSON.parse(raw); }
+    } catch {}
+
+    renderMain();
+    if (prefill?.type === '轉帳') openSheet('transfer', prefill);
+  }
+
+  // ── 主畫面 ────────────────────────────────────────────────────────────────
+  function renderMain() {
+    const today = todayISO();
+    const dateLabel = _date === today ? '今天' : _date.replace(/-/g, '/');
+    const roles = visibleRoles();
+    const hasMore = !_showAll && roles.length < CFG.ROLES.length;
+    const id = identity();
+
+    const roleCards = roles.map(r =>
+      `<button type="button" class="entry-id-card${_role === r ? ' active' : ''}" data-action="role" data-val="${r}">
+        ${r === '家用' ? '🏠 ' : ''}${r}${id === r ? '<span class="entry-id-tag">我</span>' : ''}
+      </button>`
+    ).join('') + (hasMore
+      ? `<button type="button" class="entry-id-card entry-id-more" data-action="more-roles">⋯</button>` : '');
+
+    const cats = catOrder(_role);
+    const tiles = cats.map(c => ({ icon: CAT_ICONS[c] || '📌', label: c, action: 'cat', val: c }));
+    tiles.push({ icon: '📁', label: '專案', action: 'open-proj', val: '' });
+    const pages = [];
+    for (let i = 0; i < tiles.length; i += 8) pages.push(tiles.slice(i, i + 8));
+
+    const pagesHtml = pages.map(p =>
+      `<div class="entry-cat-page">${p.map(t =>
+        `<button type="button" class="entry-cat-tile" data-action="${t.action}" data-val="${t.val}">
+          <span class="entry-cat-tile-icon">${t.icon}</span><span>${t.label}</span>
+        </button>`).join('')}</div>`
+    ).join('');
+
+    const dots = pages.length > 1
+      ? `<div class="entry-dots">${pages.map((_, i) =>
+          `<span class="entry-dot${i === 0 ? ' active' : ''}"></span>`).join('')}</div>`
+      : '';
+
+    _el.innerHTML = `<div class="entry-wrapper">
       <label class="entry-date-standalone" style="cursor:pointer;-webkit-tap-highlight-color:transparent">
         <span style="position:absolute;left:16px;pointer-events:none">📅</span>
         <span id="date-label" style="font-weight:600;pointer-events:none">${dateLabel}</span>
         <span style="position:absolute;right:16px;color:var(--text-muted);pointer-events:none">›</span>
-        <input type="date" id="inp-date" value="${_s.date}"
+        <input type="date" id="inp-date" value="${_date}"
                style="position:absolute;inset:0;opacity:0;width:100%;height:100%;cursor:pointer;border:none;background:none;font-size:16px">
-      </label>`;
-
-    // 2. Type tabs
-    const typeTabs = CFG.TX_TYPES.map(t =>
-      `<button type="button" class="entry-type-tab${_s.type===t?' active':''}" data-action="type" data-val="${t}">${t}</button>`
-    ).join('');
-
-    // 3. Dim tabs（支出 和 轉帳 都有）
-    const dimSection = (isExpense || isTransfer) ? `
-      <div class="entry-dim-section">
-        <button type="button" class="entry-dim-tab${_s.dimension==='日常'?' active':''}" data-action="set-dim" data-val="日常">☀️ 日常</button>
-        <button type="button" class="entry-dim-tab${_s.dimension==='專案'?' active':''}" data-action="set-dim" data-val="專案">📁 專案</button>
-      </div>` : '';
-
-    // 4. Project selector
-    const activeProjList = Store.get().projects.filter(p => p.status === '進行中');
-    const projSelect = isProjMode ? `
-      <div class="entry-proj-select-row">
-        <select id="sel-project-main" class="form-select entry-proj-select">
-          <option value="">選擇專案</option>
-          ${activeProjList.map(p =>
-            `<option value="${p.name}"${_s.projectTag===p.name?' selected':''}>${p.name}</option>`
-          ).join('')}
-        </select>
-      </div>` : '';
-
-    // 5 + 6. Role tabs & Account row
-    let roleAndAcctSection;
-    if (isTransfer) {
-      // 轉帳：轉出 / 轉入 各自有角色 tabs + 帳戶按鈕
-      const inLocked = isProjMode && lockedProj?.ownerRole;
-
-      const outRoleTabs = `<div class="entry-role-tabs">${CFG.ROLES.map(r =>
-        `<button type="button" class="entry-role-tab${_s.roleOut===r?' active':''}" data-action="role-out" data-val="${r}">${r}</button>`
-      ).join('')}</div>`;
-
-      const outAcctBtn = `<div class="entry-acct-row">
-        <button type="button" class="entry-acct-btn" data-action="pick-acct-out">
-          ${acctIcon(_s.accountOut)} ${_s.accountOut || '選擇帳戶'} <span class="entry-acct-caret">▾</span>
-        </button>
-      </div>`;
-
-      let inRoleTabs, inAcctBtn;
-      if (inLocked) {
-        inRoleTabs = '';
-        inAcctBtn = `<div class="entry-acct-row">
-          <div class="entry-acct-locked">
-            <span>🔒</span>
-            <span>${_s.accountIn || lockedProj.defaultAccount || lockedProj.ownerRole}</span>
-            <span class="entry-acct-lock-hint">專案帳戶</span>
-          </div>
-        </div>`;
-      } else {
-        inRoleTabs = `<div class="entry-role-tabs">${CFG.ROLES.map(r =>
-          `<button type="button" class="entry-role-tab${_s.roleIn===r?' active':''}" data-action="role-in" data-val="${r}">${r}</button>`
-        ).join('')}</div>`;
-        inAcctBtn = `<div class="entry-acct-row">
-          <button type="button" class="entry-acct-btn entry-acct-btn-in" data-action="pick-acct-in">
-            ${acctIcon(_s.accountIn)} ${_s.accountIn || '選擇帳戶'} <span class="entry-acct-caret">▾</span>
-          </button>
-        </div>`;
-      }
-
-      roleAndAcctSection = `
-        <div class="entry-transfer-label">轉出</div>
-        ${outRoleTabs}
-        ${outAcctBtn}
-        <div class="entry-transfer-arrow">↓</div>
-        <div class="entry-transfer-label">轉入</div>
-        ${inRoleTabs}
-        ${inAcctBtn}`;
-    } else {
-      // 支出/收入：角色 tabs + 帳戶按鈕
-      let roleTabs;
-      if (isExpense && lockedProj?.ownerRole) {
-        roleTabs = `<div class="entry-role-tabs">
-          <div class="entry-role-locked">
-            <span>🔒</span>
-            <span>${lockedProj.ownerRole}</span>
-            <span class="entry-role-lock-hint">專案歸屬角色</span>
-          </div>
-        </div>`;
-      } else {
-        roleTabs = `<div class="entry-role-tabs">${CFG.ROLES.map(r =>
-          `<button type="button" class="entry-role-tab${_s.roleOut===r?' active':''}" data-action="role-out" data-val="${r}">${r}</button>`
-        ).join('')}</div>`;
-      }
-      roleAndAcctSection = `
-        ${roleTabs}
-        <div class="entry-acct-row">
-          <button type="button" class="entry-acct-btn" data-action="pick-acct-out">
-            ${acctIcon(_s.accountOut)} ${_s.accountOut || '選擇帳戶'} <span class="entry-acct-caret">▾</span>
-          </button>
-        </div>`;
-    }
-
-    // 7. Amount
-    const amountSection = `
-      <div class="entry-amount-area" data-action="open-numpad">
-        <div class="entry-amount-big${!_s.amount?' entry-amount-zero':''}" id="entry-amount-display">${_s.amount || '0'}</div>
-      </div>`;
-
-    // 8. Category（轉帳無分類；支出+專案用自由輸入）
-    let catSection = '';
-    if (!isTransfer) {
-      if (isExpense && isProjMode) {
-        const initSugg = getProjectCatSuggestions();
-        catSection = `<div class="entry-cat-section">
-          <div class="proj-cat-area">
-            <input type="text" id="inp-proj-cat" class="form-input proj-cat-input"
-                   placeholder="分類（選填，例：建材、家電）"
-                   value="${_s.category.replace(/"/g,'&quot;')}" autocomplete="off">
-            <div class="proj-cat-suggestions" id="proj-cat-sugg">
-              ${initSugg.map(c => `<button type="button" class="proj-cat-sugg-item" data-action="proj-cat-sugg" data-val="${c}">${c}</button>`).join('')}
-            </div>
-          </div>
-        </div>`;
-      } else {
-        catSection = `<div class="entry-cat-section">
-          <div class="entry-cat-grid">${cats.map(c =>
-            `<button type="button" class="entry-cat-chip${_s.category===c?' selected':''}" data-action="cat" data-val="${c}">
-              <span class="cat-icon">${CAT_ICONS[c]||'📌'}</span><span>${c}</span>
-            </button>`
-          ).join('')}</div>
-        </div>`;
-      }
-    }
-
-    // 9. 代付帳戶（支出+專案 only）
-    let paySection = '';
-    if (isExpense && isProjMode) {
-      if (_s.payAccount) {
-        const payInfo = getPaymentInfo(_s.payAccount);
-        const canAutoTransfer = !!payInfo && _s.roleOut !== _s.payRole;
-
-        const transferFromOpts = Store.allAccountsFlat()
-          .filter(a => a.role === _s.roleOut && a.type !== '信用卡' && a.type !== '證券帳戶')
-          .map(a => `<option value="${a.name}"${_s.transferFrom === a.name ? ' selected' : ''}>${a.name}</option>`)
-          .join('');
-
-        const autoBlock = canAutoTransfer ? `
-          <div class="entry-auto-transfer">
-            <label class="entry-auto-transfer-toggle">
-              <input type="checkbox" id="chk-auto-transfer"${_s.autoTransfer ? ' checked' : ''}>
-              <span>同步補款轉帳</span>
-            </label>
-            ${_s.autoTransfer ? `
-              <div class="entry-auto-transfer-detail">
-                <div class="entry-auto-transfer-row">
-                  <span class="label-sm">轉出</span>
-                  <select id="sel-transfer-from" class="form-select entry-auto-transfer-sel">${transferFromOpts}</select>
-                </div>
-                <div class="entry-auto-transfer-row">
-                  <span class="label-sm">轉入</span>
-                  <span class="entry-auto-transfer-dest">${payInfo.role} ／ ${payInfo.account}</span>
-                </div>
-              </div>` : ''}
-          </div>` : '';
-
-        paySection = `
-          <div class="entry-pay-row">
-            <span class="entry-pay-label">代付</span>
-            <span class="entry-pay-chip">
-              ${acctIcon(_s.payAccount)} ${_s.payRole} / ${_s.payAccount}
-              <button type="button" class="entry-pay-clear" data-action="clear-pay">✕</button>
-            </span>
-          </div>
-          ${autoBlock}`;
-      } else {
-        paySection = `<div class="entry-pay-row">
-          <button type="button" class="entry-pay-add-btn" data-action="add-pay">＋ 代付帳戶</button>
-        </div>`;
-      }
-    }
-
-    // 10. Memo
-    const memoChipsHtml = recentMemos.map(m =>
-      `<button type="button" class="entry-memo-chip${_s.memo===m?' active':''}"
-               data-action="memo-chip" data-val="${m.replace(/"/g,'&quot;')}">${m}</button>`
-    ).join('');
-
-    const memoSection = `
-      <div class="entry-memo-section">
-        ${recentMemos.length ? `<div class="entry-memo-recents">${memoChipsHtml}</div>` : ''}
-        <div class="entry-memo-input-row">
-          <span class="entry-memo-icon">✏️</span>
-          <input type="text" id="inp-memo" class="entry-memo-input"
-                 placeholder="備忘（選填）" value="${_s.memo.replace(/"/g,'&quot;')}" autocomplete="off">
-        </div>
-      </div>`;
-
-    return `<div class="entry-wrapper">
-      ${dateSection}
-      <div class="entry-type-tabs">${typeTabs}</div>
-      ${dimSection}
-      ${projSelect}
-      ${roleAndAcctSection}
-      ${amountSection}
-      ${catSection}
-      ${paySection}
-      ${memoSection}
-      <div class="entry-submit-area">
-        <button type="button" class="btn btn-primary btn-full btn-lg" id="btn-submit" data-action="submit">記帳 ✓</button>
+      </label>
+      <div class="entry-id-row">${roleCards}</div>
+      <div class="entry-swipe" id="entry-swipe">${pagesHtml}</div>
+      ${dots}
+      <div class="entry-alt-row">
+        <button type="button" class="entry-alt-btn alt-income" data-action="open-income">💰 收入</button>
+        <button type="button" class="entry-alt-btn alt-transfer" data-action="open-transfer">⇄ 轉帳</button>
       </div>
     </div>`;
+
+    _el.querySelector('.entry-wrapper').addEventListener('click', e => {
+      const btn = e.target.closest('[data-action]');
+      if (!btn) return;
+      const { action, val } = btn.dataset;
+      if (action === 'role') {
+        _role = val;
+        localStorage.setItem(LS_LAST_ROLE, val);
+        renderMain();
+      } else if (action === 'more-roles') {
+        _showAll = true;
+        renderMain();
+      } else if (action === 'cat') {
+        openSheet('cat', { category: val });
+      } else if (action === 'open-proj') {
+        openSheet('proj');
+      } else if (action === 'open-income') {
+        openSheet('income');
+      } else if (action === 'open-transfer') {
+        openSheet('transfer');
+      }
+    });
+
+    const inpDate = Utils.el('inp-date');
+    inpDate?.addEventListener('click', e => { try { e.currentTarget.showPicker(); } catch {} });
+    inpDate?.addEventListener('change', e => {
+      _date = e.target.value;
+      const label = Utils.el('date-label');
+      if (label) label.textContent = _date === todayISO() ? '今天' : _date.replace(/-/g, '/');
+    });
+
+    const sw = Utils.el('entry-swipe');
+    sw?.addEventListener('scroll', () => {
+      const i = Math.round(sw.scrollLeft / sw.clientWidth);
+      _el.querySelectorAll('.entry-dot').forEach((d, j) => d.classList.toggle('active', j === i));
+    }, { passive: true });
+  }
+
+  // ── Bottom sheet ──────────────────────────────────────────────────────────
+  function openSheet(kind, opts = {}) {
+    _sh = { kind, amount: opts.amount ? String(opts.amount) : '', memo: '' };
+
+    if (kind === 'cat') {
+      _sh.category = opts.category;
+      _sh.role = _role; _sh.account = lastAcct(_role);
+    } else if (kind === 'income') {
+      _sh.category = '';
+      _sh.role = _role; _sh.account = lastAcct(_role);
+    } else if (kind === 'proj') {
+      _sh.role = _role; _sh.account = lastAcct(_role);
+      _sh.project = ''; _sh.projCat = ''; _sh.locked = false;
+      _sh.payRole = ''; _sh.payAccount = '';
+      _sh.autoTransfer = false; _sh.transferFrom = '';
+    } else if (kind === 'transfer') {
+      _sh.roleOut = _role; _sh.accountOut = lastAcct(_role);
+      let roleIn = opts.roleIn && CFG.ROLES.includes(opts.roleIn) ? opts.roleIn
+        : (_role === '家用' ? (identity() && identity() !== '家用' ? identity() : CFG.ROLES[0]) : '家用');
+      _sh.roleIn = roleIn;
+      const inNames = acctsForRole(roleIn).map(a => a.name);
+      _sh.accountIn = (opts.accountIn && inNames.includes(opts.accountIn)) ? opts.accountIn : lastAcct(roleIn);
+      _sh.project = '';
+    }
+
+    _sheetEl = document.createElement('div');
+    _sheetEl.className = 'entry-sheet-overlay';
+    document.body.appendChild(_sheetEl);
+    renderSheet(false);
+    requestAnimationFrame(() => _sheetEl.querySelector('.entry-sheet')?.classList.add('open'));
+  }
+
+  function closeSheet() {
+    if (!_sheetEl) return;
+    const sheet = _sheetEl.querySelector('.entry-sheet');
+    sheet?.classList.remove('open');
+    const el = _sheetEl;
+    setTimeout(() => el.remove(), 260);
+    _sheetEl = null; _sh = null;
+  }
+
+  function sheetTitle() {
+    switch (_sh.kind) {
+      case 'cat':     return `${CAT_ICONS[_sh.category] || '📌'} ${_sh.category}｜${_sh.role}`;
+      case 'income':  return `💰 收入｜${_sh.role}`;
+      case 'proj':    return `📁 專案支出${_sh.locked ? `｜🔒 ${_sh.role}` : `｜${_sh.role}`}`;
+      case 'transfer':return `⇄ 轉帳`;
+    }
+  }
+
+  function renderSheet(keepOpen = true) {
+    if (!_sheetEl || !_sh) return;
+    const dateLabel = _date === todayISO() ? '今天' : _date.replace(/-/g, '/');
+    const recentMemos = getRecentMemos();
+
+    function acctSelect(id, role, current) {
+      const opts = acctsForRole(role).map(a =>
+        `<option value="${a.name.replace(/"/g, '&quot;')}"${a.name === current ? ' selected' : ''}>${acctIcon(a.name)} ${a.name}</option>`
+      ).join('');
+      return `<select id="${id}" class="form-select">${opts || '<option value="">無帳戶</option>'}</select>`;
+    }
+    function roleSelect(id, current) {
+      return `<select id="${id}" class="form-select" style="flex:0 0 92px">${CFG.ROLES.map(r =>
+        `<option value="${r}"${r === current ? ' selected' : ''}>${r}</option>`).join('')}</select>`;
+    }
+
+    let body = '';
+    if (_sh.kind === 'cat' || _sh.kind === 'income') {
+      if (_sh.kind === 'income') {
+        body += `<div class="sheet-cat-chips">${CFG.CATEGORIES['收入'].map(c =>
+          `<button type="button" class="sheet-chip${_sh.category === c ? ' active' : ''}" data-action="inc-cat" data-val="${c}">${CAT_ICONS[c] || ''} ${c}</button>`
+        ).join('')}</div>`;
+      }
+      body += `<div class="sheet-row"><label>帳戶</label>${acctSelect('sel-sheet-acct', _sh.role, _sh.account)}</div>`;
+    } else if (_sh.kind === 'proj') {
+      const projects = Store.get().projects.filter(p => p.status === '進行中');
+      body += `<div class="sheet-row"><label>專案</label>
+        <select id="sel-sheet-proj" class="form-select">
+          <option value="">選擇專案 *</option>
+          ${projects.map(p => `<option value="${p.name}"${_sh.project === p.name ? ' selected' : ''}>${p.name}</option>`).join('')}
+        </select></div>`;
+      body += `<div class="sheet-row"><label>分類</label>
+        <input type="text" id="inp-sheet-projcat" class="form-input" list="proj-cat-list"
+               placeholder="選填，例：建材、家電" value="${(_sh.projCat || '').replace(/"/g, '&quot;')}" autocomplete="off">
+        <datalist id="proj-cat-list">${getProjectCatSuggestions().map(c => `<option value="${c}">`).join('')}</datalist>
+      </div>`;
+      body += `<div class="sheet-row"><label>帳戶</label>${acctSelect('sel-sheet-acct', _sh.role, _sh.account)}</div>`;
+
+      // 進階：代付＋同步補款
+      const payOpts = Store.allAccountsFlat()
+        .filter(a => a.type !== '證券帳戶' && a.name !== _sh.account)
+        .sort((a, b) => (a.type === '信用卡' ? -1 : 0) - (b.type === '信用卡' ? -1 : 0))
+        .map(a => {
+          const v = `${a.role}||${a.name}`;
+          const cur = _sh.payRole === a.role && _sh.payAccount === a.name;
+          return `<option value="${v.replace(/"/g, '&quot;')}"${cur ? ' selected' : ''}>${acctIcon(a.name)} ${a.role}／${a.name}</option>`;
+        }).join('');
+      const payInfo = _sh.payAccount ? getPaymentInfo(_sh.payAccount) : null;
+      const canAuto = !!payInfo && _sh.role !== _sh.payRole;
+      const tfOpts = acctsForRole(_sh.role).filter(a => a.type !== '信用卡')
+        .map(a => `<option value="${a.name.replace(/"/g, '&quot;')}"${_sh.transferFrom === a.name ? ' selected' : ''}>${a.name}</option>`).join('');
+
+      body += `<details class="sheet-adv"${_sh.payAccount ? ' open' : ''}>
+        <summary>進階：代付${_sh.payAccount ? `（${_sh.payRole}／${_sh.payAccount}）` : ''}</summary>
+        <div class="sheet-row"><label>代付</label>
+          <select id="sel-sheet-pay" class="form-select">
+            <option value="">不使用代付</option>${payOpts}
+          </select></div>
+        ${canAuto ? `
+          <label class="sheet-auto-toggle">
+            <input type="checkbox" id="chk-sheet-auto"${_sh.autoTransfer ? ' checked' : ''}>
+            <span>同步補款轉帳</span>
+          </label>
+          ${_sh.autoTransfer ? `
+            <div class="sheet-row"><label>轉出</label><select id="sel-sheet-tf" class="form-select">${tfOpts}</select></div>
+            <div class="sheet-row"><label>轉入</label><span class="sheet-static">${payInfo.role}／${payInfo.account}</span></div>` : ''}
+        ` : ''}
+      </details>`;
+    } else if (_sh.kind === 'transfer') {
+      const projects = Store.get().projects.filter(p => p.status === '進行中');
+      const projLocked = !!_sh.project && (() => {
+        const p = Store.get().projects.find(x => x.name === _sh.project);
+        return !!(p?.ownerRole && CFG.ROLES.includes(p.ownerRole));
+      })();
+      body += `
+        <div class="sheet-row"><label>轉出</label>${roleSelect('sel-out-role', _sh.roleOut)}${acctSelect('sel-out-acct', _sh.roleOut, _sh.accountOut)}</div>
+        <div class="entry-transfer-arrow" style="margin:2px 0">↓</div>
+        <div class="sheet-row"><label>轉入</label>
+          ${projLocked
+            ? `<span class="sheet-static">🔒 ${_sh.roleIn}／${_sh.accountIn}</span>`
+            : roleSelect('sel-in-role', _sh.roleIn) + acctSelect('sel-in-acct', _sh.roleIn, _sh.accountIn)}
+        </div>
+        ${projects.length ? `<div class="sheet-row"><label>專案</label>
+          <select id="sel-tr-proj" class="form-select">
+            <option value="">無（一般轉帳）</option>
+            ${projects.map(p => `<option value="${p.name}"${_sh.project === p.name ? ' selected' : ''}>📁 ${p.name}</option>`).join('')}
+          </select></div>` : ''}`;
+    }
+
+    const memoChips = recentMemos.length
+      ? `<div class="entry-memo-chips">${recentMemos.map(m =>
+          `<button type="button" class="sheet-chip${_sh.memo === m ? ' active' : ''}" data-action="memo-chip" data-val="${m.replace(/"/g, '&quot;')}">${m}</button>`
+        ).join('')}</div>` : '';
+
+    const amtDisplay = _sh.amount || '0';
+    const submitLabel = _sh.amount ? `✓ 記帳 NT$ ${Number(_sh.amount).toLocaleString()}` : '✓ 記帳';
+
+    _sheetEl.innerHTML = `<div class="entry-sheet${keepOpen ? ' open' : ''}">
+      <div class="entry-sheet-handle"></div>
+      <div class="entry-sheet-head">
+        <span>${sheetTitle()}</span>
+        <span class="entry-sheet-date">📅 ${dateLabel}</span>
+      </div>
+      <div class="entry-sheet-amt${_sh.amount ? '' : ' zero'}" id="sheet-amt">$ ${amtDisplay}</div>
+      ${body}
+      ${memoChips}
+      <div class="sheet-row"><label>備忘</label>
+        <input type="text" id="inp-sheet-memo" class="form-input" placeholder="選填" value="${(_sh.memo || '').replace(/"/g, '&quot;')}" autocomplete="off">
+      </div>
+      <div class="numpad-keys sheet-numpad">
+        ${['1','2','3','4','5','6','7','8','9','.','0','⌫'].map(k =>
+          `<button type="button" class="numpad-key${k === '⌫' ? ' numpad-del' : ''}" data-key="${k}">${k}</button>`).join('')}
+      </div>
+      <button type="button" class="numpad-done sheet-submit" id="btn-sheet-submit" data-action="submit">${submitLabel}</button>
+    </div>`;
+
+    wireSheet();
+  }
+
+  function wireSheet() {
+    _sheetEl.addEventListener('click', e => {
+      if (e.target === _sheetEl) { closeSheet(); return; }
+
+      const key = e.target.closest('[data-key]');
+      if (key) {
+        const k = key.dataset.key;
+        let cur = _sh.amount || '';
+        if (k === '⌫') cur = cur.slice(0, -1);
+        else if (k === '.') { if (!cur.includes('.')) cur = (cur || '0') + '.'; }
+        else cur = cur === '0' ? k : cur + k;
+        _sh.amount = cur;
+        const disp = _sheetEl.querySelector('#sheet-amt');
+        if (disp) { disp.textContent = `$ ${cur || '0'}`; disp.classList.toggle('zero', !cur); }
+        const btn = _sheetEl.querySelector('#btn-sheet-submit');
+        if (btn) btn.textContent = cur ? `✓ 記帳 NT$ ${Number(cur).toLocaleString()}` : '✓ 記帳';
+        return;
+      }
+
+      const act = e.target.closest('[data-action]');
+      if (!act) return;
+      const { action, val } = act.dataset;
+      if (action === 'submit') submitSheet();
+      else if (action === 'inc-cat') { _sh.category = val; renderSheet(); }
+      else if (action === 'memo-chip') {
+        _sh.memo = val;
+        const inp = _sheetEl.querySelector('#inp-sheet-memo');
+        if (inp) inp.value = val;
+        _sheetEl.querySelectorAll('[data-action="memo-chip"]').forEach(c =>
+          c.classList.toggle('active', c.dataset.val === val));
+      }
+    });
+
+    _sheetEl.querySelector('#inp-sheet-memo')?.addEventListener('input', e => { _sh.memo = e.target.value; });
+    _sheetEl.querySelector('#sel-sheet-acct')?.addEventListener('change', e => { _sh.account = e.target.value; });
+    _sheetEl.querySelector('#inp-sheet-projcat')?.addEventListener('input', e => { _sh.projCat = e.target.value; });
+
+    _sheetEl.querySelector('#sel-sheet-proj')?.addEventListener('change', e => {
+      const val = e.target.value;
+      _sh.project = val;
+      const p = Store.get().projects.find(x => x.name === val);
+      if (val && p?.ownerRole && CFG.ROLES.includes(p.ownerRole)) {
+        _sh.role = p.ownerRole;
+        const names = acctsForRole(p.ownerRole).map(a => a.name);
+        _sh.account = (p.defaultAccount && names.includes(p.defaultAccount)) ? p.defaultAccount : (names[0] || '');
+        _sh.locked = true;
+      } else {
+        _sh.locked = false;
+      }
+      renderSheet();
+    });
+
+    _sheetEl.querySelector('#sel-sheet-pay')?.addEventListener('change', e => {
+      const val = e.target.value;
+      if (!val) {
+        _sh.payRole = ''; _sh.payAccount = '';
+        _sh.autoTransfer = false; _sh.transferFrom = '';
+      } else {
+        const [r, n] = val.split('||');
+        _sh.payRole = r; _sh.payAccount = n;
+        const pi = getPaymentInfo(n);
+        if (pi && _sh.role !== r) {
+          _sh.autoTransfer = true;
+          _sh.transferFrom = (acctsForRole(_sh.role).filter(a => a.type !== '信用卡')[0] || {}).name || '';
+        } else {
+          _sh.autoTransfer = false; _sh.transferFrom = '';
+        }
+      }
+      renderSheet();
+    });
+    _sheetEl.querySelector('#chk-sheet-auto')?.addEventListener('change', e => {
+      _sh.autoTransfer = e.target.checked;
+      if (_sh.autoTransfer && !_sh.transferFrom) {
+        _sh.transferFrom = (acctsForRole(_sh.role).filter(a => a.type !== '信用卡')[0] || {}).name || '';
+      }
+      renderSheet();
+    });
+    _sheetEl.querySelector('#sel-sheet-tf')?.addEventListener('change', e => { _sh.transferFrom = e.target.value; });
+
+    _sheetEl.querySelector('#sel-out-role')?.addEventListener('change', e => {
+      _sh.roleOut = e.target.value;
+      _sh.accountOut = lastAcct(_sh.roleOut);
+      renderSheet();
+    });
+    _sheetEl.querySelector('#sel-out-acct')?.addEventListener('change', e => { _sh.accountOut = e.target.value; });
+    _sheetEl.querySelector('#sel-in-role')?.addEventListener('change', e => {
+      _sh.roleIn = e.target.value;
+      _sh.accountIn = lastAcct(_sh.roleIn);
+      renderSheet();
+    });
+    _sheetEl.querySelector('#sel-in-acct')?.addEventListener('change', e => { _sh.accountIn = e.target.value; });
+    _sheetEl.querySelector('#sel-tr-proj')?.addEventListener('change', e => {
+      const val = e.target.value;
+      _sh.project = val;
+      const p = Store.get().projects.find(x => x.name === val);
+      if (val && p?.ownerRole && CFG.ROLES.includes(p.ownerRole)) {
+        _sh.roleIn = p.ownerRole;
+        const names = acctsForRole(p.ownerRole).map(a => a.name);
+        _sh.accountIn = (p.defaultAccount && names.includes(p.defaultAccount)) ? p.defaultAccount : (names[0] || '');
+      }
+      renderSheet();
+    });
+  }
+
+  // ── Submit ────────────────────────────────────────────────────────────────
+  async function submitSheet() {
+    const amount = parseFloat(_sh.amount);
+    if (!amount || amount <= 0) return Utils.toast('請輸入有效金額', 'warn');
+    const memo = (_sh.memo || '').trim();
+    const date = _date.replace(/-/g, '/');
+    let row, extra = null, usedRole, usedAcct;
+
+    if (_sh.kind === 'cat') {
+      if (!_sh.account) return Utils.toast('請選擇帳戶', 'warn');
+      row = [Utils.uid(), _sh.role, '日常', '', '支出', _sh.category, memo, date, amount, _sh.account, '', '', '', ''];
+      usedRole = _sh.role; usedAcct = _sh.account;
+    } else if (_sh.kind === 'income') {
+      if (!_sh.category) return Utils.toast('請選擇收入分類', 'warn');
+      if (!_sh.account)  return Utils.toast('請選擇帳戶', 'warn');
+      row = [Utils.uid(), _sh.role, '', '', '收入', _sh.category, memo, date, amount, _sh.account, '', '', '', ''];
+      usedRole = _sh.role; usedAcct = _sh.account;
+    } else if (_sh.kind === 'proj') {
+      if (!_sh.project) return Utils.toast('請選擇專案', 'warn');
+      if (!_sh.account) return Utils.toast('請選擇帳戶', 'warn');
+      row = [Utils.uid(), _sh.role, '專案', _sh.project, '支出', (_sh.projCat || '').trim(), memo, date, amount,
+             _sh.account, '', '', _sh.payRole || '', _sh.payAccount || ''];
+      usedRole = _sh.role; usedAcct = _sh.account;
+      if (_sh.autoTransfer && _sh.payAccount) {
+        const pi = getPaymentInfo(_sh.payAccount);
+        if (pi && _sh.transferFrom) {
+          extra = [Utils.uid(), _sh.role, '日常', '', '轉帳', '', `代付補款／${_sh.payAccount}`,
+                   date, amount, _sh.transferFrom, pi.role, pi.account, '', ''];
+        }
+      }
+    } else if (_sh.kind === 'transfer') {
+      if (!_sh.accountOut) return Utils.toast('請選擇轉出帳戶', 'warn');
+      if (!_sh.accountIn)  return Utils.toast('請選擇轉入帳戶', 'warn');
+      const isProj = !!_sh.project;
+      row = [Utils.uid(), _sh.roleOut, isProj ? '專案' : '日常', _sh.project || '', '轉帳', '', memo, date, amount,
+             _sh.accountOut, _sh.roleIn, _sh.accountIn, '', ''];
+      usedRole = _sh.roleOut; usedAcct = _sh.accountOut;
+    }
+
+    const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID) || CFG.SHEET_ID;
+    const btn = _sheetEl?.querySelector('#btn-sheet-submit');
+    if (btn) { btn.disabled = true; btn.textContent = '儲存中…'; }
+
+    try {
+      await API.append(sid, 'Ledger!A:N', row);
+      if (extra) await API.append(sid, 'Ledger!A:N', extra);
+      Store.invalidate();
+      if (usedRole && usedAcct) localStorage.setItem(LS_LAST_ACCT(usedRole), usedAcct);
+      if (memo) addRecentMemo(memo);
+      Utils.toast('記帳成功！', 'success');
+      closeSheet();
+      _date = todayISO();
+      renderMain();
+    } catch (err) {
+      Utils.toast('儲存失敗：' + err.message, 'error');
+      if (btn) { btn.disabled = false; btn.textContent = '✓ 記帳'; }
+    }
   }
 
   return { render, onMount };

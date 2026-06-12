@@ -7,7 +7,19 @@ Router.register('settings', (() => {
     const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID) || CFG.SHEET_ID || '';
     const cid = localStorage.getItem(CFG.LS_KEYS.CLIENT_ID) || CFG.CLIENT_ID || '';
 
+    const curId = localStorage.getItem('ff_identity') || '';
+
     el.innerHTML = `<div class="page-inner">
+
+      <div class="section-label">使用者身份</div>
+      <div class="card settings-card">
+        <p class="input-hint" style="margin-bottom:10px">這台裝置的使用者。記帳頁與 Dashboard 會以此身份為主（自己＋家用）。</p>
+        <div class="id-toggle">
+          ${CFG.ROLES.map(r =>
+            `<button type="button" class="proj-type-btn${curId === r ? ' active' : ''}" data-identity="${r}">${r === '家用' ? '🏠 家用視角' : r}</button>`
+          ).join('')}
+        </div>
+      </div>
 
       <div class="section-label">Google 連線設定</div>
       <div class="card settings-card">
@@ -565,6 +577,15 @@ Router.register('settings', (() => {
 
   // ── onMount ──────────────────────────────────────────────────────────────
   function onMount() {
+    document.querySelectorAll('[data-identity]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        localStorage.setItem('ff_identity', btn.dataset.identity);
+        document.querySelectorAll('[data-identity]').forEach(b =>
+          b.classList.toggle('active', b === btn));
+        Utils.toast(`身份已設定為「${btn.dataset.identity}」`, 'success');
+      });
+    });
+
     Utils.el('btn-save-conn').addEventListener('click', () => {
       const cid = Utils.el('inp-client-id').value.trim();
       const sid = Utils.el('inp-sheet-id').value.trim();
