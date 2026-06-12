@@ -226,7 +226,7 @@ Router.register('entry', (() => {
   function closeSheet() {
     if (!_sheetEl) return;
     const sheet = _sheetEl.querySelector('.entry-sheet');
-    sheet?.classList.remove('open');
+    if (sheet) { sheet.classList.remove('open'); sheet.style.transform = ''; }
     const el = _sheetEl;
     setTimeout(() => el.remove(), 260);
     _sheetEl = null; _sh = null;
@@ -373,6 +373,7 @@ Router.register('entry', (() => {
       <div class="entry-sheet-head">
         <span>${sheetTitle()}</span>
         <span class="entry-sheet-date">📅 ${dateLabel}</span>
+        <button type="button" class="entry-sheet-close" data-action="close">✕</button>
       </div>
       <div class="entry-sheet-amt${_sh.amount ? '' : ' zero'}" id="sheet-amt">$ ${amtDisplay}</div>
       ${body}
@@ -392,38 +393,34 @@ Router.register('entry', (() => {
   }
 
   function addSwipeToClose() {
-    const sheet  = _sheetEl?.querySelector('.entry-sheet');
-    const handle = _sheetEl?.querySelector('.entry-sheet-handle');
-    const head   = _sheetEl?.querySelector('.entry-sheet-head');
+    const sheet = _sheetEl?.querySelector('.entry-sheet');
     if (!sheet) return;
 
-    let startY = 0, curY = 0, active = false;
+    let startY = 0, curY = 0, dragging = false;
 
-    function onStart(e) {
-      startY = e.touches ? e.touches[0].clientY : e.clientY;
-      curY   = 0;
-      active = true;
+    sheet.addEventListener('pointerdown', e => {
+      // 互動元件（輸入框、選單、按鈕、數字鍵盤）上不啟動拖曳
+      if (e.target.closest('input, select, button, details, .entry-memo-chips')) return;
+      dragging = true; startY = e.clientY; curY = 0;
+      try { sheet.setPointerCapture(e.pointerId); } catch {}
       sheet.style.transition = 'none';
-    }
-    function onMove(e) {
-      if (!active) return;
-      const y = (e.touches ? e.touches[0].clientY : e.clientY) - startY;
-      if (y > 0) { curY = y; sheet.style.transform = `translateY(${curY}px)`; }
-    }
-    function onEnd() {
-      if (!active) return;
-      active = false;
-      sheet.style.transition = '';
-      if (curY > 90) { closeSheet(); } else { sheet.style.transform = ''; }
-      curY = 0;
-    }
-
-    [handle, head].filter(Boolean).forEach(el => {
-      el.addEventListener('touchstart', onStart, { passive: true });
-      el.addEventListener('touchmove',  onMove,  { passive: true });
-      el.addEventListener('touchend',   onEnd);
-      el.style.cursor = 'grab';
     });
+    sheet.addEventListener('pointermove', e => {
+      if (!dragging) return;
+      const y = e.clientY - startY;
+      if (y > 0) { curY = y; sheet.style.transform = `translateY(${y}px)`; }
+      else { curY = 0; sheet.style.transform = ''; }
+    });
+    const end = () => {
+      if (!dragging) return;
+      dragging = false;
+      sheet.style.transition = '';
+      if (curY > 70) closeSheet();
+      else sheet.style.transform = '';
+      curY = 0;
+    };
+    sheet.addEventListener('pointerup', end);
+    sheet.addEventListener('pointercancel', end);
   }
 
   function wireSheet() {
@@ -448,7 +445,8 @@ Router.register('entry', (() => {
       const act = e.target.closest('[data-action]');
       if (!act) return;
       const { action, val } = act.dataset;
-      if (action === 'submit') submitSheet();
+      if (action === 'close') closeSheet();
+      else if (action === 'submit') submitSheet();
       else if (action === 'inc-cat') { _sh.category = val; renderSheet(); }
       else if (action === 'memo-chip') {
         _sh.memo = val;
