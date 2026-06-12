@@ -301,11 +301,6 @@ Router.register('entry', (() => {
           <option value="">選擇專案 *</option>
           ${projects.map(p => `<option value="${p.name}"${_sh.project === p.name ? ' selected' : ''}>${p.name}</option>`).join('')}
         </select></div>`;
-      body += `<div class="sheet-row"><label>分類</label>
-        <input type="text" id="inp-sheet-projcat" class="form-input" list="proj-cat-list"
-               placeholder="選填，例：建材、家電" value="${(_sh.projCat || '').replace(/"/g, '&quot;')}" autocomplete="off">
-        <datalist id="proj-cat-list">${getProjectCatSuggestions().map(c => `<option value="${c}">`).join('')}</datalist>
-      </div>`;
       body += `<div class="sheet-row"><label>帳戶</label>${acctSelect('sel-sheet-acct', _sh.role, _sh.account)}</div>`;
 
       // 進階：代付＋同步補款
@@ -463,7 +458,6 @@ Router.register('entry', (() => {
     // 以下 child element listeners 每次 renderSheet() 都重新綁（舊元素已被 innerHTML 取代，無重複問題）
     _sheetEl.querySelector('#inp-sheet-memo')?.addEventListener('input', e => { _sh.memo = e.target.value; });
     _sheetEl.querySelector('#sel-sheet-acct')?.addEventListener('change', e => { _sh.account = e.target.value; });
-    _sheetEl.querySelector('#inp-sheet-projcat')?.addEventListener('input', e => { _sh.projCat = e.target.value; });
 
     _sheetEl.querySelector('#sel-sheet-proj')?.addEventListener('change', e => {
       const val = e.target.value;
