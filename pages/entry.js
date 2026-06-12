@@ -46,10 +46,9 @@ Router.register('entry', (() => {
     const names = acctsForRole(role).map(a => a.name);
     return names.includes(saved) ? saved : (names[0] || '');
   }
-  function acctIcon(name) {
+  function acctIcon(type) {
     const map = { '現金': '💵', '銀行': '🏦', '信用卡': '💳', '證券帳戶': '📊' };
-    const a = Store.allAccountsFlat().find(x => x.name === name);
-    return map[a?.type || '銀行'] || '🏦';
+    return map[type] || '🏦';
   }
   function getPaymentInfo(cardName) {
     const all = Store.allAccountsFlat();
@@ -248,7 +247,7 @@ Router.register('entry', (() => {
 
     function acctSelect(id, role, current) {
       const opts = acctsForRole(role).map(a =>
-        `<option value="${a.name.replace(/"/g, '&quot;')}"${a.name === current ? ' selected' : ''}>${acctIcon(a.name)} ${a.name}</option>`
+        `<option value="${a.name.replace(/"/g, '&quot;')}"${a.name === current ? ' selected' : ''}>${acctIcon(a.type)} ${a.name}</option>`
       ).join('');
       return `<select id="${id}" class="form-select">${opts || '<option value="">無帳戶</option>'}</select>`;
     }
@@ -272,7 +271,7 @@ Router.register('entry', (() => {
           .map(a => {
             const v = `${a.role}||${a.name}`;
             const cur = _sh.payRole === a.role && _sh.payAccount === a.name;
-            return `<option value="${v.replace(/"/g, '&quot;')}"${cur ? ' selected' : ''}>${acctIcon(a.name)} ${a.role}／${a.name}</option>`;
+            return `<option value="${v.replace(/"/g, '&quot;')}"${cur ? ' selected' : ''}>${acctIcon(a.type)} ${a.role}／${a.name}</option>`;
           }).join('');
         const payInfo = _sh.payAccount ? getPaymentInfo(_sh.payAccount) : null;
         const canAuto = !!payInfo && _sh.role !== _sh.payRole;
@@ -316,7 +315,7 @@ Router.register('entry', (() => {
         .map(a => {
           const v = `${a.role}||${a.name}`;
           const cur = _sh.payRole === a.role && _sh.payAccount === a.name;
-          return `<option value="${v.replace(/"/g, '&quot;')}"${cur ? ' selected' : ''}>${acctIcon(a.name)} ${a.role}／${a.name}</option>`;
+          return `<option value="${v.replace(/"/g, '&quot;')}"${cur ? ' selected' : ''}>${acctIcon(a.type)} ${a.role}／${a.name}</option>`;
         }).join('');
       const payInfo = _sh.payAccount ? getPaymentInfo(_sh.payAccount) : null;
       const canAuto = !!payInfo && _sh.role !== _sh.payRole;
