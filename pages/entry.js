@@ -423,39 +423,44 @@ Router.register('entry', (() => {
   }
 
   function wireSheet() {
-    _sheetEl.addEventListener('click', e => {
-      if (e.target === _sheetEl) { closeSheet(); return; }
+    // _sheetEl (overlay) 跨 renderSheet() 重用，只綁一次 click delegation 避免重複觸發
+    if (!_sheetEl._wired) {
+      _sheetEl._wired = true;
+      _sheetEl.addEventListener('click', e => {
+        if (e.target === _sheetEl) { closeSheet(); return; }
 
-      const key = e.target.closest('[data-key]');
-      if (key) {
-        const k = key.dataset.key;
-        let cur = _sh.amount || '';
-        if (k === '⌫') cur = cur.slice(0, -1);
-        else if (k === '.') { if (!cur.includes('.')) cur = (cur || '0') + '.'; }
-        else cur = cur === '0' ? k : cur + k;
-        _sh.amount = cur;
-        const disp = _sheetEl.querySelector('#sheet-amt');
-        if (disp) { disp.textContent = `$ ${cur || '0'}`; disp.classList.toggle('zero', !cur); }
-        const btn = _sheetEl.querySelector('#btn-sheet-submit');
-        if (btn) btn.textContent = cur ? `✓ 記帳 NT$ ${Number(cur).toLocaleString()}` : '✓ 記帳';
-        return;
-      }
+        const key = e.target.closest('[data-key]');
+        if (key) {
+          const k = key.dataset.key;
+          let cur = _sh.amount || '';
+          if (k === '⌫') cur = cur.slice(0, -1);
+          else if (k === '.') { if (!cur.includes('.')) cur = (cur || '0') + '.'; }
+          else cur = cur === '0' ? k : cur + k;
+          _sh.amount = cur;
+          const disp = _sheetEl.querySelector('#sheet-amt');
+          if (disp) { disp.textContent = `$ ${cur || '0'}`; disp.classList.toggle('zero', !cur); }
+          const btn = _sheetEl.querySelector('#btn-sheet-submit');
+          if (btn) btn.textContent = cur ? `✓ 記帳 NT$ ${Number(cur).toLocaleString()}` : '✓ 記帳';
+          return;
+        }
 
-      const act = e.target.closest('[data-action]');
-      if (!act) return;
-      const { action, val } = act.dataset;
-      if (action === 'close') closeSheet();
-      else if (action === 'submit') submitSheet();
-      else if (action === 'inc-cat') { _sh.category = val; renderSheet(); }
-      else if (action === 'memo-chip') {
-        _sh.memo = val;
-        const inp = _sheetEl.querySelector('#inp-sheet-memo');
-        if (inp) inp.value = val;
-        _sheetEl.querySelectorAll('[data-action="memo-chip"]').forEach(c =>
-          c.classList.toggle('active', c.dataset.val === val));
-      }
-    });
+        const act = e.target.closest('[data-action]');
+        if (!act) return;
+        const { action, val } = act.dataset;
+        if (action === 'close') closeSheet();
+        else if (action === 'submit') submitSheet();
+        else if (action === 'inc-cat') { _sh.category = val; renderSheet(); }
+        else if (action === 'memo-chip') {
+          _sh.memo = val;
+          const inp = _sheetEl.querySelector('#inp-sheet-memo');
+          if (inp) inp.value = val;
+          _sheetEl.querySelectorAll('[data-action="memo-chip"]').forEach(c =>
+            c.classList.toggle('active', c.dataset.val === val));
+        }
+      });
+    }
 
+    // 以下 child element listeners 每次 renderSheet() 都重新綁（舊元素已被 innerHTML 取代，無重複問題）
     _sheetEl.querySelector('#inp-sheet-memo')?.addEventListener('input', e => { _sh.memo = e.target.value; });
     _sheetEl.querySelector('#sel-sheet-acct')?.addEventListener('change', e => { _sh.account = e.target.value; });
     _sheetEl.querySelector('#inp-sheet-projcat')?.addEventListener('input', e => { _sh.projCat = e.target.value; });
