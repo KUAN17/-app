@@ -388,6 +388,42 @@ Router.register('entry', (() => {
     </div>`;
 
     wireSheet();
+    addSwipeToClose();
+  }
+
+  function addSwipeToClose() {
+    const sheet  = _sheetEl?.querySelector('.entry-sheet');
+    const handle = _sheetEl?.querySelector('.entry-sheet-handle');
+    const head   = _sheetEl?.querySelector('.entry-sheet-head');
+    if (!sheet) return;
+
+    let startY = 0, curY = 0, active = false;
+
+    function onStart(e) {
+      startY = e.touches ? e.touches[0].clientY : e.clientY;
+      curY   = 0;
+      active = true;
+      sheet.style.transition = 'none';
+    }
+    function onMove(e) {
+      if (!active) return;
+      const y = (e.touches ? e.touches[0].clientY : e.clientY) - startY;
+      if (y > 0) { curY = y; sheet.style.transform = `translateY(${curY}px)`; }
+    }
+    function onEnd() {
+      if (!active) return;
+      active = false;
+      sheet.style.transition = '';
+      if (curY > 90) { closeSheet(); } else { sheet.style.transform = ''; }
+      curY = 0;
+    }
+
+    [handle, head].filter(Boolean).forEach(el => {
+      el.addEventListener('touchstart', onStart, { passive: true });
+      el.addEventListener('touchmove',  onMove,  { passive: true });
+      el.addEventListener('touchend',   onEnd);
+      el.style.cursor = 'grab';
+    });
   }
 
   function wireSheet() {
