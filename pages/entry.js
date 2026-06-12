@@ -83,6 +83,7 @@ Router.register('entry', (() => {
 
   async function onMount() {
     _el = Utils.el('page-content');
+    _showAll = false;
     await Store.load();
 
     const pr = primaryRoles();
@@ -195,6 +196,8 @@ Router.register('entry', (() => {
     if (kind === 'cat') {
       _sh.category = opts.category;
       _sh.role = _role; _sh.account = lastAcct(_role);
+      _sh.payRole = ''; _sh.payAccount = '';
+      _sh.autoTransfer = false; _sh.transferFrom = '';
     } else if (kind === 'income') {
       _sh.category = '';
       _sh.role = _role; _sh.account = lastAcct(_role);
@@ -262,6 +265,36 @@ Router.register('entry', (() => {
         ).join('')}</div>`;
       }
       body += `<div class="sheet-row"><label>帳戶</label>${acctSelect('sel-sheet-acct', _sh.role, _sh.account)}</div>`;
+      if (_sh.kind === 'cat') {
+        const payOpts = Store.allAccountsFlat()
+          .filter(a => a.type !== '證券帳戶' && a.name !== _sh.account)
+          .sort((a, b) => (a.type === '信用卡' ? -1 : 0) - (b.type === '信用卡' ? -1 : 0))
+          .map(a => {
+            const v = `${a.role}||${a.name}`;
+            const cur = _sh.payRole === a.role && _sh.payAccount === a.name;
+            return `<option value="${v.replace(/"/g, '&quot;')}"${cur ? ' selected' : ''}>${acctIcon(a.name)} ${a.role}／${a.name}</option>`;
+          }).join('');
+        const payInfo = _sh.payAccount ? getPaymentInfo(_sh.payAccount) : null;
+        const canAuto = !!payInfo && _sh.role !== _sh.payRole;
+        const tfOpts = acctsForRole(_sh.role).filter(a => a.type !== '信用卡')
+          .map(a => `<option value="${a.name.replace(/"/g, '&quot;')}"${_sh.transferFrom === a.name ? ' selected' : ''}>${a.name}</option>`).join('');
+        body += `<details class="sheet-adv"${_sh.payAccount ? ' open' : ''}>
+          <summary>進階：代付${_sh.payAccount ? `（${_sh.payRole}／${_sh.payAccount}）` : ''}</summary>
+          <div class="sheet-row"><label>代付</label>
+            <select id="sel-sheet-pay" class="form-select">
+              <option value="">不使用代付</option>${payOpts}
+            </select></div>
+          ${canAuto ? `
+            <label class="sheet-auto-toggle">
+              <input type="checkbox" id="chk-sheet-auto"${_sh.autoTransfer ? ' checked' : ''}>
+              <span>同步補款轉帳</span>
+            </label>
+            ${_sh.autoTransfer ? `
+              <div class="sheet-row"><label>轉出</label><select id="sel-sheet-tf" class="form-select">${tfOpts}</select></div>
+              <div class="sheet-row"><label>轉入</label><span class="sheet-static">${payInfo.role}／${payInfo.account}</span></div>` : ''}
+          ` : ''}
+        </details>`;
+      }
     } else if (_sh.kind === 'proj') {
       const projects = Store.get().projects.filter(p => p.status === '進行中');
       body += `<div class="sheet-row"><label>專案</label>
@@ -471,8 +504,15 @@ Router.register('entry', (() => {
 
     if (_sh.kind === 'cat') {
       if (!_sh.account) return Utils.toast('請選擇帳戶', 'warn');
-      row = [Utils.uid(), _sh.role, '日常', '', '支出', _sh.category, memo, date, amount, _sh.account, '', '', '', ''];
+      row = [Utils.uid(), _sh.role, '日常', '', '支出', _sh.category, memo, date, amount, _sh.account, '', '', _sh.payRole || '', _sh.payAccount || ''];
       usedRole = _sh.role; usedAcct = _sh.account;
+      if (_sh.autoTransfer && _sh.payAccount) {
+        const pi = getPaymentInfo(_sh.payAccount);
+        if (pi && _sh.transferFrom) {
+          extra = [Utils.uid(), _sh.role, '日常', '', '轉帳', '代付補款', `補款／${_sh.payAccount}`,
+                   date, amount, _sh.transferFrom, pi.role, pi.account, '', ''];
+        }
+      }
     } else if (_sh.kind === 'income') {
       if (!_sh.category) return Utils.toast('請選擇收入分類', 'warn');
       if (!_sh.account)  return Utils.toast('請選擇帳戶', 'warn');
@@ -487,7 +527,7 @@ Router.register('entry', (() => {
       if (_sh.autoTransfer && _sh.payAccount) {
         const pi = getPaymentInfo(_sh.payAccount);
         if (pi && _sh.transferFrom) {
-          extra = [Utils.uid(), _sh.role, '日常', '', '轉帳', '', `代付補款／${_sh.payAccount}`,
+          extra = [Utils.uid(), _sh.role, '日常', '', '轉帳', '代付補款', `補款／${_sh.payAccount}`,
                    date, amount, _sh.transferFrom, pi.role, pi.account, '', ''];
         }
       }

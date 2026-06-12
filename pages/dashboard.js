@@ -6,6 +6,7 @@ Router.register('dashboard', (() => {
   let _ver    = localStorage.getItem('ff_dash_ver') || 'v1'; // v1=分析版 v2=卡片版
   let _openAcct = false;
   let _openProj = true;
+  let _openPay  = true;
 
   const COLORS = ['#5B8DEF', '#FF8A65', '#34C99A', '#FFC757', '#A78BFA', '#F472B6', '#94A3B8'];
 
@@ -247,6 +248,54 @@ Router.register('dashboard', (() => {
     </details>`;
   }
 
+  // ── 代付往來 ──────────────────────────────────────────────────────────────
+  function payablesCollapse(ledger) {
+    // net[creditor][debtor] = outstanding amount
+    const net = {};
+    ledger.forEach(tx => {
+      if (tx.type === '支出' && tx.payRole && tx.payRole !== tx.roleOut && tx.amount > 0) {
+        if (!net[tx.payRole]) net[tx.payRole] = {};
+        net[tx.payRole][tx.roleOut] = (net[tx.payRole][tx.roleOut] || 0) + tx.amount;
+      }
+      if (tx.type === '轉帳' && tx.category === '代付補款' && tx.amount > 0) {
+        if (!net[tx.roleIn]) net[tx.roleIn] = {};
+        net[tx.roleIn][tx.roleOut] = (net[tx.roleIn][tx.roleOut] || 0) - tx.amount;
+      }
+    });
+
+    const items = [];
+    Object.entries(net).forEach(([creditor, debtors]) => {
+      Object.entries(debtors).forEach(([debtor, amt]) => {
+        if (amt > 1) items.push({ creditor, debtor, amt });
+      });
+    });
+    if (!items.length) return '';
+
+    const id = identity();
+    const rows = items.map(({ creditor, debtor, amt }) => {
+      const isMyDebt = debtor === id;
+      const isMyRecv = creditor === id;
+      return `<div class="dash-acct-row">
+        <span class="dash-acct-name">${isMyDebt ? `我欠 ${creditor}` : isMyRecv ? `${debtor} 欠我` : `${debtor} 欠 ${creditor}`}</span>
+        <span class="dash-acct-bal ${isMyDebt ? 'amount-out' : isMyRecv ? 'amount-in' : ''}">${Utils.formatMoney(amt)}</span>
+      </div>`;
+    }).join('');
+
+    const totalIn  = items.filter(x => x.creditor === id).reduce((s, x) => s + x.amt, 0);
+    const totalOut = items.filter(x => x.debtor   === id).reduce((s, x) => s + x.amt, 0);
+    const parts = [];
+    if (id) {
+      if (totalIn  > 0) parts.push(`收 ${Utils.formatMoney(totalIn)}`);
+      if (totalOut > 0) parts.push(`付 ${Utils.formatMoney(totalOut)}`);
+    }
+    const badge = parts.length ? parts.join('・') : `${items.length} 筆`;
+
+    return `<details class="dash-collapse" id="dash-col-pay" ${_openPay ? 'open' : ''}>
+      <summary>代付往來<span class="dash-collapse-badge">${badge}</span></summary>
+      <div class="dash-collapse-body"><div class="card dash-acct-card">${rows}</div></div>
+    </details>`;
+  }
+
   // ── 版型一：分析版（環圈圖為主角） ─────────────────────────────────────────
   function buildV1(ledger, accounts, investments, balances) {
     const txs = periodTxs(ledger);
@@ -350,6 +399,7 @@ Router.register('dashboard', (() => {
       ${navRow()}
       ${main}
       ${acctCollapse(accounts, balances)}
+      ${payablesCollapse(ledger)}
       ${projCollapse(projects)}
       <div style="height:16px"></div>
     </div>`;
@@ -371,6 +421,7 @@ Router.register('dashboard', (() => {
       });
     });
     document.getElementById('dash-col-acct')?.addEventListener('toggle', e => { _openAcct = e.target.open; });
+    document.getElementById('dash-col-pay')?.addEventListener('toggle',  e => { _openPay  = e.target.open; });
     document.getElementById('dash-col-proj')?.addEventListener('toggle', e => { _openProj = e.target.open; });
     el.querySelectorAll('.proj-card').forEach(c =>
       c.addEventListener('click', () => Router.go('projects'))
