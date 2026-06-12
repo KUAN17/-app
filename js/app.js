@@ -71,14 +71,18 @@ function launchApp() {
   checkIdentity();
 }
 
-// 開啟 APP 後以登入 Gmail 同步雲端身份；新身份（雲端查無）強制導向設定頁完成設定
+// 開啟 APP 後以登入 Gmail 同步雲端身份；新身份強制導向設定，身份改變則重繪當前頁
 async function checkIdentity() {
   try {
+    const prev = localStorage.getItem(CFG.LS_KEYS.IDENTITY);
     const { identity } = await Store.loadIdentity();
     if (identity === null) {
-      localStorage.removeItem('ff_identity'); // 不繼承這台裝置上前一位使用者的身份
+      localStorage.removeItem(CFG.LS_KEYS.IDENTITY); // 不繼承前一位使用者的身份
       Utils.toast('第一次使用此帳號，請先完成使用者身份設定', 'warn');
       Router.go('settings');
+    } else if (identity && identity !== prev) {
+      // 雲端身份與本機不同（換裝置登入等），重繪當前頁讓視角立即更新
+      Router.go(Router.current() || 'dashboard');
     }
   } catch (e) {
     // 離線或 API 失敗 → 沿用本機既有身份，不擋使用

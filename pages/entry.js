@@ -18,9 +18,8 @@ Router.register('entry', (() => {
   let _sheetEl = null;
 
   // ── 身份 ──────────────────────────────────────────────────────────────────
-  function identity() { return localStorage.getItem('ff_identity') || ''; }
   function primaryRoles() {
-    const id = identity();
+    const id = Utils.identity();
     if (!id) return [...CFG.ROLES];
     return id === '家用' ? ['家用'] : [id, '家用'];
   }
@@ -107,7 +106,7 @@ Router.register('entry', (() => {
     const dateLabel = _date === today ? '今天' : _date.replace(/-/g, '/');
     const roles = visibleRoles();
     const hasMore = !_showAll && roles.length < CFG.ROLES.length;
-    const id = identity();
+    const id = Utils.identity();
 
     const roleCards = roles.map(r =>
       `<button type="button" class="entry-id-card${_role === r ? ' active' : ''}" data-action="role" data-val="${r}">
@@ -188,7 +187,47 @@ Router.register('entry', (() => {
     }, { passive: true });
   }
 
-  // ── Bottom sheet ──────────────────────────────────────────────────────────
+  // ── Bottom sheet helpers ──────────────────────────────────────────────────
+  function buildPaySection(sh) {
+    const nonCCAccts = acctsForRole(sh.role).filter(a => a.type !== '信用卡');
+    const payOpts = Store.allAccountsFlat()
+      .filter(a => a.type !== '證券帳戶' && a.name !== sh.account)
+      .sort((a, b) => (a.type === '信用卡' ? -1 : 0) - (b.type === '信用卡' ? -1 : 0))
+      .map(a => {
+        const v = `${a.role}||${a.name}`;
+        const cur = sh.payRole === a.role && sh.payAccount === a.name;
+        return `<option value="${v.replace(/"/g, '&quot;')}"${cur ? ' selected' : ''}>${acctIcon(a.type)} ${a.role}／${a.name}</option>`;
+      }).join('');
+    const payInfo = sh.payAccount ? getPaymentInfo(sh.payAccount) : null;
+    const canAuto = !!payInfo && sh.role !== sh.payRole && nonCCAccts.length > 0;
+    const tfOpts = nonCCAccts
+      .map(a => `<option value="${a.name.replace(/"/g, '&quot;')}"${sh.transferFrom === a.name ? ' selected' : ''}>${a.name}</option>`).join('');
+    return `<details class="sheet-adv"${sh.payAccount ? ' open' : ''}>
+      <summary>進階：代付${sh.payAccount ? `（${sh.payRole}／${sh.payAccount}）` : ''}</summary>
+      <div class="sheet-row"><label>代付</label>
+        <select id="sel-sheet-pay" class="form-select">
+          <option value="">不使用代付</option>${payOpts}
+        </select></div>
+      ${canAuto ? `
+        <label class="sheet-auto-toggle">
+          <input type="checkbox" id="chk-sheet-auto"${sh.autoTransfer ? ' checked' : ''}>
+          <span>同步補款轉帳</span>
+        </label>
+        ${sh.autoTransfer ? `
+          <div class="sheet-row"><label>轉出</label><select id="sel-sheet-tf" class="form-select">${tfOpts}</select></div>
+          <div class="sheet-row"><label>轉入</label><span class="sheet-static">${payInfo.role}／${payInfo.account}</span></div>` : ''}
+      ` : ''}
+    </details>`;
+  }
+
+  function buildPayExtra(sh, date, amount) {
+    if (!sh.autoTransfer || !sh.payAccount) return null;
+    const pi = getPaymentInfo(sh.payAccount);
+    if (!pi || !sh.transferFrom) return null;
+    return [Utils.uid(), sh.role, '日常', '', '轉帳', CFG.CAT_REPAYMENT, `補款／${sh.payAccount}`,
+            date, amount, sh.transferFrom, pi.role, pi.account, '', ''];
+  }
+
   function openSheet(kind, opts = {}) {
     _sh = { kind, amount: opts.amount ? String(opts.amount) : '', memo: '' };
 
@@ -208,7 +247,7 @@ Router.register('entry', (() => {
     } else if (kind === 'transfer') {
       _sh.roleOut = _role; _sh.accountOut = lastAcct(_role);
       let roleIn = opts.roleIn && CFG.ROLES.includes(opts.roleIn) ? opts.roleIn
-        : (_role === '家用' ? (identity() && identity() !== '家用' ? identity() : CFG.ROLES[0]) : '家用');
+        : (_role === '家用' ? (Utils.identity() && Utils.identity() !== '家用' ? Utils.identity() : CFG.ROLES[0]) : '家用');
       _sh.roleIn = roleIn;
       const inNames = acctsForRole(roleIn).map(a => a.name);
       _sh.accountIn = (opts.accountIn && inNames.includes(opts.accountIn)) ? opts.accountIn : lastAcct(roleIn);
@@ -265,34 +304,7 @@ Router.register('entry', (() => {
       }
       body += `<div class="sheet-row"><label>帳戶</label>${acctSelect('sel-sheet-acct', _sh.role, _sh.account)}</div>`;
       if (_sh.kind === 'cat') {
-        const payOpts = Store.allAccountsFlat()
-          .filter(a => a.type !== '證券帳戶' && a.name !== _sh.account)
-          .sort((a, b) => (a.type === '信用卡' ? -1 : 0) - (b.type === '信用卡' ? -1 : 0))
-          .map(a => {
-            const v = `${a.role}||${a.name}`;
-            const cur = _sh.payRole === a.role && _sh.payAccount === a.name;
-            return `<option value="${v.replace(/"/g, '&quot;')}"${cur ? ' selected' : ''}>${acctIcon(a.type)} ${a.role}／${a.name}</option>`;
-          }).join('');
-        const payInfo = _sh.payAccount ? getPaymentInfo(_sh.payAccount) : null;
-        const canAuto = !!payInfo && _sh.role !== _sh.payRole;
-        const tfOpts = acctsForRole(_sh.role).filter(a => a.type !== '信用卡')
-          .map(a => `<option value="${a.name.replace(/"/g, '&quot;')}"${_sh.transferFrom === a.name ? ' selected' : ''}>${a.name}</option>`).join('');
-        body += `<details class="sheet-adv"${_sh.payAccount ? ' open' : ''}>
-          <summary>進階：代付${_sh.payAccount ? `（${_sh.payRole}／${_sh.payAccount}）` : ''}</summary>
-          <div class="sheet-row"><label>代付</label>
-            <select id="sel-sheet-pay" class="form-select">
-              <option value="">不使用代付</option>${payOpts}
-            </select></div>
-          ${canAuto ? `
-            <label class="sheet-auto-toggle">
-              <input type="checkbox" id="chk-sheet-auto"${_sh.autoTransfer ? ' checked' : ''}>
-              <span>同步補款轉帳</span>
-            </label>
-            ${_sh.autoTransfer ? `
-              <div class="sheet-row"><label>轉出</label><select id="sel-sheet-tf" class="form-select">${tfOpts}</select></div>
-              <div class="sheet-row"><label>轉入</label><span class="sheet-static">${payInfo.role}／${payInfo.account}</span></div>` : ''}
-          ` : ''}
-        </details>`;
+        body += buildPaySection(_sh);
       }
     } else if (_sh.kind === 'proj') {
       const projects = Store.get().projects.filter(p => p.status === '進行中');
@@ -303,36 +315,7 @@ Router.register('entry', (() => {
         </select></div>`;
       body += `<div class="sheet-row"><label>帳戶</label>${acctSelect('sel-sheet-acct', _sh.role, _sh.account)}</div>`;
 
-      // 進階：代付＋同步補款
-      const payOpts = Store.allAccountsFlat()
-        .filter(a => a.type !== '證券帳戶' && a.name !== _sh.account)
-        .sort((a, b) => (a.type === '信用卡' ? -1 : 0) - (b.type === '信用卡' ? -1 : 0))
-        .map(a => {
-          const v = `${a.role}||${a.name}`;
-          const cur = _sh.payRole === a.role && _sh.payAccount === a.name;
-          return `<option value="${v.replace(/"/g, '&quot;')}"${cur ? ' selected' : ''}>${acctIcon(a.type)} ${a.role}／${a.name}</option>`;
-        }).join('');
-      const payInfo = _sh.payAccount ? getPaymentInfo(_sh.payAccount) : null;
-      const canAuto = !!payInfo && _sh.role !== _sh.payRole;
-      const tfOpts = acctsForRole(_sh.role).filter(a => a.type !== '信用卡')
-        .map(a => `<option value="${a.name.replace(/"/g, '&quot;')}"${_sh.transferFrom === a.name ? ' selected' : ''}>${a.name}</option>`).join('');
-
-      body += `<details class="sheet-adv"${_sh.payAccount ? ' open' : ''}>
-        <summary>進階：代付${_sh.payAccount ? `（${_sh.payRole}／${_sh.payAccount}）` : ''}</summary>
-        <div class="sheet-row"><label>代付</label>
-          <select id="sel-sheet-pay" class="form-select">
-            <option value="">不使用代付</option>${payOpts}
-          </select></div>
-        ${canAuto ? `
-          <label class="sheet-auto-toggle">
-            <input type="checkbox" id="chk-sheet-auto"${_sh.autoTransfer ? ' checked' : ''}>
-            <span>同步補款轉帳</span>
-          </label>
-          ${_sh.autoTransfer ? `
-            <div class="sheet-row"><label>轉出</label><select id="sel-sheet-tf" class="form-select">${tfOpts}</select></div>
-            <div class="sheet-row"><label>轉入</label><span class="sheet-static">${payInfo.role}／${payInfo.account}</span></div>` : ''}
-        ` : ''}
-      </details>`;
+      body += buildPaySection(_sh);
     } else if (_sh.kind === 'transfer') {
       const projects = Store.get().projects.filter(p => p.status === '進行中');
       const projLocked = !!_sh.project && (() => {
@@ -538,13 +521,7 @@ Router.register('entry', (() => {
       if (!_sh.account) return Utils.toast('請選擇帳戶', 'warn');
       row = [Utils.uid(), _sh.role, '日常', '', '支出', _sh.category, memo, date, amount, _sh.account, '', '', _sh.payRole || '', _sh.payAccount || ''];
       usedRole = _sh.role; usedAcct = _sh.account;
-      if (_sh.autoTransfer && _sh.payAccount) {
-        const pi = getPaymentInfo(_sh.payAccount);
-        if (pi && _sh.transferFrom) {
-          extra = [Utils.uid(), _sh.role, '日常', '', '轉帳', '代付補款', `補款／${_sh.payAccount}`,
-                   date, amount, _sh.transferFrom, pi.role, pi.account, '', ''];
-        }
-      }
+      extra = buildPayExtra(_sh, date, amount);
     } else if (_sh.kind === 'income') {
       if (!_sh.category) return Utils.toast('請選擇收入分類', 'warn');
       if (!_sh.account)  return Utils.toast('請選擇帳戶', 'warn');
@@ -556,13 +533,7 @@ Router.register('entry', (() => {
       row = [Utils.uid(), _sh.role, '專案', _sh.project, '支出', (_sh.projCat || '').trim(), memo, date, amount,
              _sh.account, '', '', _sh.payRole || '', _sh.payAccount || ''];
       usedRole = _sh.role; usedAcct = _sh.account;
-      if (_sh.autoTransfer && _sh.payAccount) {
-        const pi = getPaymentInfo(_sh.payAccount);
-        if (pi && _sh.transferFrom) {
-          extra = [Utils.uid(), _sh.role, '日常', '', '轉帳', '代付補款', `補款／${_sh.payAccount}`,
-                   date, amount, _sh.transferFrom, pi.role, pi.account, '', ''];
-        }
-      }
+      extra = buildPayExtra(_sh, date, amount);
     } else if (_sh.kind === 'transfer') {
       if (!_sh.accountOut) return Utils.toast('請選擇轉出帳戶', 'warn');
       if (!_sh.accountIn)  return Utils.toast('請選擇轉入帳戶', 'warn');

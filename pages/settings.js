@@ -7,7 +7,7 @@ Router.register('settings', (() => {
     const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID) || CFG.SHEET_ID || '';
     const cid = localStorage.getItem(CFG.LS_KEYS.CLIENT_ID) || CFG.CLIENT_ID || '';
 
-    const curId = localStorage.getItem('ff_identity') || '';
+    const curId = Utils.identity();
 
     el.innerHTML = `<div class="page-inner">
 
@@ -589,7 +589,7 @@ Router.register('settings', (() => {
           b.classList.toggle('active', b === btn));
         try {
           const synced = await Store.saveIdentity(id);
-          Utils.toast(synced
+        Utils.toast(synced
             ? `身份已設定為「${id}」，並同步到雲端`
             : `身份已設定為「${id}」（僅此裝置，無法取得登入帳號）`, 'success');
         } catch (e) {

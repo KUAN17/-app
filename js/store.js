@@ -263,18 +263,24 @@ window.Store = (() => {
     try {
       rows = await API.getRange(sid, 'Settings!A2:B');
     } catch (e) {
-      await ensureSettingsSheet(sid); // Settings 工作表不存在 → 建立後視為查無
-      rows = [];
+      // 只有「工作表不存在」才建表；暫時性錯誤（網路/429/5xx）直接 rethrow，
+      // 讓 checkIdentity 的 catch 保留本機既有身份
+      if ((e.message || '').toLowerCase().includes('unable to parse range')) {
+        await ensureSettingsSheet(sid);
+        rows = [];
+      } else {
+        throw e;
+      }
     }
     const hit = rows.find(r => (r[0] || '').toLowerCase() === email);
     const identity = hit && CFG.ROLES.includes(hit[1]) ? hit[1] : null;
-    if (identity) localStorage.setItem('ff_identity', identity);
+    if (identity) localStorage.setItem(CFG.LS_KEYS.IDENTITY, identity);
     return { email, identity };
   }
 
   // 設定身份：本機立即生效，並寫回雲端（同 email 既有列更新、否則新增）
   async function saveIdentity(identity) {
-    localStorage.setItem('ff_identity', identity);
+    localStorage.setItem(CFG.LS_KEYS.IDENTITY, identity);
     const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID) || CFG.SHEET_ID;
     const email = ((await Auth.getEmail()) || '').toLowerCase();
     if (!sid || !email) return false;

@@ -33,12 +33,15 @@ window.CFG = {
   ],
 
   LS_KEYS: {
-    SHEET_ID: 'ff_sheet_id',
+    SHEET_ID:  'ff_sheet_id',
     CLIENT_ID: 'ff_client_id',
-    CACHE_DATA: 'ff_cache',
-    CACHE_TS: 'ff_cache_ts',
-    AUTOLOGIN: 'ff_autologin'
+    CACHE_DATA:'ff_cache',
+    CACHE_TS:  'ff_cache_ts',
+    AUTOLOGIN: 'ff_autologin',
+    IDENTITY:  'ff_identity'
   },
+
+  CAT_REPAYMENT: '代付補款',
 
   CACHE_TTL: 5 * 60 * 1000
 };

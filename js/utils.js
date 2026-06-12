@@ -66,6 +66,8 @@ window.Utils = {
     document.getElementById('loading-overlay').classList.toggle('hidden', !show);
   },
 
+  identity() { return localStorage.getItem(CFG.LS_KEYS.IDENTITY) || ''; },
+
   el(id) { return document.getElementById(id); },
 
   html(tag, attrs = {}, children = '') {

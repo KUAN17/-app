@@ -10,9 +10,8 @@ Router.register('dashboard', (() => {
 
   const COLORS = ['#5B8DEF', '#FF8A65', '#34C99A', '#FFC757', '#A78BFA', '#F472B6', '#94A3B8'];
 
-  function identity() { return localStorage.getItem('ff_identity') || ''; }
   function scopeRoles() {
-    const id = identity();
+    const id = Utils.identity();
     if (_scope === '我的') return id === '家用' ? ['家用'] : [id, '家用'];
     if (_scope === '全部') return [...CFG.ROLES];
     return [_scope];
@@ -27,7 +26,7 @@ Router.register('dashboard', (() => {
     if (!_month) _month = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
     if (!_year)  _year  = now.getFullYear();
     if (!_scope) {
-      const id = identity();
+      const id = Utils.identity();
       _scope = (id && id !== '家用') ? '我的' : '全部';
     }
     await Store.load();
@@ -109,7 +108,7 @@ Router.register('dashboard', (() => {
 
   // ── 共用 UI 片段 ──────────────────────────────────────────────────────────
   function topRow() {
-    const id = identity();
+    const id = Utils.identity();
     const opts = (id && id !== '家用') ? ['我的', '全部', ...CFG.ROLES] : ['全部', ...CFG.ROLES];
     const chips = opts.map(r =>
       `<button class="dash-chip ${_scope === r ? 'active' : ''}" data-val="${r}" data-act="role">${r}</button>`
@@ -257,7 +256,7 @@ Router.register('dashboard', (() => {
         if (!net[tx.payRole]) net[tx.payRole] = {};
         net[tx.payRole][tx.roleOut] = (net[tx.payRole][tx.roleOut] || 0) + tx.amount;
       }
-      if (tx.type === '轉帳' && tx.category === '代付補款' && tx.amount > 0) {
+      if (tx.type === '轉帳' && tx.category === CFG.CAT_REPAYMENT && tx.amount > 0) {
         if (!net[tx.roleIn]) net[tx.roleIn] = {};
         net[tx.roleIn][tx.roleOut] = (net[tx.roleIn][tx.roleOut] || 0) - tx.amount;
       }
@@ -266,12 +265,15 @@ Router.register('dashboard', (() => {
     const items = [];
     Object.entries(net).forEach(([creditor, debtors]) => {
       Object.entries(debtors).forEach(([debtor, amt]) => {
-        if (amt > 1) items.push({ creditor, debtor, amt });
+        if (Math.abs(amt) >= 1) {
+          // 負數代表債務人已超額補款，翻轉方向
+          items.push(amt >= 0 ? { creditor, debtor, amt } : { creditor: debtor, debtor: creditor, amt: -amt });
+        }
       });
     });
     if (!items.length) return '';
 
-    const id = identity();
+    const id = Utils.identity();
     const rows = items.map(({ creditor, debtor, amt }) => {
       const isMyDebt = debtor === id;
       const isMyRecv = creditor === id;

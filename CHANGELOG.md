@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.4.1] - 2026-06-12
+
+### 修正（程式碼品質）
+- **loadIdentity 錯誤處理**：僅在試算表真的不存在時（`Unable to parse range`）才自動建表；其他暫時性錯誤（網路、429、5xx）直接往上拋，讓呼叫方 catch 保留本機既有身份，不再誤把 API 失敗當成「新身份」
+- **checkIdentity 重繪**：雲端身份與本機不符（換裝置等）時，即時重繪當前頁，讓視角立即更新
+- **代付往來負數修正**：債務人超額補款（`amt < 0`）時翻轉債權/債務方向，門檻從 `> 1` 改為 `Math.abs(amt) >= 1`
+- **autoTransfer 無非信用卡帳戶時靜默跳過修正**：`canAuto` 現在額外檢查角色是否有非信用卡帳戶，無則不顯示「同步補款轉帳」選項，避免補款轉帳以空 `transferFrom` 靜默略過
+- **代付 UI 抽共用函式**：`buildPaySection(sh)` 與 `buildPayExtra(sh, date, amount)` 取代日常支出、專案支出兩處近乎相同的重複程式碼
+- **Utils.identity() 統一存取**：各頁面移除各自的 `identity()` 副本，一律改用 `Utils.identity()`；`CFG.LS_KEYS.IDENTITY` 取代魔法字串 `'ff_identity'`
+- **CAT_REPAYMENT 常數**：`'代付補款'` 硬編碼全部換為 `CFG.CAT_REPAYMENT`
+
 ## [1.4.0] - 2026-06-12
 
 ### 新增
