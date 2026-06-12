@@ -244,5 +244,47 @@ window.Store = (() => {
   function get() { return _data; }
   function isDirty() { return _dirty; }
 
-  return { load, invalidate, calcBalance, calcAllBalances, accountsForRole, brokersForRole, allAccountsFlat, getSheetId, get, isDirty };
+  // ── 使用者身份雲端同步（Settings 工作表：A=Email, B=身份） ────────────────
+  async function ensureSettingsSheet(sid) {
+    if (!_sheetMeta.length) _sheetMeta = await API.getSheetMeta(sid);
+    if (_sheetMeta.find(m => m.name === 'Settings')) return;
+    await API.batchUpdate(sid, [{ addSheet: { properties: { title: 'Settings' } } }]);
+    await API.updateRange(sid, 'Settings!A1:B1', [['Email', '身份']]);
+    _sheetMeta = await API.getSheetMeta(sid);
+  }
+
+  // 以登入 Gmail 查雲端身份並同步到本機。回傳 { email, identity }；
+  // identity 為 null 代表「成功查詢但雲端無此帳號的設定」（新身份）；網路/API 失敗則 throw
+  async function loadIdentity() {
+    const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID) || CFG.SHEET_ID;
+    const email = ((await Auth.getEmail()) || '').toLowerCase();
+    if (!sid || !email) return { email, identity: undefined }; // 無法判斷，不視為新身份
+    let rows;
+    try {
+      rows = await API.getRange(sid, 'Settings!A2:B');
+    } catch (e) {
+      await ensureSettingsSheet(sid); // Settings 工作表不存在 → 建立後視為查無
+      rows = [];
+    }
+    const hit = rows.find(r => (r[0] || '').toLowerCase() === email);
+    const identity = hit && CFG.ROLES.includes(hit[1]) ? hit[1] : null;
+    if (identity) localStorage.setItem('ff_identity', identity);
+    return { email, identity };
+  }
+
+  // 設定身份：本機立即生效，並寫回雲端（同 email 既有列更新、否則新增）
+  async function saveIdentity(identity) {
+    localStorage.setItem('ff_identity', identity);
+    const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID) || CFG.SHEET_ID;
+    const email = ((await Auth.getEmail()) || '').toLowerCase();
+    if (!sid || !email) return false;
+    await ensureSettingsSheet(sid);
+    const rows = await API.getRange(sid, 'Settings!A2:B');
+    const idx = rows.findIndex(r => (r[0] || '').toLowerCase() === email);
+    if (idx >= 0) await API.updateRange(sid, `Settings!A${idx + 2}:B${idx + 2}`, [[email, identity]]);
+    else await API.append(sid, 'Settings!A:B', [email, identity]);
+    return true;
+  }
+
+  return { load, invalidate, calcBalance, calcAllBalances, accountsForRole, brokersForRole, allAccountsFlat, getSheetId, get, isDirty, loadIdentity, saveIdentity };
 })();

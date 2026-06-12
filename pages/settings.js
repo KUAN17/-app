@@ -13,7 +13,7 @@ Router.register('settings', (() => {
 
       <div class="section-label">使用者身份</div>
       <div class="card settings-card">
-        <p class="input-hint" style="margin-bottom:10px">這台裝置的使用者。記帳頁與 Dashboard 會以此身份為主（自己＋家用）。</p>
+        <p class="input-hint" style="margin-bottom:10px" id="id-email-hint">記帳頁與 Dashboard 會以此身份為主（自己＋家用）。</p>
         <div class="id-toggle">
           ${CFG.ROLES.map(r =>
             `<button type="button" class="proj-type-btn${curId === r ? ' active' : ''}" data-identity="${r}">${r === '家用' ? '🏠 家用視角' : r}</button>`
@@ -567,6 +567,11 @@ Router.register('settings', (() => {
   inv.getRange(2,7,ivf.length,5).setFormulas(ivf);
   inv.getRange('K2:K51').setNumberFormat('0.00%');
 
+  // Settings（使用者身份：Email ↔ 身份）
+  var st = ss.getSheetByName('Settings') || ss.insertSheet('Settings');
+  st.clear();
+  st.getRange('A1:B1').setValues([['Email','身份']]).setFontWeight('bold');
+
   // Ledger
   var ld = ss.getSheetByName('Ledger') || ss.insertSheet('Ledger');
   ld.clear();
@@ -578,12 +583,24 @@ Router.register('settings', (() => {
   // ── onMount ──────────────────────────────────────────────────────────────
   function onMount() {
     document.querySelectorAll('[data-identity]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        localStorage.setItem('ff_identity', btn.dataset.identity);
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.identity;
         document.querySelectorAll('[data-identity]').forEach(b =>
           b.classList.toggle('active', b === btn));
-        Utils.toast(`身份已設定為「${btn.dataset.identity}」`, 'success');
+        try {
+          const synced = await Store.saveIdentity(id);
+          Utils.toast(synced
+            ? `身份已設定為「${id}」，並同步到雲端`
+            : `身份已設定為「${id}」（僅此裝置，無法取得登入帳號）`, 'success');
+        } catch (e) {
+          Utils.toast(`身份已設定為「${id}」，但雲端同步失敗：${e.message}`, 'warn');
+        }
       });
+    });
+
+    Auth.getEmail().then(em => {
+      const hint = Utils.el('id-email-hint');
+      if (em && hint) hint.textContent = `登入帳號：${em}。身份會跟著此 Google 帳號在 Safari／PWA／所有裝置間自動同步。`;
     });
 
     Utils.el('btn-save-conn').addEventListener('click', () => {

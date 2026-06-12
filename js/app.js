@@ -68,6 +68,21 @@ function bindAuthButtons() {
 function launchApp() {
   showScreen('main');
   Router.init();
+  checkIdentity();
+}
+
+// 開啟 APP 後以登入 Gmail 同步雲端身份；新身份（雲端查無）強制導向設定頁完成設定
+async function checkIdentity() {
+  try {
+    const { identity } = await Store.loadIdentity();
+    if (identity === null) {
+      localStorage.removeItem('ff_identity'); // 不繼承這台裝置上前一位使用者的身份
+      Utils.toast('第一次使用此帳號，請先完成使用者身份設定', 'warn');
+      Router.go('settings');
+    }
+  } catch (e) {
+    // 離線或 API 失敗 → 沿用本機既有身份，不擋使用
+  }
 }
 
 function showScreen(name) {

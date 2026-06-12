@@ -1,5 +1,5 @@
 window.CFG = {
-  SCOPES: 'https://www.googleapis.com/auth/spreadsheets',
+  SCOPES: 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/userinfo.email',
   SHEETS_BASE: 'https://sheets.googleapis.com/v4/spreadsheets',
 
   CLIENT_ID: '677203779184-0r63u9ebkc4vu92r7ivetmqrprrgc6ct.apps.googleusercontent.com',

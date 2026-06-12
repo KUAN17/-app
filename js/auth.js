@@ -97,5 +97,19 @@ window.Auth = (() => {
 
   function hasToken() { return !!_token; }
 
-  return { init, getToken, silentToken, signOut, hasToken, isValid };
+  // 取得登入者 Gmail（身份雲端同步用）；token 無 email 權限時回空字串
+  async function getEmail() {
+    if (_hint) return _hint;
+    if (!isValid()) return '';
+    try {
+      const r = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+        headers: { Authorization: `Bearer ${_token}` }
+      });
+      const info = await r.json();
+      if (info.email) { _hint = info.email; localStorage.setItem(LS_HINT, _hint); }
+    } catch {}
+    return _hint || '';
+  }
+
+  return { init, getToken, silentToken, signOut, hasToken, isValid, getEmail };
 })();
