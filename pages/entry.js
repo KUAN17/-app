@@ -225,12 +225,13 @@ Router.register('entry', (() => {
     </details>`;
   }
 
-  function buildPayExtra(sh, date, amount) {
+  function buildPayExtra(sh, date, amount, settleId) {
     if (!sh.autoTransfer || !sh.payAccount) return null;
     const pi = getPaymentInfo(sh.payRole, sh.payAccount, sh.payType);
     if (!pi || !sh.transferFrom) return null;
+    // 同步補款即時結清這筆代付支出，settleId 綁定該支出 ID（逐筆沖銷）
     return [Utils.uid(), sh.role, '日常', '', '轉帳', CFG.CAT_REPAYMENT, `補款／${sh.payAccount}`,
-            date, amount, sh.transferFrom, pi.role, pi.account, '', ''];
+            date, amount, sh.transferFrom, pi.role, pi.account, '', '', settleId || ''];
   }
 
   function openSheet(kind, opts = {}) {
@@ -260,6 +261,7 @@ Router.register('entry', (() => {
       _sh.accountIn = (opts.accountIn && inNames.includes(opts.accountIn)) ? opts.accountIn : lastAcct(roleIn);
       _sh.project = '';
       _sh.category = opts.category || '';
+      _sh.settleId = opts.settleId || '';
       if (opts.memo) _sh.memo = opts.memo;
     }
 
@@ -529,27 +531,27 @@ Router.register('entry', (() => {
 
     if (_sh.kind === 'cat') {
       if (!_sh.account) return Utils.toast('請選擇帳戶', 'warn');
-      row = [Utils.uid(), _sh.role, '日常', '', '支出', _sh.category, memoCell, date, amount, _sh.account, '', '', _sh.payRole || '', _sh.payAccount || ''];
+      row = [Utils.uid(), _sh.role, '日常', '', '支出', _sh.category, memoCell, date, amount, _sh.account, '', '', _sh.payRole || '', _sh.payAccount || '', ''];
       usedRole = _sh.role; usedAcct = _sh.account;
-      extra = buildPayExtra(_sh, date, amount);
+      extra = buildPayExtra(_sh, date, amount, row[0]);
     } else if (_sh.kind === 'income') {
       if (!_sh.category) return Utils.toast('請選擇收入分類', 'warn');
       if (!_sh.account)  return Utils.toast('請選擇帳戶', 'warn');
-      row = [Utils.uid(), _sh.role, '', '', '收入', _sh.category, memoCell, date, amount, _sh.account, '', '', '', ''];
+      row = [Utils.uid(), _sh.role, '', '', '收入', _sh.category, memoCell, date, amount, _sh.account, '', '', '', '', ''];
       usedRole = _sh.role; usedAcct = _sh.account;
     } else if (_sh.kind === 'proj') {
       if (!_sh.project) return Utils.toast('請選擇專案', 'warn');
       if (!_sh.account) return Utils.toast('請選擇帳戶', 'warn');
       row = [Utils.uid(), _sh.role, '專案', _sh.project, '支出', (_sh.projCat || '').trim(), memoCell, date, amount,
-             _sh.account, '', '', _sh.payRole || '', _sh.payAccount || ''];
+             _sh.account, '', '', _sh.payRole || '', _sh.payAccount || '', ''];
       usedRole = _sh.role; usedAcct = _sh.account;
-      extra = buildPayExtra(_sh, date, amount);
+      extra = buildPayExtra(_sh, date, amount, row[0]);
     } else if (_sh.kind === 'transfer') {
       if (!_sh.accountOut) return Utils.toast('請選擇轉出帳戶', 'warn');
       if (!_sh.accountIn)  return Utils.toast('請選擇轉入帳戶', 'warn');
       const isProj = !!_sh.project;
       row = [Utils.uid(), _sh.roleOut, isProj ? '專案' : '日常', _sh.project || '', '轉帳', _sh.category || '', memoCell, date, amount,
-             _sh.accountOut, _sh.roleIn, _sh.accountIn, '', ''];
+             _sh.accountOut, _sh.roleIn, _sh.accountIn, '', '', _sh.settleId || ''];
       usedRole = _sh.roleOut; usedAcct = _sh.accountOut;
     }
 
@@ -558,8 +560,8 @@ Router.register('entry', (() => {
     if (btn) { btn.disabled = true; btn.textContent = '儲存中…'; }
 
     try {
-      await API.append(sid, 'Ledger!A:N', row);
-      if (extra) await API.append(sid, 'Ledger!A:N', extra);
+      await API.append(sid, 'Ledger!A:O', row);
+      if (extra) await API.append(sid, 'Ledger!A:O', extra);
       Store.invalidate();
       if (usedRole && usedAcct) localStorage.setItem(LS_LAST_ACCT(usedRole), usedAcct);
       if (memo) addRecentMemo(memo);

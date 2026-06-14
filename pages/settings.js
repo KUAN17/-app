@@ -575,7 +575,7 @@ Router.register('settings', (() => {
   // Ledger
   var ld = ss.getSheetByName('Ledger') || ss.insertSheet('Ledger');
   ld.clear();
-  ld.getRange('A1:L1').setValues([['記帳 ID','角色 (出)','開銷維度','專案標籤','類型','主分類','項目/明細','日期','金額','付款帳戶','角色 (入)','對象帳戶']]).setFontWeight('bold');
+  ld.getRange('A1:O1').setValues([['記帳 ID','角色 (出)','開銷維度','專案標籤','類型','主分類','項目/明細','日期','金額','付款帳戶','角色 (入)','對象帳戶','代付角色','代付帳戶','結清代付ID']]).setFontWeight('bold');
 
   SpreadsheetApp.getUi().alert('建置完成！');
 }`;

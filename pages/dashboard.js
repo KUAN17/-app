@@ -250,37 +250,51 @@ Router.register('dashboard', (() => {
   // ── 代付往來 ──────────────────────────────────────────────────────────────
   function payablesCollapse(ledger) {
     // 逐筆列出未結清的代付支出；代付補款轉帳依「債務人→債權人」FIFO（先借先還）沖銷
-    const expByPair = {};  // `creditor||debtor` → [{date, amount, memo, remaining}]
-    const repayByPair = {}; // `creditor||debtor` → 已補款總額
+    const expById = {};    // 支出 ID → 該筆代付支出
+    const expByPair = {};  // `creditor||debtor` → [代付支出…]
+    const linkedRepay = {}; // 支出 ID → 已綁定補款總額（精準逐筆）
+    const poolByPair = {};  // `creditor||debtor` → 未綁定補款總額（FIFO 後備）
     ledger.forEach(tx => {
       if (tx.type === '支出' && tx.payRole && tx.payRole !== tx.roleOut && tx.amount > 0) {
-        const k = `${tx.payRole}||${tx.roleOut}`;
-        (expByPair[k] = expByPair[k] || []).push({
+        const e = {
+          id: tx.id, creditor: tx.payRole, debtor: tx.roleOut,
           date: tx.date, amount: tx.amount, memo: tx.memo || tx.category || '', remaining: tx.amount
-        });
+        };
+        expById[tx.id] = e;
+        const k = `${tx.payRole}||${tx.roleOut}`;
+        (expByPair[k] = expByPair[k] || []).push(e);
       }
       if (tx.type === '轉帳' && tx.category === CFG.CAT_REPAYMENT && tx.amount > 0) {
-        const k = `${tx.roleIn}||${tx.roleOut}`;
-        repayByPair[k] = (repayByPair[k] || 0) + tx.amount;
+        if (tx.settleId) {
+          linkedRepay[tx.settleId] = (linkedRepay[tx.settleId] || 0) + tx.amount;
+        } else {
+          const k = `${tx.roleIn}||${tx.roleOut}`;
+          poolByPair[k] = (poolByPair[k] || 0) + tx.amount;
+        }
       }
     });
 
-    const items = []; // {creditor, debtor, date, amount, remaining, memo}
+    // 1. 先扣有綁定的補款（點「記補款」記入的，精準對應該筆支出）
+    Object.entries(linkedRepay).forEach(([id, paid]) => {
+      if (expById[id]) expById[id].remaining = Math.max(0, expById[id].remaining - paid);
+    });
+    // 2. 未綁定的補款（舊資料／手動轉帳）→ 同組 FIFO 沖最舊
     Object.entries(expByPair).forEach(([k, exps]) => {
-      const [creditor, debtor] = k.split('||');
-      let pool = repayByPair[k] || 0;
+      let pool = poolByPair[k] || 0;
+      if (!pool) return;
       exps.sort((a, b) => a.date.localeCompare(b.date));
       exps.forEach(e => {
         const cut = Math.min(pool, e.remaining);
         e.remaining -= cut; pool -= cut;
-        if (e.remaining >= 1) items.push({ creditor, debtor, ...e });
       });
     });
+
+    const items = Object.values(expById).filter(e => e.remaining >= 1);
     if (!items.length) return '';
     items.sort((a, b) => a.date.localeCompare(b.date));
 
     const id = Utils.identity();
-    const rows = items.map(({ creditor, debtor, date, amount, remaining, memo }) => {
+    const rows = items.map(({ id: expId, creditor, debtor, date, amount, remaining, memo }) => {
       const isMyDebt = debtor === id;
       const isMyRecv = creditor === id;
       const label = isMyDebt ? `我欠 ${creditor}` : isMyRecv ? `${debtor} 欠我` : `${debtor} 欠 ${creditor}`;
@@ -291,6 +305,7 @@ Router.register('dashboard', (() => {
         data-creditor="${creditor.replace(/"/g, '&quot;')}"
         data-debtor="${debtor.replace(/"/g, '&quot;')}"
         data-amount="${remaining}"
+        data-settle="${(expId || '').replace(/"/g, '&quot;')}"
         data-memo="${repayMemo.replace(/"/g, '&quot;')}">記補款 →</button>`;
       return `<div class="dash-acct-row dash-pay-row">
         <div class="dash-pay-info">
@@ -449,6 +464,7 @@ Router.register('dashboard', (() => {
           roleIn: btn.dataset.creditor,
           amount: btn.dataset.amount,
           category: CFG.CAT_REPAYMENT,
+          settleId: btn.dataset.settle || '',
           memo: btn.dataset.memo || ''
         }));
         Router.go('entry');

@@ -27,7 +27,8 @@ window.Store = (() => {
       roleIn: row[10] || '',
       accountIn: row[11] || '',
       payRole: row[12] || '',
-      payAccount: row[13] || ''
+      payAccount: row[13] || '',
+      settleId: row[14] || '' // 代付補款轉帳結清的支出 ID（逐筆綁定）
     };
   }
 
@@ -105,7 +106,7 @@ window.Store = (() => {
     Utils.showLoading(true);
     try {
       const ranges = [
-        'Ledger!A2:N',
+        'Ledger!A2:O',
         'Projects!A2:N',
         'Investments!A2:K',
         'Backend!L2:T'
