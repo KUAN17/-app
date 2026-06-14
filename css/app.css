@@ -231,6 +231,7 @@ html, body {
 .dash-acct-row:last-child { border-bottom: none; }
 .dash-acct-name { font-size: 14px; color: var(--text); }
 .dash-acct-bal { font-size: 14px; font-weight: 600; }
+.dash-repay-btn { font-size: 12px; padding: 3px 10px; border-radius: 14px; border: 1px solid var(--primary); color: var(--primary); background: none; cursor: pointer; white-space: nowrap; }
 
 /* dash top row（角色 chips + 版型切換） */
 .dash-top-row { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 4px; }

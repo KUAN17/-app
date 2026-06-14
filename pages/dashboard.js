@@ -277,9 +277,14 @@ Router.register('dashboard', (() => {
     const rows = items.map(({ creditor, debtor, amt }) => {
       const isMyDebt = debtor === id;
       const isMyRecv = creditor === id;
+      const payBtn = `<button type="button" class="dash-repay-btn"
+        data-creditor="${creditor.replace(/"/g, '&quot;')}"
+        data-debtor="${debtor.replace(/"/g, '&quot;')}"
+        data-amount="${amt}">記補款 →</button>`;
       return `<div class="dash-acct-row">
         <span class="dash-acct-name">${isMyDebt ? `我欠 ${creditor}` : isMyRecv ? `${debtor} 欠我` : `${debtor} 欠 ${creditor}`}</span>
         <span class="dash-acct-bal ${isMyDebt ? 'amount-out' : isMyRecv ? 'amount-in' : ''}">${Utils.formatMoney(amt)}</span>
+        ${payBtn}
       </div>`;
     }).join('');
 
@@ -420,6 +425,18 @@ Router.register('dashboard', (() => {
           localStorage.setItem('ff_dash_ver', _ver);
         }
         renderAll();
+      });
+    });
+    el.querySelectorAll('.dash-repay-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        localStorage.setItem('ff_entry_prefill', JSON.stringify({
+          type: '轉帳',
+          roleOut: btn.dataset.debtor,
+          roleIn: btn.dataset.creditor,
+          amount: btn.dataset.amount,
+          category: CFG.CAT_REPAYMENT
+        }));
+        Router.go('entry');
       });
     });
     document.getElementById('dash-col-acct')?.addEventListener('toggle', e => { _openAcct = e.target.open; });

@@ -245,13 +245,16 @@ Router.register('entry', (() => {
       _sh.payRole = ''; _sh.payAccount = '';
       _sh.autoTransfer = false; _sh.transferFrom = '';
     } else if (kind === 'transfer') {
-      _sh.roleOut = _role; _sh.accountOut = lastAcct(_role);
+      const prefillRoleOut = opts.roleOut && CFG.ROLES.includes(opts.roleOut) ? opts.roleOut : _role;
+      _sh.roleOut = prefillRoleOut;
+      _sh.accountOut = lastAcct(prefillRoleOut);
       let roleIn = opts.roleIn && CFG.ROLES.includes(opts.roleIn) ? opts.roleIn
         : (_role === '家用' ? (Utils.identity() && Utils.identity() !== '家用' ? Utils.identity() : CFG.ROLES[0]) : '家用');
       _sh.roleIn = roleIn;
       const inNames = acctsForRole(roleIn).map(a => a.name);
       _sh.accountIn = (opts.accountIn && inNames.includes(opts.accountIn)) ? opts.accountIn : lastAcct(roleIn);
       _sh.project = '';
+      _sh.category = opts.category || '';
     }
 
     _sheetEl = document.createElement('div');
@@ -538,7 +541,7 @@ Router.register('entry', (() => {
       if (!_sh.accountOut) return Utils.toast('請選擇轉出帳戶', 'warn');
       if (!_sh.accountIn)  return Utils.toast('請選擇轉入帳戶', 'warn');
       const isProj = !!_sh.project;
-      row = [Utils.uid(), _sh.roleOut, isProj ? '專案' : '日常', _sh.project || '', '轉帳', '', memo, date, amount,
+      row = [Utils.uid(), _sh.roleOut, isProj ? '專案' : '日常', _sh.project || '', '轉帳', _sh.category || '', memo, date, amount,
              _sh.accountOut, _sh.roleIn, _sh.accountIn, '', ''];
       usedRole = _sh.roleOut; usedAcct = _sh.accountOut;
     }
