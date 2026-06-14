@@ -73,8 +73,9 @@ Router.register('dashboard', (() => {
     const total = sorted.reduce((s, [, v]) => s + v, 0);
     let entries = sorted;
     if (sorted.length > topN) {
-      const rest = sorted.slice(topN).reduce((s, [, v]) => s + v, 0);
-      entries = [...sorted.slice(0, topN), ['其他', rest]];
+      const restItems = sorted.slice(topN);
+      const rest = restItems.reduce((s, [, v]) => s + v, 0);
+      entries = [...sorted.slice(0, topN), ['其他', rest, restItems]];
     }
     return { entries, total };
   }
@@ -168,13 +169,27 @@ Router.register('dashboard', (() => {
 
   function catListHtml(entries, total) {
     if (!entries.length) return '<p class="empty-hint">本期無支出</p>';
-    return entries.map(([cat, amt], i) => `
-      <div class="dash-catl-row">
-        <span class="dash-catl-dot" style="background:${COLORS[i % COLORS.length]}"></span>
+    return entries.map(([cat, amt, sub], i) => {
+      const color = COLORS[i % COLORS.length];
+      const rowInner = `
+        <span class="dash-catl-dot" style="background:${color}"></span>
         <span class="dash-catl-name">${cat}</span>
         <span class="dash-catl-pct">${(amt / total * 100).toFixed(0)}%</span>
-        <span class="dash-catl-amt">${Utils.formatMoney(amt)}</span>
-      </div>`).join('');
+        <span class="dash-catl-amt">${Utils.formatMoney(amt)}</span>`;
+      if (sub && sub.length) {
+        const subRows = sub.map(([sc, sa]) => `
+          <div class="dash-catl-sub-row">
+            <span class="dash-catl-name">${sc}</span>
+            <span class="dash-catl-pct">${(sa / total * 100).toFixed(0)}%</span>
+            <span class="dash-catl-amt">${Utils.formatMoney(sa)}</span>
+          </div>`).join('');
+        return `<details class="dash-catl-details">
+          <summary class="dash-catl-row dash-catl-exp">${rowInner}</summary>
+          <div class="dash-catl-sub">${subRows}</div>
+        </details>`;
+      }
+      return `<div class="dash-catl-row">${rowInner}</div>`;
+    }).join('');
   }
 
   function trendChart(ledger) {

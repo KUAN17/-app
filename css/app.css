@@ -277,6 +277,16 @@ html, body {
 .dash-catl-name { flex: 1; font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dash-catl-pct { font-size: 12px; color: var(--text-muted); width: 36px; text-align: right; flex-shrink: 0; }
 .dash-catl-amt { font-size: 13px; font-weight: 600; color: var(--text); width: 72px; text-align: right; flex-shrink: 0; }
+.dash-catl-details { border-bottom: 1px solid var(--border); }
+.dash-catl-details:last-child { border-bottom: none; }
+.dash-catl-details > summary { border-bottom: none; cursor: pointer; list-style: none; }
+.dash-catl-details > summary::-webkit-details-marker { display: none; }
+.dash-catl-exp .dash-catl-name::after { content: ' ▸'; color: var(--text-muted); font-size: 11px; }
+.dash-catl-details[open] .dash-catl-exp .dash-catl-name::after { content: ' ▾'; }
+.dash-catl-sub { padding: 2px 0 8px 18px; }
+.dash-catl-sub-row { display: flex; align-items: center; gap: 8px; padding: 5px 0; }
+.dash-catl-sub-row .dash-catl-name { font-size: 12px; color: var(--text-muted); }
+.dash-catl-sub-row .dash-catl-amt { font-size: 12px; font-weight: 500; }
 
 /* dash 2 欄小卡（分析版底部） */
 .dash-mini-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
