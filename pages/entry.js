@@ -260,6 +260,7 @@ Router.register('entry', (() => {
       _sh.accountIn = (opts.accountIn && inNames.includes(opts.accountIn)) ? opts.accountIn : lastAcct(roleIn);
       _sh.project = '';
       _sh.category = opts.category || '';
+      if (opts.memo) _sh.memo = opts.memo;
     }
 
     _sheetEl = document.createElement('div');
@@ -522,23 +523,24 @@ Router.register('entry', (() => {
     const amount = parseFloat(_sh.amount);
     if (!amount || amount <= 0) return Utils.toast('請輸入有效金額', 'warn');
     const memo = (_sh.memo || '').trim();
+    const memoCell = Utils.sheetText(memo); // 寫入試算表用，保留前導零
     const date = _date.replace(/-/g, '/');
     let row, extra = null, usedRole, usedAcct;
 
     if (_sh.kind === 'cat') {
       if (!_sh.account) return Utils.toast('請選擇帳戶', 'warn');
-      row = [Utils.uid(), _sh.role, '日常', '', '支出', _sh.category, memo, date, amount, _sh.account, '', '', _sh.payRole || '', _sh.payAccount || ''];
+      row = [Utils.uid(), _sh.role, '日常', '', '支出', _sh.category, memoCell, date, amount, _sh.account, '', '', _sh.payRole || '', _sh.payAccount || ''];
       usedRole = _sh.role; usedAcct = _sh.account;
       extra = buildPayExtra(_sh, date, amount);
     } else if (_sh.kind === 'income') {
       if (!_sh.category) return Utils.toast('請選擇收入分類', 'warn');
       if (!_sh.account)  return Utils.toast('請選擇帳戶', 'warn');
-      row = [Utils.uid(), _sh.role, '', '', '收入', _sh.category, memo, date, amount, _sh.account, '', '', '', ''];
+      row = [Utils.uid(), _sh.role, '', '', '收入', _sh.category, memoCell, date, amount, _sh.account, '', '', '', ''];
       usedRole = _sh.role; usedAcct = _sh.account;
     } else if (_sh.kind === 'proj') {
       if (!_sh.project) return Utils.toast('請選擇專案', 'warn');
       if (!_sh.account) return Utils.toast('請選擇帳戶', 'warn');
-      row = [Utils.uid(), _sh.role, '專案', _sh.project, '支出', (_sh.projCat || '').trim(), memo, date, amount,
+      row = [Utils.uid(), _sh.role, '專案', _sh.project, '支出', (_sh.projCat || '').trim(), memoCell, date, amount,
              _sh.account, '', '', _sh.payRole || '', _sh.payAccount || ''];
       usedRole = _sh.role; usedAcct = _sh.account;
       extra = buildPayExtra(_sh, date, amount);
@@ -546,7 +548,7 @@ Router.register('entry', (() => {
       if (!_sh.accountOut) return Utils.toast('請選擇轉出帳戶', 'warn');
       if (!_sh.accountIn)  return Utils.toast('請選擇轉入帳戶', 'warn');
       const isProj = !!_sh.project;
-      row = [Utils.uid(), _sh.roleOut, isProj ? '專案' : '日常', _sh.project || '', '轉帳', _sh.category || '', memo, date, amount,
+      row = [Utils.uid(), _sh.roleOut, isProj ? '專案' : '日常', _sh.project || '', '轉帳', _sh.category || '', memoCell, date, amount,
              _sh.accountOut, _sh.roleIn, _sh.accountIn, '', ''];
       usedRole = _sh.roleOut; usedAcct = _sh.accountOut;
     }

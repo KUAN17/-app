@@ -214,11 +214,12 @@ Router.register('ledger', (() => {
 
     if (!date) return Utils.toast('請選擇日期', 'warn');
     if (!amount || amount <= 0) return Utils.toast('請輸入有效金額', 'warn');
-    if (!category) return Utils.toast('請選擇分類', 'warn');
+    // 專案支出分類為自由輸入、可留空，不強制必填；其他類型仍需分類
+    if (!category && tx.dimension !== '專案') return Utils.toast('請選擇分類', 'warn');
 
     const row = [
       tx.id, tx.roleOut, tx.dimension, tx.projectTag,
-      tx.type, category, memo, date, amount, accountOut,
+      tx.type, category, Utils.sheetText(memo), date, amount, accountOut,
       roleIn, accountIn
     ];
 

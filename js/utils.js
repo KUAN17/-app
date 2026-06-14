@@ -32,6 +32,13 @@ window.Utils = {
     return parseFloat(String(str).replace(/[,$]/g, '')) || 0;
   },
 
+  // 防止 Google Sheets（USER_ENTERED）把純數字字串當數字解析而吃掉前導零
+  // 例：備忘「00878」會被存成 878；加上 ' 前綴強制視為文字（讀回時前綴不會帶出來）
+  sheetText(text) {
+    const t = String(text ?? '');
+    return /^\d/.test(t) && String(Number(t)) !== t ? `'${t}` : t;
+  },
+
   monthStart(date) {
     const d = date ? new Date(date) : new Date();
     return new Date(d.getFullYear(), d.getMonth(), 1);
