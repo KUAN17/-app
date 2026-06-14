@@ -49,12 +49,17 @@ Router.register('entry', (() => {
     const map = { '現金': '💵', '銀行': '🏦', '信用卡': '💳', '證券帳戶': '📊' };
     return map[type] || '🏦';
   }
-  function getPaymentInfo(cardName) {
+  // 代付補款的轉入目標：信用卡 → 綁定的扣款帳戶；現金/活存等 → 代付帳戶本身
+  function getPaymentInfo(payRole, payName, payType) {
     const all = Store.allAccountsFlat();
-    const card = all.find(a => a.name === cardName);
-    if (!card?.paymentAccount) return null;
-    const owner = all.find(a => a.name === card.paymentAccount);
-    return { account: card.paymentAccount, role: owner?.role || '' };
+    const acct = all.find(a => a.role === payRole && a.name === payName && (!payType || a.type === payType));
+    if (!acct) return null;
+    if (acct.type === '信用卡') {
+      if (!acct.paymentAccount) return null; // 信用卡未綁定扣款帳戶，無法判斷補款去向
+      const owner = all.find(a => a.name === acct.paymentAccount);
+      return { account: acct.paymentAccount, role: owner?.role || payRole };
+    }
+    return { account: payName, role: payRole };
   }
   function getProjectCatSuggestions() {
     return [...new Set(
@@ -194,11 +199,11 @@ Router.register('entry', (() => {
       .filter(a => a.type !== '證券帳戶' && a.name !== sh.account)
       .sort((a, b) => (a.type === '信用卡' ? -1 : 0) - (b.type === '信用卡' ? -1 : 0))
       .map(a => {
-        const v = `${a.role}||${a.name}`;
-        const cur = sh.payRole === a.role && sh.payAccount === a.name;
+        const v = `${a.role}||${a.name}||${a.type}`;
+        const cur = sh.payRole === a.role && sh.payAccount === a.name && sh.payType === a.type;
         return `<option value="${v.replace(/"/g, '&quot;')}"${cur ? ' selected' : ''}>${acctIcon(a.type)} ${a.role}／${a.name}</option>`;
       }).join('');
-    const payInfo = sh.payAccount ? getPaymentInfo(sh.payAccount) : null;
+    const payInfo = sh.payAccount ? getPaymentInfo(sh.payRole, sh.payAccount, sh.payType) : null;
     const canAuto = !!payInfo && sh.role !== sh.payRole && nonCCAccts.length > 0;
     const tfOpts = nonCCAccts
       .map(a => `<option value="${a.name.replace(/"/g, '&quot;')}"${sh.transferFrom === a.name ? ' selected' : ''}>${a.name}</option>`).join('');
@@ -222,7 +227,7 @@ Router.register('entry', (() => {
 
   function buildPayExtra(sh, date, amount) {
     if (!sh.autoTransfer || !sh.payAccount) return null;
-    const pi = getPaymentInfo(sh.payAccount);
+    const pi = getPaymentInfo(sh.payRole, sh.payAccount, sh.payType);
     if (!pi || !sh.transferFrom) return null;
     return [Utils.uid(), sh.role, '日常', '', '轉帳', CFG.CAT_REPAYMENT, `補款／${sh.payAccount}`,
             date, amount, sh.transferFrom, pi.role, pi.account, '', ''];
@@ -234,7 +239,7 @@ Router.register('entry', (() => {
     if (kind === 'cat') {
       _sh.category = opts.category;
       _sh.role = _role; _sh.account = lastAcct(_role);
-      _sh.payRole = ''; _sh.payAccount = '';
+      _sh.payRole = ''; _sh.payAccount = ''; _sh.payType = '';
       _sh.autoTransfer = false; _sh.transferFrom = '';
     } else if (kind === 'income') {
       _sh.category = '';
@@ -242,7 +247,7 @@ Router.register('entry', (() => {
     } else if (kind === 'proj') {
       _sh.role = _role; _sh.account = lastAcct(_role);
       _sh.project = ''; _sh.projCat = ''; _sh.locked = false;
-      _sh.payRole = ''; _sh.payAccount = '';
+      _sh.payRole = ''; _sh.payAccount = ''; _sh.payType = '';
       _sh.autoTransfer = false; _sh.transferFrom = '';
     } else if (kind === 'transfer') {
       const prefillRoleOut = opts.roleOut && CFG.ROLES.includes(opts.roleOut) ? opts.roleOut : _role;
@@ -463,12 +468,12 @@ Router.register('entry', (() => {
     _sheetEl.querySelector('#sel-sheet-pay')?.addEventListener('change', e => {
       const val = e.target.value;
       if (!val) {
-        _sh.payRole = ''; _sh.payAccount = '';
+        _sh.payRole = ''; _sh.payAccount = ''; _sh.payType = '';
         _sh.autoTransfer = false; _sh.transferFrom = '';
       } else {
-        const [r, n] = val.split('||');
-        _sh.payRole = r; _sh.payAccount = n;
-        const pi = getPaymentInfo(n);
+        const [r, n, t] = val.split('||');
+        _sh.payRole = r; _sh.payAccount = n; _sh.payType = t;
+        const pi = getPaymentInfo(r, n, t);
         if (pi && _sh.role !== r) {
           _sh.autoTransfer = true;
           _sh.transferFrom = (acctsForRole(_sh.role).filter(a => a.type !== '信用卡')[0] || {}).name || '';
