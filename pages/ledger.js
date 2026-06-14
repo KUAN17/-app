@@ -123,9 +123,11 @@ Router.register('ledger', (() => {
   function showEditModal(tx) {
     const isTransfer = tx.type === '轉帳' || tx.type === '公積金提撥';
     const cats = CFG.CATEGORIES[tx.type] || [];
+    // 自訂分類（如專案支出的自由輸入）不在預設清單時，補進選項並選中，避免被預設成第一項
+    const catList = tx.category && !cats.includes(tx.category) ? [tx.category, ...cats] : cats;
     const acctOuts = Store.accountsForRole(tx.roleOut);
 
-    const catOptions = cats.map(c =>
+    const catOptions = catList.map(c =>
       `<option value="${c}"${c === tx.category ? ' selected' : ''}>${c}</option>`
     ).join('');
     const acctOutOptions = acctOuts.map(a =>
