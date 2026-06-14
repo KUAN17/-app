@@ -122,13 +122,15 @@ Router.register('ledger', (() => {
 
   function showEditModal(tx) {
     const isTransfer = tx.type === '轉帳' || tx.type === '公積金提撥';
+    const isProject = tx.dimension === '專案';
     const cats = CFG.CATEGORIES[tx.type] || [];
-    // 自訂分類（如專案支出的自由輸入）不在預設清單時，補進選項並選中，避免被預設成第一項
-    const catList = tx.category && !cats.includes(tx.category) ? [tx.category, ...cats] : cats;
+    // 專案支出有空白選項（分類非必填）；自訂分類不在清單也補進
+    const catList = isProject ? ['', ...cats] : cats;
+    if (tx.category && !catList.includes(tx.category)) catList.unshift(tx.category);
     const acctOuts = Store.accountsForRole(tx.roleOut);
 
     const catOptions = catList.map(c =>
-      `<option value="${c}"${c === tx.category ? ' selected' : ''}>${c}</option>`
+      `<option value="${c}"${c === tx.category ? ' selected' : ''}>${c || '（不選分類）'}</option>`
     ).join('');
     const acctOutOptions = acctOuts.map(a =>
       `<option value="${a.replace(/"/g,'&quot;')}"${a === tx.accountOut ? ' selected' : ''}>${a}</option>`
