@@ -1,8 +1,10 @@
 // Cloudflare Worker — 台股報價 Proxy
 // 使用 Yahoo Finance v8/finance/chart 逐支查詢（無需 crumb / 登入）
 //
-// 用法：?symbols=2330,00878,2317   （純數字代號，逗號分隔）
+// 用法：?symbols=2330,00878,00933B   （純數字代號，逗號分隔）
 // 回傳：{"2330":980.0,"00878":21.5,...}
+//
+// 上市股票後綴 .TW，上櫃股票後綴 .TWO，自動嘗試兩者
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -17,13 +19,20 @@ const YF_HEADERS = {
   'Referer': 'https://finance.yahoo.com/',
 };
 
-async function fetchOne(code) {
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${code}.TW?interval=1d&range=1d`;
+async function fetchPrice(suffix, code) {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${code}.${suffix}?interval=1d&range=1d`;
   const res = await fetch(url, { headers: YF_HEADERS });
-  if (!res.ok) throw new Error(`${code} ${res.status}`);
+  if (!res.ok) return null;
   const data = await res.json();
   const price = data?.chart?.result?.[0]?.meta?.regularMarketPrice;
   return price > 0 ? price : null;
+}
+
+async function fetchOne(code) {
+  // 先試上市（.TW），取不到再試上櫃（.TWO）
+  const price = await fetchPrice('TW', code);
+  if (price !== null) return price;
+  return fetchPrice('TWO', code);
 }
 
 export default {
