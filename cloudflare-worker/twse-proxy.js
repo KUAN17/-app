@@ -1,15 +1,30 @@
-// Cloudflare Worker — 台股報價 Proxy（Yahoo Finance）
-// 改用 Yahoo Finance API，無地區限制，支援批次查詢
+// Cloudflare Worker — 台股報價 Proxy
+// 使用 Yahoo Finance v8/finance/chart 逐支查詢（無需 crumb / 登入）
 //
-// 用法：
-//   ?symbols=2330.TW,00878.TW,2317.TW
-//   回傳 { "2330": 980.0, "00878": 21.5, ... }（純數字代號 → 收盤價）
+// 用法：?symbols=2330,00878,2317   （純數字代號，逗號分隔）
+// 回傳：{"2330":980.0,"00878":21.5,...}
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, OPTIONS',
   'Access-Control-Max-Age': '86400',
 };
+
+const YF_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  'Accept': 'application/json',
+  'Accept-Language': 'zh-TW,zh;q=0.9,en;q=0.8',
+  'Referer': 'https://finance.yahoo.com/',
+};
+
+async function fetchOne(code) {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${code}.TW?interval=1d&range=1d`;
+  const res = await fetch(url, { headers: YF_HEADERS });
+  if (!res.ok) throw new Error(`${code} ${res.status}`);
+  const data = await res.json();
+  const price = data?.chart?.result?.[0]?.meta?.regularMarketPrice;
+  return price > 0 ? price : null;
+}
 
 export default {
   async fetch(request) {
@@ -18,41 +33,26 @@ export default {
     }
 
     const { searchParams } = new URL(request.url);
-    const symbols = searchParams.get('symbols'); // e.g. "2330.TW,00878.TW"
-
-    if (!symbols) {
+    const symbolsParam = searchParams.get('symbols');
+    if (!symbolsParam) {
       return new Response(JSON.stringify({ error: 'missing symbols' }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json', ...CORS },
+        status: 400, headers: { 'Content-Type': 'application/json', ...CORS },
       });
     }
 
-    const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(symbols)}&fields=regularMarketPrice,symbol`;
+    const codes = symbolsParam.split(',').map(s => s.trim()).filter(Boolean);
 
-    const upstream = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Accept': 'application/json',
-      },
-      cf: { cacheTtl: 900, cacheEverything: true }, // edge cache 15 分鐘
-    });
+    // 並行查詢所有股票
+    const results = await Promise.allSettled(codes.map(async code => {
+      const price = await fetchOne(code);
+      return { code, price };
+    }));
 
-    if (!upstream.ok) {
-      return new Response(JSON.stringify({ error: `upstream ${upstream.status}` }), {
-        status: upstream.status,
-        headers: { 'Content-Type': 'application/json', ...CORS },
-      });
-    }
-
-    const data = await upstream.json();
-    const quotes = data?.quoteResponse?.result || [];
-
-    // 轉換成 { "2330": 980.0, "00878": 21.5 } 格式
     const prices = {};
-    quotes.forEach(q => {
-      // Yahoo symbol 格式 "2330.TW" → 取 "2330"
-      const code = (q.symbol || '').replace(/\.TW$/i, '');
-      if (code && q.regularMarketPrice) prices[code] = q.regularMarketPrice;
+    results.forEach(r => {
+      if (r.status === 'fulfilled' && r.value.price) {
+        prices[r.value.code] = r.value.price;
+      }
     });
 
     return new Response(JSON.stringify(prices), {

@@ -530,8 +530,8 @@ Router.register('investments', (() => {
     }
 
     // ticker 格式是 "TPE:2330"，Yahoo Finance 需要 "2330.TW"
-    const toYahoo = t => t.replace(/^TPE:/i, '') + '.TW';
-    const yahooSymbols = uniqueTickers.map(toYahoo).join(',');
+    // Worker 接受純代號（不含 .TW），內部自行加 .TW 查 Yahoo Finance
+    const yahooSymbols = uniqueTickers.map(t => t.replace(/^TPE:/i, '')).join(',');
 
     const priceMap = {}; // { 'TPE:2330': 980 }
     try {
