@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.6.2] - 2026-06-15
+
+### 修正
+- **台股報價無法取得（TWSE / TPEX 改為 403）**：TWSE 與 TPEX Open API 加了來源限制，直接從瀏覽器 fetch 回 403 Forbidden。改透過 Cloudflare Worker Proxy 轉發請求（帶正確 Referer / User-Agent），瀏覽器只與 Worker 通訊不跨域
+- 新增 `cloudflare-worker/twse-proxy.js`，支援 `?target=twse` 與 `?target=tpex`，Worker Edge Cache 1 小時
+- `CFG.QUOTE_PROXY` 集中管理 Proxy URL；`investments.js` fetch 改指向 Proxy
+
+### 注意
+- 需先部署 `cloudflare-worker/twse-proxy.js` 並將 `js/config.js` 的 `QUOTE_PROXY` 改為實際 Worker URL 才會生效（見 Worker 檔案內說明）
+
 ## [1.6.1] - 2026-06-14
 
 ### 新增

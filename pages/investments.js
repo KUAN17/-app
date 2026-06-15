@@ -547,9 +547,10 @@ Router.register('investments', (() => {
     //   1. STOCK_DAY_ALL → 所有上市股票＋ETF 每日收盤行情（欄位：Code, ClosingPrice）
     //   2. tpex PE       → 上櫃股票每日收盤行情（欄位：SecuritiesCompanyCode, ClosingPrice）
     try {
+      const proxy = CFG.QUOTE_PROXY;
       const [twseRes, tpexRes] = await Promise.allSettled([
-        fetch('https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL').then(r => r.json()),
-        fetch('https://www.tpex.org.tw/openapi/v1/tpex_mainboard_peratio_analysis').then(r => r.json())
+        fetch(`${proxy}?target=twse`).then(r => r.json()),
+        fetch(`${proxy}?target=tpex`).then(r => r.json())
       ]);
 
       if (twseRes.status === 'fulfilled' && Array.isArray(twseRes.value)) {
