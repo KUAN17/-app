@@ -559,14 +559,14 @@ Router.register('investments', (() => {
     // 更新記憶體
     _lots.forEach(l => { if (priceMap[l.ticker]) l.price = priceMap[l.ticker]; });
 
-    // 寫回 Investments!H 欄，列數依實際持倉動態決定
+    // 寫回 Investments!H 欄：依每筆持倉的股票代號回寫對應報價
     try {
       const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID) || CFG.SHEET_ID;
-      const priceRows = activeLots.map(l => {
+      const priceRows = _lots.map(l => {
         const p = priceMap[l.ticker] || l.price || 0;
         return [p ? parseFloat(p).toFixed(2) : ''];
       });
-      const lastRow = 1 + priceRows.length; // H2 開始，所以最後列 = 1 + 筆數
+      const lastRow = 1 + priceRows.length;
       await API.updateRange(sid, `Investments!H2:H${lastRow}`, priceRows);
 
       Store.invalidate();
