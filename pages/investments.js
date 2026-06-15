@@ -517,7 +517,7 @@ Router.register('investments', (() => {
     });
   }
 
-  // ── Price fetch via TWSE/TPEX Open API (no auth, CORS-friendly) ──────
+  // ── Price fetch via Cloudflare Worker → Yahoo Finance ─────────────────
   async function fetchPrices() {
     const btn = document.getElementById('btn-inv-refresh');
     if (btn) { btn.disabled = true; btn.textContent = '更新中…'; }
@@ -529,44 +529,18 @@ Router.register('investments', (() => {
       return;
     }
 
-    // 從回應物件中取收盤價（各 API 欄位名稱不同，防禦性讀取）
-    // STOCK_DAY_ALL / TPEX → ClosingPrice（英文）；MI_ETFCH_CLSPRC → 收盤價（中文）
-    function px(obj) {
-      const v = obj['ClosingPrice'] || obj['收盤價'] || obj['收盤'] || obj['Close'] || '';
-      return parseFloat(v) || 0;
-    }
-    function cd(obj) {
-      return (obj['Code'] || obj['證券代號'] || obj['SecuritiesCompanyCode'] ||
-              obj['代號'] || obj['公司代號'] || '').trim();
-    }
+    // ticker 格式是 "TPE:2330"，Yahoo Finance 需要 "2330.TW"
+    const toYahoo = t => t.replace(/^TPE:/i, '') + '.TW';
+    const yahooSymbols = uniqueTickers.map(toYahoo).join(',');
 
-    const priceMap = {};
-    let fetchError = null;
-
-    // 兩支 Open API 並行抓取（免認證、瀏覽器可 CORS）：
-    //   1. STOCK_DAY_ALL → 所有上市股票＋ETF 每日收盤行情（欄位：Code, ClosingPrice）
-    //   2. tpex PE       → 上櫃股票每日收盤行情（欄位：SecuritiesCompanyCode, ClosingPrice）
+    const priceMap = {}; // { 'TPE:2330': 980 }
     try {
-      const proxy = CFG.QUOTE_PROXY;
-      const [twseRes, tpexRes] = await Promise.allSettled([
-        fetch(`${proxy}?target=twse`).then(r => r.json()),
-        fetch(`${proxy}?target=tpex`).then(r => r.json())
-      ]);
-
-      if (twseRes.status === 'fulfilled' && Array.isArray(twseRes.value)) {
-        twseRes.value.forEach(s => {
-          const code = cd(s), price = px(s);
-          if (code && price > 0) priceMap['TPE:' + code] = price;
-        });
-      } else if (twseRes.status === 'rejected') {
-        fetchError = twseRes.reason;
-      }
-      if (tpexRes.status === 'fulfilled' && Array.isArray(tpexRes.value)) {
-        tpexRes.value.forEach(s => {
-          const code = cd(s), price = px(s);
-          if (code && price > 0) priceMap['TPE:' + code] = price;
-        });
-      }
+      const res = await fetch(`${CFG.QUOTE_PROXY}?symbols=${encodeURIComponent(yahooSymbols)}`);
+      if (!res.ok) throw new Error(`proxy ${res.status}`);
+      const data = await res.json(); // { "2330": 980.0, "00878": 21.5 }
+      Object.entries(data).forEach(([code, price]) => {
+        if (price > 0) priceMap['TPE:' + code] = price;
+      });
     } catch (err) {
       Utils.toast('取得報價失敗：' + err.message, 'error');
       if (btn) { btn.disabled = false; btn.textContent = '更新報價'; }
@@ -576,7 +550,7 @@ Router.register('investments', (() => {
     // 若取不到任何報價（非交易日或 API 無資料），保留現有報價並提示
     if (!Object.keys(priceMap).length) {
       const dow = new Date().getDay();
-      const reason = (dow === 0 || dow === 6) ? '今日為假日' : (fetchError ? fetchError.message : 'API 無資料');
+      const reason = (dow === 0 || dow === 6) ? '今日為假日' : 'API 無資料（可能為休市）';
       Utils.toast(`無法取得報價（${reason}），顯示上次記錄`, 'warn');
       if (btn) { btn.disabled = false; btn.textContent = '更新報價'; }
       return;

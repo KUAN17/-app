@@ -1,15 +1,9 @@
-// Cloudflare Worker — 台股報價 Proxy
-// 部署方式：
-//   1. 登入 https://dash.cloudflare.com → Workers & Pages → Create Worker
-//   2. 貼上此程式碼，Worker 名稱建議 twse-proxy
-//   3. 部署後把 js/config.js 的 QUOTE_PROXY 改成你的 Worker URL
+// Cloudflare Worker — 台股報價 Proxy（Yahoo Finance）
+// 改用 Yahoo Finance API，無地區限制，支援批次查詢
 //
-// 支援 ?target=twse（上市）和 ?target=tpex（上櫃）
-
-const ENDPOINTS = {
-  twse: 'https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL',
-  tpex: 'https://www.tpex.org.tw/openapi/v1/tpex_mainboard_peratio_analysis',
-};
+// 用法：
+//   ?symbols=2330.TW,00878.TW,2317.TW
+//   回傳 { "2330": 980.0, "00878": 21.5, ... }（純數字代號 → 收盤價）
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -19,37 +13,52 @@ const CORS = {
 
 export default {
   async fetch(request) {
-    // Preflight
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: CORS });
     }
 
     const { searchParams } = new URL(request.url);
-    const target = searchParams.get('target');
+    const symbols = searchParams.get('symbols'); // e.g. "2330.TW,00878.TW"
 
-    if (!ENDPOINTS[target]) {
-      return new Response(JSON.stringify({ error: 'invalid target' }), {
+    if (!symbols) {
+      return new Response(JSON.stringify({ error: 'missing symbols' }), {
         status: 400,
         headers: { 'Content-Type': 'application/json', ...CORS },
       });
     }
 
-    const upstream = await fetch(ENDPOINTS[target], {
+    const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(symbols)}&fields=regularMarketPrice,symbol`;
+
+    const upstream = await fetch(url, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        'Referer': 'https://www.twse.com.tw/',
-        'Accept': 'application/json, text/plain, */*',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'application/json',
       },
-      cf: { cacheTtl: 3600, cacheEverything: true }, // Cloudflare edge cache 1 小時
+      cf: { cacheTtl: 900, cacheEverything: true }, // edge cache 15 分鐘
     });
 
-    const body = await upstream.text();
+    if (!upstream.ok) {
+      return new Response(JSON.stringify({ error: `upstream ${upstream.status}` }), {
+        status: upstream.status,
+        headers: { 'Content-Type': 'application/json', ...CORS },
+      });
+    }
 
-    return new Response(body, {
-      status: upstream.status,
+    const data = await upstream.json();
+    const quotes = data?.quoteResponse?.result || [];
+
+    // 轉換成 { "2330": 980.0, "00878": 21.5 } 格式
+    const prices = {};
+    quotes.forEach(q => {
+      // Yahoo symbol 格式 "2330.TW" → 取 "2330"
+      const code = (q.symbol || '').replace(/\.TW$/i, '');
+      if (code && q.regularMarketPrice) prices[code] = q.regularMarketPrice;
+    });
+
+    return new Response(JSON.stringify(prices), {
       headers: {
         'Content-Type': 'application/json; charset=utf-8',
-        'Cache-Control': 'public, max-age=3600',
+        'Cache-Control': 'public, max-age=900',
         ...CORS,
       },
     });
