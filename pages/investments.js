@@ -559,15 +559,15 @@ Router.register('investments', (() => {
     // 更新記憶體
     _lots.forEach(l => { if (priceMap[l.ticker]) l.price = priceMap[l.ticker]; });
 
-    // 寫回 Investments!H2:H51
+    // 寫回 Investments!H 欄，列數依實際持倉動態決定
     try {
       const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID) || CFG.SHEET_ID;
       const priceRows = activeLots.map(l => {
         const p = priceMap[l.ticker] || l.price || 0;
         return [p ? parseFloat(p).toFixed(2) : ''];
       });
-      while (priceRows.length < 50) priceRows.push(['']);
-      await API.updateRange(sid, 'Investments!H2:H51', priceRows);
+      const lastRow = 1 + priceRows.length; // H2 開始，所以最後列 = 1 + 筆數
+      await API.updateRange(sid, `Investments!H2:H${lastRow}`, priceRows);
 
       Store.invalidate();
       await Store.load(true);
@@ -591,11 +591,10 @@ Router.register('investments', (() => {
   async function saveLots() {
     const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID) || CFG.SHEET_ID;
     const rows = _lots.filter(l => !l._deleted).map(l => [l.role, l.account, l.ticker, l.name, l.shares, l.avgCost]);
-    const padded = [...rows];
-    while (padded.length < 50) padded.push(['', '', '', '', '', '']);
     Utils.showLoading(true);
     try {
-      await API.updateRange(sid, 'Investments!A2:F51', padded);
+      const lastRow = 1 + rows.length;
+      await API.updateRange(sid, `Investments!A2:F${lastRow}`, rows);
       Store.invalidate();
       await Store.load(true);
       buildState();
