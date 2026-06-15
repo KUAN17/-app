@@ -44,8 +44,7 @@ window.CFG = {
   CAT_REPAYMENT: '代付補款',
 
   // 台股報價 Proxy（Cloudflare Worker）
-  // 部署後將此值改為你的 Worker URL，例如 'https://twse-proxy.yourname.workers.dev'
-  QUOTE_PROXY: 'https://twse-proxy.kuan17.workers.dev',
+  QUOTE_PROXY: 'https://twse-proxy.leo30331.workers.dev',
 
   CACHE_TTL: 5 * 60 * 1000
 };
