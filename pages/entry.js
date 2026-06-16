@@ -360,7 +360,11 @@ Router.register('entry', (() => {
       <div class="entry-sheet-handle"></div>
       <div class="entry-sheet-head">
         <span>${sheetTitle()}</span>
-        <span class="entry-sheet-date">📅 ${dateLabel}</span>
+        <label class="entry-sheet-date" style="cursor:pointer;position:relative;-webkit-tap-highlight-color:transparent">
+          <span style="pointer-events:none">📅 ${dateLabel}</span>
+          <input type="date" id="inp-sheet-date" value="${_date}"
+                 style="position:absolute;inset:0;opacity:0;width:100%;height:100%;cursor:pointer;border:none;background:none;font-size:16px">
+        </label>
         <button type="button" class="entry-sheet-close" data-action="close">✕</button>
       </div>
       <div class="entry-sheet-amt${_sh.amount ? '' : ' zero'}" id="sheet-amt">$ ${amtDisplay}</div>
@@ -450,6 +454,16 @@ Router.register('entry', (() => {
     }
 
     // 以下 child element listeners 每次 renderSheet() 都重新綁（舊元素已被 innerHTML 取代，無重複問題）
+    _sheetEl.querySelector('#inp-sheet-date')?.addEventListener('change', e => {
+      if (!e.target.value) return;
+      _date = e.target.value;
+      renderSheet();
+      // 同步更新主畫面日期標籤
+      const mainLabel = Utils.el('date-label');
+      if (mainLabel) mainLabel.textContent = _date === todayISO() ? '今天' : _date.replace(/-/g, '/');
+      const mainInp = Utils.el('inp-date');
+      if (mainInp) mainInp.value = _date;
+    });
     _sheetEl.querySelector('#inp-sheet-memo')?.addEventListener('input', e => { _sh.memo = e.target.value; });
     _sheetEl.querySelector('#sel-sheet-acct')?.addEventListener('change', e => { _sh.account = e.target.value; });
 
