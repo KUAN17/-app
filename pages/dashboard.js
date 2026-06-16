@@ -216,19 +216,21 @@ Router.register('dashboard', (() => {
       </div>`;
   }
 
-  // 計算各帳戶「已承諾撥款」與「實際餘額」的差距
-  function overcommitWarnings(ledger, balances) {
+  // 計算各帳戶「進行中專案剩餘預算合計」與「實際餘額」的差距
+  function overcommitWarnings(projects, balances) {
     const committed = {};
-    ledger.forEach(tx => {
-      if (tx.type !== '轉帳' || tx.dimension !== '專案') return;
-      const key = `${tx.roleOut}||${tx.accountOut}`;
-      committed[key] = (committed[key] || 0) + tx.amount;
+    projects.filter(p => p.status === '進行中' && p.ownerRole && p.defaultAccount).forEach(p => {
+      const key = `${p.ownerRole}||${p.defaultAccount}`;
+      const remaining = Math.max(0, p.budget - p.spent);
+      if (!committed[key]) committed[key] = { total: 0, items: [] };
+      committed[key].total += remaining;
+      committed[key].items.push({ name: p.name, remaining });
     });
     const warnings = {};
-    Object.entries(committed).forEach(([key, total]) => {
+    Object.entries(committed).forEach(([key, { total, items }]) => {
       const [role, name] = key.split('||');
       const bal = (balances[role] || {})[name] || 0;
-      if (bal < total) warnings[key] = { committed: total, shortage: total - bal };
+      if (bal < total) warnings[key] = { committed: total, shortage: total - bal, items };
     });
     return warnings;
   }
@@ -247,7 +249,7 @@ Router.register('dashboard', (() => {
           return `<div class="dash-acct-row">
             <span class="dash-acct-name">${a.name}</span>
             <span class="dash-acct-bal ${bal < 0 ? 'amount-out' : ''}">${Utils.formatMoney(bal)}</span>
-          </div>${warn ? `<div class="dash-overcommit-warn">⚠ 承諾撥款 ${Utils.formatMoney(warn.committed)}，餘額不足，缺口 ${Utils.formatMoney(warn.shortage)}</div>` : ''}`;
+          </div>${warn ? `<div class="dash-overcommit-warn">⚠ 專案剩餘預算 ${Utils.formatMoney(warn.committed)}（${warn.items.map(i => i.name).join('、')}），餘額不足，缺口 ${Utils.formatMoney(warn.shortage)}</div>` : ''}`;
         }).join('')}
       </div>`;
     });
@@ -458,7 +460,7 @@ Router.register('dashboard', (() => {
     const el = Utils.el('page-content');
     const { ledger, projects, investments, accounts } = Store.get();
     const balances = Store.calcAllBalances(); // 一次掃描算出所有帳戶餘額，本次渲染共用
-    const warnings = overcommitWarnings(ledger, balances);
+    const warnings = overcommitWarnings(projects, balances);
 
     const main = _ver === 'v1'
       ? buildV1(ledger, accounts, investments, balances)
