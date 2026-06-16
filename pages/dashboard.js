@@ -216,7 +216,24 @@ Router.register('dashboard', (() => {
       </div>`;
   }
 
-  function acctCollapse(accounts, balances) {
+  // 計算各帳戶「已承諾撥款」與「實際餘額」的差距
+  function overcommitWarnings(ledger, balances) {
+    const committed = {};
+    ledger.forEach(tx => {
+      if (tx.type !== '轉帳' || tx.dimension !== '專案') return;
+      const key = `${tx.roleOut}||${tx.accountOut}`;
+      committed[key] = (committed[key] || 0) + tx.amount;
+    });
+    const warnings = {};
+    Object.entries(committed).forEach(([key, total]) => {
+      const [role, name] = key.split('||');
+      const bal = (balances[role] || {})[name] || 0;
+      if (bal < total) warnings[key] = { committed: total, shortage: total - bal };
+    });
+    return warnings;
+  }
+
+  function acctCollapse(accounts, balances, warnings) {
     const roles = scopeRoles();
     let inner = '';
     roles.forEach(role => {
@@ -226,10 +243,11 @@ Router.register('dashboard', (() => {
       inner += `<div class="card dash-acct-card">
         ${accts.map(a => {
           const bal = (balances[role] || {})[a.name] || 0;
+          const warn = (warnings || {})[`${role}||${a.name}`];
           return `<div class="dash-acct-row">
             <span class="dash-acct-name">${a.name}</span>
             <span class="dash-acct-bal ${bal < 0 ? 'amount-out' : ''}">${Utils.formatMoney(bal)}</span>
-          </div>`;
+          </div>${warn ? `<div class="dash-overcommit-warn">⚠ 承諾撥款 ${Utils.formatMoney(warn.committed)}，餘額不足，缺口 ${Utils.formatMoney(warn.shortage)}</div>` : ''}`;
         }).join('')}
       </div>`;
     });
@@ -440,6 +458,7 @@ Router.register('dashboard', (() => {
     const el = Utils.el('page-content');
     const { ledger, projects, investments, accounts } = Store.get();
     const balances = Store.calcAllBalances(); // 一次掃描算出所有帳戶餘額，本次渲染共用
+    const warnings = overcommitWarnings(ledger, balances);
 
     const main = _ver === 'v1'
       ? buildV1(ledger, accounts, investments, balances)
@@ -449,7 +468,7 @@ Router.register('dashboard', (() => {
       ${topRow()}
       ${navRow()}
       ${main}
-      ${acctCollapse(accounts, balances)}
+      ${acctCollapse(accounts, balances, warnings)}
       ${payablesCollapse(ledger)}
       ${projCollapse(projects)}
       <div style="height:16px"></div>
