@@ -24,7 +24,12 @@ async function fetchPrice(suffix, code) {
   const res = await fetch(url, { headers: YF_HEADERS });
   if (!res.ok) return null;
   const data = await res.json();
-  const price = data?.chart?.result?.[0]?.meta?.regularMarketPrice;
+  // 優先取 indicators.quote[0].close 末尾值（官方收盤競價價格）
+  // 備用 meta.regularMarketPrice（即時最後成交，盤中準確但收盤可能有差）
+  const closes = data?.chart?.result?.[0]?.indicators?.quote?.[0]?.close;
+  const closePrice = closes?.length > 0 ? closes[closes.length - 1] : null;
+  const fallback = data?.chart?.result?.[0]?.meta?.regularMarketPrice;
+  const price = closePrice ?? fallback;
   return price > 0 ? price : null;
 }
 
