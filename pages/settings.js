@@ -565,6 +565,7 @@ Router.register('settings', (() => {
     ]);
   }
   inv.getRange(2,7,ivf.length,5).setFormulas(ivf);
+  inv.getRange('H2:H200').setNumberFormat('0.00');
   inv.getRange('K2:K51').setNumberFormat('0.00%');
 
   // Settings（使用者身份：Email ↔ 身份）

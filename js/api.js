@@ -24,7 +24,8 @@ window.API = (() => {
   }
 
   async function batchGet(sheetId, ranges) {
-    const qs = ranges.map(r => `ranges=${encodeURIComponent(r)}`).join('&');
+    const qs = ranges.map(r => `ranges=${encodeURIComponent(r)}`).join('&')
+      + '&valueRenderOption=UNFORMATTED_VALUE&dateTimeRenderOption=FORMATTED_STRING';
     const data = await req(`${base}/${sheetId}/values:batchGet?${qs}`);
     return (data.valueRanges || []).map(vr => vr.values || []);
   }
