@@ -26,6 +26,12 @@ Router.register('entry', (() => {
 
   // ── 小工具 ────────────────────────────────────────────────────────────────
   function todayISO() { return new Date().toISOString().slice(0, 10); }
+  function fmtAmtDisplay(raw) {
+    if (!raw) return '0';
+    const [int, dec] = raw.split('.');
+    const intFmt = Number(int || '0').toLocaleString();
+    return dec !== undefined ? `${intFmt}.${dec}` : intFmt;
+  }
   function memosForContext(sh) {
     const { ledger } = Store.get();
     const seen = new Set();
@@ -361,8 +367,8 @@ Router.register('entry', (() => {
           `<button type="button" class="sheet-chip${_sh.memo === m ? ' active' : ''}" data-action="memo-chip" data-val="${m.replace(/"/g, '&quot;')}">${m}</button>`
         ).join('')}</div>` : '';
 
-    const amtDisplay = _sh.amount || '0';
-    const submitLabel = _sh.amount ? `✓ 記帳 NT$ ${Number(_sh.amount).toLocaleString()}` : '✓ 記帳';
+    const amtDisplay = fmtAmtDisplay(_sh.amount);
+    const submitLabel = _sh.amount ? `✓ 記帳 NT$ ${fmtAmtDisplay(_sh.amount)}` : '✓ 記帳';
 
     _sheetEl.innerHTML = `<div class="entry-sheet${keepOpen ? ' open' : ''}">
       <div class="entry-sheet-handle"></div>
@@ -439,9 +445,9 @@ Router.register('entry', (() => {
           else cur = cur === '0' ? k : cur + k;
           _sh.amount = cur;
           const disp = _sheetEl.querySelector('#sheet-amt');
-          if (disp) { disp.textContent = `$ ${cur || '0'}`; disp.classList.toggle('zero', !cur); }
+          if (disp) { disp.textContent = `$ ${fmtAmtDisplay(cur)}`; disp.classList.toggle('zero', !cur); }
           const btn = _sheetEl.querySelector('#btn-sheet-submit');
-          if (btn) btn.textContent = cur ? `✓ 記帳 NT$ ${Number(cur).toLocaleString()}` : '✓ 記帳';
+          if (btn) btn.textContent = cur ? `✓ 記帳 NT$ ${fmtAmtDisplay(cur)}` : '✓ 記帳';
           return;
         }
 
