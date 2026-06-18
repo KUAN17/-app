@@ -6,7 +6,6 @@ Router.register('entry', (() => {
     '訂閱':'📺','信用卡費':'💳',
     '薪資收入':'💰','利息/股息':'📊','現金回饋':'🎁','其他':'💵'
   };
-  const LS_RECENT_MEMOS = 'ff_recent_memos';
   const LS_LAST_ROLE = 'ff_entry_role';
   const LS_LAST_ACCT = r => `ff_entry_acct_${r}`;
 
@@ -27,15 +26,24 @@ Router.register('entry', (() => {
 
   // ── 小工具 ────────────────────────────────────────────────────────────────
   function todayISO() { return new Date().toISOString().slice(0, 10); }
-  function getRecentMemos() {
-    try { return JSON.parse(localStorage.getItem(LS_RECENT_MEMOS) || '[]'); } catch { return []; }
-  }
-  function addRecentMemo(memo) {
-    if (!memo?.trim()) return;
-    const m = memo.trim();
-    const list = getRecentMemos().filter(x => x !== m);
-    list.unshift(m);
-    localStorage.setItem(LS_RECENT_MEMOS, JSON.stringify(list.slice(0, 8)));
+  function memosForContext(sh) {
+    const { ledger } = Store.get();
+    const seen = new Set();
+    const result = [];
+    for (let i = ledger.length - 1; i >= 0; i--) {
+      const tx = ledger[i];
+      if (!tx.memo?.trim()) continue;
+      let match = false;
+      if (sh.kind === 'transfer') match = tx.type === '轉帳';
+      else if (sh.kind === 'income') match = tx.type === '收入' && tx.category === sh.category;
+      else if (sh.kind === 'proj')   match = tx.dimension === '專案' && (!sh.category || tx.category === sh.category);
+      else                           match = tx.type === '支出' && tx.category === sh.category;
+      if (!match) continue;
+      const m = tx.memo.trim();
+      if (!seen.has(m)) { seen.add(m); result.push(m); }
+      if (result.length >= 8) break;
+    }
+    return result;
   }
   function acctsForRole(role) {
     return Store.allAccountsFlat().filter(a => a.role === role && a.type !== '證券帳戶');
@@ -293,7 +301,7 @@ Router.register('entry', (() => {
   function renderSheet(keepOpen = true) {
     if (!_sheetEl || !_sh) return;
     const dateLabel = _date === todayISO() ? '今天' : _date.replace(/-/g, '/');
-    const recentMemos = getRecentMemos();
+    const recentMemos = memosForContext(_sh);
 
     function acctSelect(id, role, current) {
       const opts = acctsForRole(role).map(a =>
@@ -578,7 +586,6 @@ Router.register('entry', (() => {
       if (extra) await API.append(sid, 'Ledger!A:O', extra);
       Store.invalidate();
       if (usedRole && usedAcct) localStorage.setItem(LS_LAST_ACCT(usedRole), usedAcct);
-      if (memo) addRecentMemo(memo);
       Utils.toast('記帳成功！', 'success');
       closeSheet();
       _date = todayISO();
