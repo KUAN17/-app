@@ -1,4 +1,4 @@
-const CACHE = 'family-finance-v73';
+const CACHE = 'family-finance-v74';
 const SHELL = [
   '.', 'index.html', 'css/app.css',
   'js/config.js', 'js/utils.js', 'js/auth.js', 'js/api.js',
@@ -23,7 +23,11 @@ self.addEventListener('activate', e => {
 
 self.addEventListener('fetch', e => {
   const url = e.request.url;
+  // 只快取自家的 http(s) GET 請求；外掛(chrome-extension://)、非 GET、外部 API 一律不碰
+  if (e.request.method !== 'GET') return;
+  if (!url.startsWith('http')) return;
   if (url.includes('googleapis.com') || url.includes('accounts.google.com')) return;
+  if (!url.startsWith(self.location.origin)) return;
   e.respondWith(
     caches.match(e.request).then(hit => hit || fetch(e.request).then(res => {
       // 立即 clone：res 會被回傳給頁面消耗，延後到 caches.open resolve 後再 clone 會失敗
