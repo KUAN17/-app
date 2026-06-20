@@ -1,4 +1,12 @@
 window.Store = (() => {
+  // 統一日期格式為 YYYY/MM/DD，防止補零不一致導致字串比較失敗
+  function normDate(d) {
+    if (!d) return '';
+    const s = String(d).replace(/-/g, '/');
+    const p = s.split('/');
+    if (p.length !== 3) return s;
+    return `${p[0]}/${String(p[1]).padStart(2,'0')}/${String(p[2]).padStart(2,'0')}`;
+  }
   let _data = {
     ledger: [],
     projects: [],
@@ -21,7 +29,7 @@ window.Store = (() => {
       type: row[4] || '',
       category: row[5] || '',
       memo: row[6] || '',
-      date: (row[7] || '').replace(/-/g, '/'),
+      date: normDate(row[7]),
       amount: Utils.parseAmount(row[8]),
       accountOut: row[9] || '',
       roleIn: row[10] || '',
@@ -80,7 +88,7 @@ window.Store = (() => {
       map[role].push({
         name:        row[1],
         balance:     Utils.parseAmount(row[2]),
-        baseDate:    row[3] || '',
+        baseDate:    normDate(row[3]),
         purpose:     row[4] || '',
         type:        row[5] || '',
         billingDate: parseInt(row[6]) || 0,
