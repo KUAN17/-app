@@ -1,11 +1,25 @@
 window.Store = (() => {
-  // 統一日期格式為 YYYY/MM/DD，防止補零不一致導致字串比較失敗
+  // 本機快取資料結構版本：改動解析邏輯時 +1，自動讓舊快取失效並重抓
+  const SCHEMA_V = 2;
+
+  // 統一日期格式為 YYYY/MM/DD，相容多種來源格式以避免字串比較失敗：
+  //  - 試算表序列值（UNFORMATTED_VALUE 下日期欄可能回傳純數字，如 46000）
+  //  - 民國/西元 年月日（2026年6月1日）
+  //  - 未補零的 2026/6/1、2026-6-1
   function normDate(d) {
-    if (!d) return '';
-    const s = String(d).replace(/-/g, '/');
-    const p = s.split('/');
-    if (p.length !== 3) return s;
-    return `${p[0]}/${String(p[1]).padStart(2,'0')}/${String(p[2]).padStart(2,'0')}`;
+    if (d === '' || d === null || d === undefined) return '';
+    const str = String(d).trim();
+    // 純數字 → Google Sheets 日期序列值（基準 1899/12/30）
+    if (/^\d+(\.\d+)?$/.test(str)) {
+      const serial = Math.floor(Number(str));
+      if (serial > 20000 && serial < 80000) { // 約 1954–2119，排除一般數字
+        const dt = new Date(Date.UTC(1899, 11, 30) + serial * 86400000);
+        return `${dt.getUTCFullYear()}/${String(dt.getUTCMonth() + 1).padStart(2, '0')}/${String(dt.getUTCDate()).padStart(2, '0')}`;
+      }
+    }
+    const parts = str.replace(/[-年月]/g, '/').replace(/日/g, '').split('/').filter(Boolean);
+    if (parts.length !== 3) return str;
+    return `${parts[0]}/${String(parts[1]).padStart(2, '0')}/${String(parts[2]).padStart(2, '0')}`;
   }
   let _data = {
     ledger: [],
@@ -107,7 +121,15 @@ window.Store = (() => {
       const ts = parseInt(localStorage.getItem(CFG.LS_KEYS.CACHE_TS) || '0');
       if (Date.now() - ts < CFG.CACHE_TTL) {
         const cached = localStorage.getItem(CFG.LS_KEYS.CACHE_DATA);
-        if (cached) { _data = JSON.parse(cached); _dirty = false; return; }
+        if (cached) {
+          try {
+            const parsed = JSON.parse(cached);
+            // 僅在結構版本相符時採用快取，否則重抓（讓解析邏輯更新後立即生效）
+            if (parsed && parsed.v === SCHEMA_V && parsed.d) {
+              _data = parsed.d; _dirty = false; return;
+            }
+          } catch (e) { /* 損毀的快取 → 直接重抓 */ }
+        }
       }
     }
 
@@ -145,7 +167,7 @@ window.Store = (() => {
       _sheetMeta = await API.getSheetMeta(sid);
       _dirty = false;
 
-      localStorage.setItem(CFG.LS_KEYS.CACHE_DATA, JSON.stringify(_data));
+      localStorage.setItem(CFG.LS_KEYS.CACHE_DATA, JSON.stringify({ v: SCHEMA_V, d: _data }));
       localStorage.setItem(CFG.LS_KEYS.CACHE_TS, String(Date.now()));
     } finally {
       Utils.showLoading(false);
