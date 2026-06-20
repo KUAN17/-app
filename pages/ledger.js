@@ -30,7 +30,7 @@ Router.register('ledger', (() => {
         <div class="ledger-item" data-row="${tx._row}" data-id="${tx.id}">
           <div class="ledger-icon ${TYPE_CLASS[tx.type]}">${TYPE_ICON[tx.type]||''}</div>
           <div class="ledger-info">
-            <div class="ledger-cat">${tx.category}${tx.projectTag ? ` · ${tx.projectTag}` : ''}</div>
+            <div class="ledger-cat">${tx.category || tx.type}${tx.projectTag ? ` · ${tx.projectTag}` : ''}</div>
             <div class="ledger-meta">${tx.roleOut} · ${tx.accountOut}${tx.memo ? ` · ${tx.memo}` : ''}</div>
           </div>
           <div class="ledger-amount ${TYPE_CLASS[tx.type]}">${Utils.formatMoney(tx.amount)}</div>
@@ -168,14 +168,14 @@ Router.register('ledger', (() => {
         <label>金額</label>
         <input type="number" id="edit-amount" class="form-input" value="${tx.amount}" min="0" step="any">
       </div>
-      <div class="form-row">
+      ${isTransfer ? '' : `<div class="form-row">
         <label>主分類</label>
         <select id="edit-category" class="form-select">
           ${catOptions || `<option value="${tx.category}">${tx.category}</option>`}
         </select>
-      </div>
+      </div>`}
       <div class="form-row">
-        <label>付款帳戶</label>
+        <label>${isTransfer ? '轉出帳戶' : '付款帳戶'}</label>
         <select id="edit-acct-out" class="form-select">
           ${acctOutOptions || `<option value="${tx.accountOut}">${tx.accountOut}</option>`}
         </select>
@@ -208,7 +208,8 @@ Router.register('ledger', (() => {
   async function saveEditTx(tx, modal, isTransfer) {
     const date = document.getElementById('edit-date').value.replace(/-/g, '/');
     const amount = parseFloat(document.getElementById('edit-amount').value);
-    const category = document.getElementById('edit-category').value;
+    // 轉帳無主分類欄，保留原本用途（如代付補款），不強制改動
+    const category = isTransfer ? tx.category : document.getElementById('edit-category').value;
     const accountOut = document.getElementById('edit-acct-out').value;
     const memo = document.getElementById('edit-memo').value.trim();
     const roleIn = isTransfer ? document.getElementById('edit-role-in').value : tx.roleIn;
@@ -216,8 +217,8 @@ Router.register('ledger', (() => {
 
     if (!date) return Utils.toast('請選擇日期', 'warn');
     if (!amount || amount <= 0) return Utils.toast('請輸入有效金額', 'warn');
-    // 專案支出分類為自由輸入、可留空，不強制必填；其他類型仍需分類
-    if (!category && tx.dimension !== '專案') return Utils.toast('請選擇分類', 'warn');
+    // 轉帳與專案支出分類可留空；其他類型仍需分類
+    if (!category && !isTransfer && tx.dimension !== '專案') return Utils.toast('請選擇分類', 'warn');
 
     const row = [
       tx.id, tx.roleOut, tx.dimension, tx.projectTag,
