@@ -248,7 +248,7 @@ Router.register('dashboard', (() => {
           const warn = (warnings || {})[`${role}||${a.name}`];
           return `<div class="dash-acct-row">
             <span class="dash-acct-name">${a.name}</span>
-            <span class="dash-acct-bal ${bal < 0 ? 'amount-out' : ''}">${Utils.formatMoney(bal)}</span>
+            <span class="dash-acct-bal ${bal < 0 ? 'amount-out' : ''}">${bal < 0 ? '-' : ''}${Utils.formatMoney(bal)}</span>
           </div>${warn ? `<div class="dash-overcommit-warn">⚠ 專案剩餘預算 ${Utils.formatMoney(warn.committed)}（${warn.items.map(i => i.name).join('、')}），餘額不足，缺口 ${Utils.formatMoney(warn.shortage)}</div>` : ''}`;
         }).join('')}
       </div>`;

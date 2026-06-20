@@ -184,26 +184,35 @@ window.Store = (() => {
     const cfg = (_data.accounts[role] || []).find(a => a.name === accountName);
     const initial = cfg ? cfg.balance : 0;
     const baseDate = cfg ? cfg.baseDate : '';
-    // 信用卡：期初正數 = 已欠金額，消費增加欠款，付款減少欠款，符號與一般帳戶相反
-    const sign = (cfg && cfg.type === '信用卡') ? -1 : 1;
+    const isCC = !!(cfg && cfg.type === '信用卡');
 
     const normBase = baseDate ? baseDate.replace(/-/g, '/') : '';
     let balance = initial;
     _data.ledger.forEach(tx => {
       if (normBase && tx.date < normBase) return;
+      if (isCC) {
+        // 信用卡＝累積消費：只累加刷卡金額，還款/轉入/收入皆不影響
+        if (tx.type !== '支出') return;
+        if (tx.payAccount) {
+          if (tx.payAccount === accountName && (!tx.payRole || tx.payRole === role)) balance += tx.amount;
+        } else if (tx.roleOut === role && tx.accountOut === accountName) {
+          balance += tx.amount;
+        }
+        return;
+      }
       if (tx.type === '收入' && tx.roleOut === role && tx.accountOut === accountName) {
-        balance += sign * tx.amount;
+        balance += tx.amount;
       } else if (tx.type === '支出') {
         if (tx.payAccount) {
           // 代付：實際從 payAccount 扣款，accountOut 為費用歸屬（待帳單轉帳時才扣）
           // payRole 為空的舊資料退回僅比對帳戶名稱
-          if (tx.payAccount === accountName && (!tx.payRole || tx.payRole === role)) balance -= sign * tx.amount;
+          if (tx.payAccount === accountName && (!tx.payRole || tx.payRole === role)) balance -= tx.amount;
         } else if (tx.roleOut === role && tx.accountOut === accountName) {
-          balance -= sign * tx.amount;
+          balance -= tx.amount;
         }
       } else if ((tx.type === '轉帳' || tx.type === '公積金提撥')) {
-        if (tx.roleOut === role && tx.accountOut === accountName) balance -= sign * tx.amount;
-        if (tx.roleIn === role && tx.accountIn === accountName) balance += sign * tx.amount;
+        if (tx.roleOut === role && tx.accountOut === accountName) balance -= tx.amount;
+        if (tx.roleIn === role && tx.accountIn === accountName) balance += tx.amount;
       }
     });
     return balance;
@@ -217,31 +226,36 @@ window.Store = (() => {
         map[`${role}||${a.name}`] = { bal: a.balance, base: (a.baseDate || '').replace(/-/g, '/'), isCC: a.type === '信用卡' };
       });
     });
-    function apply(role, name, date, amt) {
+    // kind: 'charge'=刷卡消費（加進信用卡累積）, 'in'=收入/轉入, 'out'=轉出
+    function apply(role, name, date, amt, kind) {
       const e = map[`${role}||${name}`];
       if (!e || (e.base && date < e.base)) return;
-      // 信用卡符號相反：消費增加欠款（正數），付款減少欠款
-      e.bal += e.isCC ? -amt : amt;
+      if (e.isCC) {
+        // 信用卡＝累積消費：只累加刷卡金額，還款/轉入/收入皆不影響
+        if (kind === 'charge') e.bal += -amt; // amt 為負，轉成正的消費額
+        return;
+      }
+      e.bal += amt;
     }
     _data.ledger.forEach(tx => {
       if (tx.type === '收入') {
-        apply(tx.roleOut, tx.accountOut, tx.date, tx.amount);
+        apply(tx.roleOut, tx.accountOut, tx.date, tx.amount, 'in');
       } else if (tx.type === '支出') {
         if (tx.payAccount) {
           if (tx.payRole) {
-            apply(tx.payRole, tx.payAccount, tx.date, -tx.amount);
+            apply(tx.payRole, tx.payAccount, tx.date, -tx.amount, 'charge');
           } else {
             // 舊資料無 payRole：所有同名帳戶都扣（與 calcBalance 退回邏輯一致）
             Object.keys(map).forEach(k => {
-              if (k.split('||')[1] === tx.payAccount) apply(...k.split('||'), tx.date, -tx.amount);
+              if (k.split('||')[1] === tx.payAccount) apply(...k.split('||'), tx.date, -tx.amount, 'charge');
             });
           }
         } else {
-          apply(tx.roleOut, tx.accountOut, tx.date, -tx.amount);
+          apply(tx.roleOut, tx.accountOut, tx.date, -tx.amount, 'charge');
         }
       } else if (tx.type === '轉帳' || tx.type === '公積金提撥') {
-        apply(tx.roleOut, tx.accountOut, tx.date, -tx.amount);
-        apply(tx.roleIn, tx.accountIn, tx.date, tx.amount);
+        apply(tx.roleOut, tx.accountOut, tx.date, -tx.amount, 'out');
+        apply(tx.roleIn, tx.accountIn, tx.date, tx.amount, 'in');
       }
     });
     const res = {};
