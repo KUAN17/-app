@@ -184,24 +184,26 @@ window.Store = (() => {
     const cfg = (_data.accounts[role] || []).find(a => a.name === accountName);
     const initial = cfg ? cfg.balance : 0;
     const baseDate = cfg ? cfg.baseDate : '';
+    // 信用卡：期初正數 = 已欠金額，消費增加欠款，付款減少欠款，符號與一般帳戶相反
+    const sign = (cfg && cfg.type === '信用卡') ? -1 : 1;
 
     const normBase = baseDate ? baseDate.replace(/-/g, '/') : '';
     let balance = initial;
     _data.ledger.forEach(tx => {
       if (normBase && tx.date < normBase) return;
       if (tx.type === '收入' && tx.roleOut === role && tx.accountOut === accountName) {
-        balance += tx.amount;
+        balance += sign * tx.amount;
       } else if (tx.type === '支出') {
         if (tx.payAccount) {
           // 代付：實際從 payAccount 扣款，accountOut 為費用歸屬（待帳單轉帳時才扣）
           // payRole 為空的舊資料退回僅比對帳戶名稱
-          if (tx.payAccount === accountName && (!tx.payRole || tx.payRole === role)) balance -= tx.amount;
+          if (tx.payAccount === accountName && (!tx.payRole || tx.payRole === role)) balance -= sign * tx.amount;
         } else if (tx.roleOut === role && tx.accountOut === accountName) {
-          balance -= tx.amount;
+          balance -= sign * tx.amount;
         }
       } else if ((tx.type === '轉帳' || tx.type === '公積金提撥')) {
-        if (tx.roleOut === role && tx.accountOut === accountName) balance -= tx.amount;
-        if (tx.roleIn === role && tx.accountIn === accountName) balance += tx.amount;
+        if (tx.roleOut === role && tx.accountOut === accountName) balance -= sign * tx.amount;
+        if (tx.roleIn === role && tx.accountIn === accountName) balance += sign * tx.amount;
       }
     });
     return balance;
@@ -212,13 +214,14 @@ window.Store = (() => {
     const map = {};
     Object.entries(_data.accounts).forEach(([role, accts]) => {
       accts.forEach(a => {
-        map[`${role}||${a.name}`] = { bal: a.balance, base: (a.baseDate || '').replace(/-/g, '/') };
+        map[`${role}||${a.name}`] = { bal: a.balance, base: (a.baseDate || '').replace(/-/g, '/'), isCC: a.type === '信用卡' };
       });
     });
     function apply(role, name, date, amt) {
       const e = map[`${role}||${name}`];
       if (!e || (e.base && date < e.base)) return;
-      e.bal += amt;
+      // 信用卡符號相反：消費增加欠款（正數），付款減少欠款
+      e.bal += e.isCC ? -amt : amt;
     }
     _data.ledger.forEach(tx => {
       if (tx.type === '收入') {

@@ -88,7 +88,7 @@ Router.register('dashboard', (() => {
       (accounts[role] || []).forEach(a => {
         const bal = (balances[role] || {})[a.name] || 0;
         if (a.type === '信用卡') {
-          if (bal < 0) ccDebt += -bal; // 已刷未繳金額
+          if (bal > 0) ccDebt += bal; // 欠款為正數（期初+消費-付款）
           return;
         }
         if (a.type === '證券帳戶') return;
