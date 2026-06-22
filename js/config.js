@@ -42,6 +42,7 @@ window.CFG = {
   },
 
   CAT_REPAYMENT: '代付補款',
+  CAT_ADJUST: '調帳',
 
   // 台股報價 Proxy（Cloudflare Worker）
   QUOTE_PROXY: 'https://twse-proxy.leo30331.workers.dev',

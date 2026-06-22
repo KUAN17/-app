@@ -103,7 +103,7 @@ Router.register('settings', (() => {
       </div>
     `).join('') +
     `<button class="btn btn-primary btn-full" id="btn-save-accounts">儲存帳戶設定</button>
-     <button class="btn btn-outline btn-full" id="btn-reconcile" style="margin-top:8px">📋 更新期初餘額</button>
+     <button class="btn btn-outline btn-full" id="btn-reconcile" style="margin-top:8px">📋 對帳校正</button>
      <div style="height:8px"></div>`;
 
     CFG.ROLES.forEach(role => {
@@ -298,6 +298,7 @@ Router.register('settings', (() => {
     const modal = document.createElement('div');
     modal.className = 'modal-overlay';
 
+    // 信用卡＝累積消費、證券＝持倉市值，皆不適用現金餘額對帳，排除
     const rows = CFG.ROLES.flatMap(role =>
       (_acctState[role] || [])
         .map((a, i) => ({ ...a, _i: i, role }))
@@ -306,53 +307,143 @@ Router.register('settings', (() => {
 
     const rowsHtml = rows.map(a => {
       const curBal = Store.calcBalance(a.role, a.name);
-      return `<div class="reconcile-row" data-role="${a.role}" data-i="${a._i}">
+      return `<div class="reconcile-row" data-role="${a.role}" data-i="${a._i}" data-cur="${curBal}">
         <div class="reconcile-name">
           <span class="balance-role-badge">${a.role}</span>
           <span>${a.name}</span>
           <span class="reconcile-cur">app: ${Utils.formatMoney(curBal)}</span>
         </div>
         <div class="reconcile-inputs">
-          <input type="number" class="form-input reconcile-bal" placeholder="實際餘額（留空=不更新）" style="flex:2">
+          <input type="number" step="any" class="form-input reconcile-bal" placeholder="實際餘額（留空=略過）" style="flex:2">
           <input type="date" class="form-input reconcile-date" value="${today}" style="flex:1">
         </div>
+        <div class="reconcile-diff" style="display:none"></div>
       </div>`;
     }).join('');
 
     modal.innerHTML = `<div class="modal-card" style="max-height:80vh;overflow-y:auto">
-      <div class="modal-title">更新期初餘額</div>
-      <p class="input-hint" style="margin:0 0 12px">填入各帳戶今日實際餘額，留空的帳戶不會更新。確認後寫入 Google Sheets。</p>
-      ${rowsHtml}
+      <div class="modal-title">對帳校正</div>
+      <div class="reconcile-mode">
+        <label><input type="radio" name="rec-mode" value="adjust" checked> 補記調帳交易（保留紀錄、可追查）</label>
+        <label><input type="radio" name="rec-mode" value="rebase"> 直接改期初餘額（不留紀錄）</label>
+      </div>
+      <p class="input-hint" id="rec-hint" style="margin:0 0 12px">填入各帳戶今日實際餘額，留空者略過。app 會自動計算差額並補記一筆「${CFG.CAT_ADJUST}」收入／支出，讓餘額與實際相符。</p>
+      ${rows.length ? rowsHtml : '<p class="empty-hint">無可對帳的帳戶</p>'}
       <div class="modal-actions" style="margin-top:16px">
         <button class="btn btn-outline" id="reconcile-cancel">取消</button>
-        <button class="btn btn-primary" id="reconcile-confirm">確認儲存</button>
+        <button class="btn btn-primary" id="reconcile-confirm">確認</button>
       </div>
     </div>`;
 
     document.body.appendChild(modal);
 
+    function curMode() {
+      return modal.querySelector('input[name="rec-mode"]:checked').value;
+    }
+
+    // 即時顯示差額
+    function updateDiff(row) {
+      const diffEl = row.querySelector('.reconcile-diff');
+      const val = row.querySelector('.reconcile-bal').value.trim();
+      if (val === '' || isNaN(parseFloat(val))) { diffEl.style.display = 'none'; return; }
+      const cur = parseFloat(row.dataset.cur);
+      const diff = Math.round((parseFloat(val) - cur) * 100) / 100;
+      diffEl.style.display = 'block';
+      if (diff === 0) {
+        diffEl.textContent = '✓ 餘額相符，無需調整';
+        diffEl.className = 'reconcile-diff match';
+      } else {
+        const sign = diff > 0 ? '+' : '−';
+        const word = curMode() === 'adjust'
+          ? (diff > 0 ? `補記收入 ${CFG.CAT_ADJUST}` : `補記支出 ${CFG.CAT_ADJUST}`)
+          : '改期初餘額';
+        diffEl.textContent = `差額 ${sign}${Utils.formatMoney(Math.abs(diff))} → ${word}`;
+        diffEl.className = `reconcile-diff ${diff > 0 ? 'pos' : 'neg'}`;
+      }
+    }
+
+    modal.querySelectorAll('.reconcile-row').forEach(row => {
+      row.querySelector('.reconcile-bal').addEventListener('input', () => updateDiff(row));
+    });
+    modal.querySelectorAll('input[name="rec-mode"]').forEach(r => {
+      r.addEventListener('change', () => {
+        const adjust = curMode() === 'adjust';
+        modal.querySelector('#rec-hint').textContent = adjust
+          ? `填入各帳戶今日實際餘額，留空者略過。app 會自動計算差額並補記一筆「${CFG.CAT_ADJUST}」收入／支出，讓餘額與實際相符。`
+          : '填入各帳戶今日實際餘額，留空者略過。直接把期初餘額改成實際值、基準日設為填入日期（歷史落差不再計入，但無調帳紀錄）。';
+        modal.querySelectorAll('.reconcile-row').forEach(updateDiff);
+      });
+    });
+
     modal.querySelector('#reconcile-cancel').addEventListener('click', () => modal.remove());
     modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
 
     modal.querySelector('#reconcile-confirm').addEventListener('click', async () => {
-      let updated = 0;
+      const mode = curMode();
+      const targets = [];
       modal.querySelectorAll('.reconcile-row').forEach(row => {
-        const balInput = row.querySelector('.reconcile-bal');
-        const dateInput = row.querySelector('.reconcile-date');
-        const val = balInput.value.trim();
-        if (val === '') return; // 留空 → 不更新
+        const val = row.querySelector('.reconcile-bal').value.trim();
+        if (val === '' || isNaN(parseFloat(val))) return; // 留空 → 略過
         const { role, i } = row.dataset;
-        const idx = parseInt(i);
-        _acctState[role][idx].balance  = parseFloat(val);
-        _acctState[role][idx].baseDate = dateInput.value.replace(/-/g, '/');
-        updated++;
+        targets.push({
+          role, idx: parseInt(i),
+          actual: parseFloat(val),
+          cur: parseFloat(row.dataset.cur),
+          date: row.querySelector('.reconcile-date').value || today
+        });
       });
 
-      if (!updated) { Utils.toast('未填入任何餘額', 'warn'); return; }
+      if (!targets.length) { Utils.toast('未填入任何餘額', 'warn'); return; }
 
-      modal.remove();
-      await saveAccounts(true);
-      renderAccountMgmt();
+      if (mode === 'rebase') {
+        targets.forEach(t => {
+          _acctState[t.role][t.idx].balance  = t.actual;
+          _acctState[t.role][t.idx].baseDate = t.date.replace(/-/g, '/');
+        });
+        modal.remove();
+        await saveAccounts(true);
+        renderAccountMgmt();
+        return;
+      }
+
+      // mode === 'adjust'：為每個有差額的帳戶補記一筆調帳交易
+      const ledgerRows = [];
+      targets.forEach(t => {
+        const diff = Math.round((t.actual - t.cur) * 100) / 100;
+        if (diff === 0) return; // 已相符
+        const acctName = _acctState[t.role][t.idx].name;
+        const date = t.date.replace(/-/g, '/');
+        const memo = Utils.sheetText(`對帳校正（app ${Utils.formatMoney(t.cur)} → 實際 ${Utils.formatMoney(t.actual)}）`);
+        if (diff > 0) {
+          // 實際 > app：補一筆收入把餘額補上來
+          ledgerRows.push([Utils.uid(), t.role, '', '', '收入', CFG.CAT_ADJUST, memo, date, diff, acctName, '', '', '', '', '']);
+        } else {
+          // 實際 < app：補一筆支出把餘額扣下去
+          ledgerRows.push([Utils.uid(), t.role, '日常', '', '支出', CFG.CAT_ADJUST, memo, date, -diff, acctName, '', '', '', '', '']);
+        }
+      });
+
+      if (!ledgerRows.length) { Utils.toast('所有帳戶餘額皆相符，無需調整', 'success'); modal.remove(); return; }
+
+      const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID) || CFG.SHEET_ID;
+      const btn = modal.querySelector('#reconcile-confirm');
+      btn.disabled = true; btn.textContent = '儲存中…';
+      Utils.showLoading(true);
+      try {
+        for (const row of ledgerRows) {
+          await API.append(sid, 'Ledger!A:O', row);
+        }
+        Store.invalidate();
+        await Store.load(true);
+        modal.remove();
+        renderAccountMgmt();
+        Utils.toast(`已補記 ${ledgerRows.length} 筆調帳，餘額已校正`, 'success');
+      } catch (e) {
+        Utils.toast('調帳失敗：' + e.message, 'error');
+        btn.disabled = false; btn.textContent = '確認';
+      } finally {
+        Utils.showLoading(false);
+      }
     });
   }
 

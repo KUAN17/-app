@@ -490,6 +490,12 @@ html, body {
 .reconcile-name { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; margin-bottom: 6px; }
 .reconcile-cur { font-size: 12px; color: var(--text-muted); margin-left: auto; font-weight: 400; }
 .reconcile-inputs { display: flex; gap: 8px; }
+.reconcile-mode { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; padding: 10px; background: var(--bg); border-radius: 8px; }
+.reconcile-mode label { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
+.reconcile-diff { font-size: 12px; font-weight: 600; margin-top: 6px; }
+.reconcile-diff.pos { color: var(--success, #16a34a); }
+.reconcile-diff.neg { color: var(--danger, #dc2626); }
+.reconcile-diff.match { color: var(--text-muted); font-weight: 400; }
 .acct-item:first-child { border-top: none; }
 .acct-item-top { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
 .acct-item-name { font-size: 14px; font-weight: 600; }
