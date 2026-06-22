@@ -6,14 +6,13 @@ Router.register('settings', (() => {
   function render(el) {
     const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID) || CFG.SHEET_ID || '';
     const cid = localStorage.getItem(CFG.LS_KEYS.CLIENT_ID) || CFG.CLIENT_ID || '';
-
     const curId = Utils.identity();
 
     el.innerHTML = `<div class="page-inner">
 
-      <div class="section-label">使用者身份</div>
-      <div class="card settings-card">
-        <p class="input-hint" style="margin-bottom:10px" id="id-email-hint">記帳頁與 Dashboard 會以此身份為主（自己＋家用）。</p>
+      <!-- ── 身份 ────────────────────────────────── -->
+      <div class="settings-identity-card card">
+        <p class="input-hint" id="id-email-hint" style="margin:0 0 10px">記帳頁與 Dashboard 會以此身份為主（自己＋家用）。</p>
         <div class="id-toggle">
           ${CFG.ROLES.map(r =>
             `<button type="button" class="proj-type-btn${curId === r ? ' active' : ''}" data-identity="${r}">${r === '家用' ? '🏠 家用視角' : r}</button>`
@@ -21,37 +20,53 @@ Router.register('settings', (() => {
         </div>
       </div>
 
-      <div class="section-label">Google 連線設定</div>
-      <div class="card settings-card">
-        <div class="form-row">
-          <label>OAuth Client ID</label>
-          <input type="text" id="inp-client-id" class="form-input" value="${cid}" placeholder="your-client-id.apps.googleusercontent.com">
+      <!-- ── 帳戶管理 ──────────────────────────────── -->
+      <details class="settings-section" open>
+        <summary class="settings-section-hd">
+          <span>💳 帳戶管理</span>
+          <span class="settings-section-arrow">›</span>
+        </summary>
+        <div class="settings-section-body">
+          <div id="acct-mgmt-section"><div class="spinner"></div></div>
         </div>
-        <div class="form-row">
-          <label>Spreadsheet ID</label>
-          <input type="text" id="inp-sheet-id" class="form-input" value="${sid}" placeholder="從 Google Sheets 網址列複製">
+      </details>
+
+      <!-- ── 專案設定 ──────────────────────────────── -->
+      <details class="settings-section">
+        <summary class="settings-section-hd">
+          <span>📋 專案設定</span>
+          <span class="settings-section-arrow">›</span>
+        </summary>
+        <div class="settings-section-body">
+          <p class="section-hint">設定各專案的費用歸屬角色與預設扣款帳戶，記帳時選擇專案後自動帶入。</p>
+          <div id="proj-settings-section"><div class="spinner"></div></div>
         </div>
-        <button class="btn btn-primary btn-full" id="btn-save-conn">儲存連線設定</button>
-      </div>
+      </details>
 
-      <div class="section-label">帳戶管理</div>
-      <p class="section-hint">新增、刪除各角色的帳戶，並設定期初餘額。</p>
-      <div id="acct-mgmt-section"><div class="spinner"></div></div>
-
-      <div class="section-label">專案設定</div>
-      <p class="section-hint">設定各專案的費用歸屬角色與預設扣款帳戶，記帳時選擇專案後自動帶入。</p>
-      <div id="proj-settings-section"><div class="spinner"></div></div>
-
-      <div class="section-label">後端試算表初始化</div>
-      <div class="card settings-card">
-        <p class="input-hint">尚未建立 Google Sheets 結構時，複製 Apps Script 至試算表執行 <code>buildAppSheetDatabase</code>。</p>
-        <button class="btn btn-outline btn-full" id="btn-copy-script">複製 Apps Script 程式碼</button>
-      </div>
-
-      <div class="section-label">帳號</div>
-      <div class="card settings-card">
-        <button class="btn btn-danger btn-full" id="btn-signout">登出</button>
-      </div>
+      <!-- ── 系統 ─────────────────────────────────── -->
+      <details class="settings-section">
+        <summary class="settings-section-hd">
+          <span>⚙️ 系統</span>
+          <span class="settings-section-arrow">›</span>
+        </summary>
+        <div class="settings-section-body">
+          <p class="section-hint" style="margin-bottom:12px">Google 連線設定，以及試算表結構初始化工具。</p>
+          <div class="form-row">
+            <label>OAuth Client ID</label>
+            <input type="text" id="inp-client-id" class="form-input" value="${cid}" placeholder="your-client-id.apps.googleusercontent.com">
+          </div>
+          <div class="form-row">
+            <label>Spreadsheet ID</label>
+            <input type="text" id="inp-sheet-id" class="form-input" value="${sid}" placeholder="從 Google Sheets 網址列複製">
+          </div>
+          <button class="btn btn-primary btn-full" id="btn-save-conn">儲存連線設定</button>
+          <div class="settings-sys-divider"></div>
+          <p class="input-hint">尚未建立 Google Sheets 結構時，複製 Apps Script 至試算表執行 <code>buildAppSheetDatabase</code>。</p>
+          <button class="btn btn-outline btn-full" id="btn-copy-script">複製 Apps Script 程式碼</button>
+          <div class="settings-sys-divider"></div>
+          <button class="btn btn-danger btn-full" id="btn-signout">登出</button>
+        </div>
+      </details>
 
       <div style="height:24px"></div>
     </div>`;
