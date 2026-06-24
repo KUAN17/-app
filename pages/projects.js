@@ -92,7 +92,7 @@ Router.register('projects', (() => {
         <span class="${p.remaining < 0 ? 'amount-out' : 'amount-in'}">${Utils.formatMoney(p.remaining)}</span>
       </div>
       ${!isLoan ? `<div class="proj-stat-row">
-        <span class="label-sm">已提撥準備金</span>
+        <span class="label-sm">已補代付</span>
         <span>${Utils.formatMoney(p.allocated)}</span>
       </div>` : ''}
     </div>`;
