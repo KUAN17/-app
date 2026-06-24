@@ -243,8 +243,10 @@ Router.register('entry', (() => {
     if (!sh.autoTransfer || !sh.payAccount) return null;
     const pi = getPaymentInfo(sh.payRole, sh.payAccount, sh.payType);
     if (!pi || !sh.transferFrom) return null;
-    // 同步補款即時結清這筆代付支出，settleId 綁定該支出 ID（逐筆沖銷）
-    return [Utils.uid(), sh.role, '日常', '', '轉帳', CFG.CAT_REPAYMENT, `補款／${sh.payAccount}`,
+    // 補款繼承原支出的維度與專案標籤，讓 store.js 能正確計入「已提撥」
+    const dim  = sh.kind === 'proj' ? '專案' : '日常';
+    const proj = sh.kind === 'proj' ? (sh.project || '') : '';
+    return [Utils.uid(), sh.role, dim, proj, '轉帳', CFG.CAT_REPAYMENT, `補款／${sh.payAccount}`,
             date, amount, sh.transferFrom, pi.role, pi.account, '', '', settleId || ''];
   }
 

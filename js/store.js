@@ -154,14 +154,32 @@ window.Store = (() => {
         proj.spent = _data.ledger
           .filter(tx => tx.projectTag === proj.name && tx.type === '支出')
           .reduce((s, tx) => s + tx.amount, 0);
+
+        // 已提撥 = 標記此專案的轉帳 + 補款轉帳（settleId 指向此專案支出，相容 dim='日常' 舊資料）
+        const projExpenseIds = new Set(
+          _data.ledger
+            .filter(tx => tx.projectTag === proj.name && tx.type === '支出')
+            .map(tx => tx.id)
+        );
         proj.allocated = _data.ledger
-          .filter(tx => tx.projectTag === proj.name && (
-            tx.type === '公積金提撥' ||
-            (tx.type === '轉帳' && tx.dimension === '專案')
-          ))
+          .filter(tx =>
+            (tx.projectTag === proj.name && tx.type === '公積金提撥') ||
+            (tx.projectTag === proj.name && tx.type === '轉帳' && tx.dimension === '專案') ||
+            (tx.type === '轉帳' && tx.settleId && projExpenseIds.has(tx.settleId))
+          )
           .reduce((s, tx) => s + tx.amount, 0);
+
         proj.remaining = proj.budget - proj.spent;
-        proj.gap = proj.allocated < proj.spent ? proj.spent - proj.allocated : 0;
+        // 缺口：代付支出尚未被補款覆蓋的金額（直接付款不算缺口）
+        const advancedSpent = _data.ledger
+          .filter(tx => tx.projectTag === proj.name && tx.type === '支出' && tx.payAccount)
+          .reduce((s, tx) => s + tx.amount, 0);
+        const repaid = _data.ledger
+          .filter(tx =>
+            tx.type === '轉帳' && tx.settleId && projExpenseIds.has(tx.settleId)
+          )
+          .reduce((s, tx) => s + tx.amount, 0);
+        proj.gap = repaid < advancedSpent ? advancedSpent - repaid : 0;
       });
 
       _sheetMeta = await API.getSheetMeta(sid);
