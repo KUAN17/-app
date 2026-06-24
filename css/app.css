@@ -337,6 +337,18 @@ html, body {
 .proj-card-name { font-weight: 700; font-size: 15px; display: flex; align-items: center; justify-content: space-between; }
 .proj-card-nums { display: flex; justify-content: space-between; font-size: 13px; color: var(--text-muted); }
 .gap-alert { font-size: 13px; color: var(--danger); font-weight: 600; margin-top: 6px; }
+
+/* Project spending detail modal */
+.proj-detail-summary { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 16px; padding: 12px; background: var(--bg); border-radius: 10px; margin-bottom: 12px; }
+.proj-detail-summary > div { display: flex; justify-content: space-between; font-size: 14px; font-weight: 600; }
+.proj-detail-summary .label-sm { font-weight: 400; color: var(--text-muted); }
+.proj-detail-item { padding: 10px 0; border-bottom: 1px solid var(--border); }
+.proj-detail-item:last-child { border-bottom: none; }
+.proj-detail-item-main { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.proj-detail-item-name { font-size: 14px; font-weight: 600; flex: 1; min-width: 0; word-break: break-word; }
+.proj-detail-item-amt { font-weight: 700; flex-shrink: 0; }
+.proj-detail-item-sub { display: flex; flex-wrap: wrap; gap: 6px; font-size: 12px; color: var(--text-muted); margin-top: 3px; }
+.proj-detail-paytag { background: var(--primary-light); color: var(--primary); padding: 1px 6px; border-radius: 99px; font-size: 11px; }
 .proj-stats { margin-top: 8px; }
 .proj-stat-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 14px; border-bottom: 1px solid var(--border); }
 .proj-stat-row:last-child { border-bottom: none; }

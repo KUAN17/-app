@@ -132,6 +132,7 @@ Router.register('projects', (() => {
       ${loanHtml}
       ${gapHtml}
       <div class="proj-card-actions">
+        <button class="btn btn-outline btn-sm btn-detail-proj" data-name="${p.name}">📄 明細</button>
         <button class="btn btn-outline btn-sm btn-edit-proj" data-name="${p.name}" data-row="${sheetRow}">編輯</button>
         ${active ? `<button class="btn btn-outline btn-sm btn-close-proj" data-name="${p.name}">結案</button>` : ''}
       </div>
@@ -173,6 +174,55 @@ Router.register('projects', (() => {
       const proj = projects.find(p => p.name === btn.dataset.name);
       btn.addEventListener('click', () => showEditProjModal(proj, parseInt(btn.dataset.row)));
     });
+    el.querySelectorAll('.btn-detail-proj').forEach(btn => {
+      const proj = projects.find(p => p.name === btn.dataset.name);
+      btn.addEventListener('click', () => showProjectDetail(proj));
+    });
+  }
+
+  // ── Project spending detail ───────────────────────────────────────────────
+  function showProjectDetail(p) {
+    if (!p) return;
+    const items = Store.get().ledger
+      .filter(tx => tx.projectTag === p.name && tx.type === '支出')
+      .sort((a, b) => b.date.localeCompare(a.date));
+
+    const listHtml = items.length ? items.map(tx => {
+      const label = tx.memo || tx.category || '（未命名）';
+      const payTag = tx.payAccount
+        ? `<span class="proj-detail-paytag">${tx.payRole || ''}${tx.payRole ? '／' : ''}${tx.payAccount} 代付</span>`
+        : '';
+      return `<div class="proj-detail-item">
+        <div class="proj-detail-item-main">
+          <span class="proj-detail-item-name">${label}</span>
+          <span class="proj-detail-item-amt amount-out">${Utils.formatMoney(tx.amount)}</span>
+        </div>
+        <div class="proj-detail-item-sub">
+          <span>${tx.date}</span>
+          ${tx.category && tx.memo ? `<span>· ${tx.category}</span>` : ''}
+          ${payTag}
+        </div>
+      </div>`;
+    }).join('') : `<p class="empty-hint">尚無支出記錄</p>`;
+
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.innerHTML = `<div class="modal-card" style="max-height:80vh;display:flex;flex-direction:column">
+      <div class="modal-title">${p.name}｜已花費明細</div>
+      <div class="proj-detail-summary">
+        <div><span class="label-sm">目標預算</span><span>${Utils.formatMoney(p.budget)}</span></div>
+        <div><span class="label-sm">已花費</span><span>${Utils.formatMoney(p.spent)}</span></div>
+        <div><span class="label-sm">預算剩餘</span><span class="${p.remaining < 0 ? 'amount-out' : 'amount-in'}">${Utils.formatMoney(p.remaining)}</span></div>
+        <div><span class="label-sm">筆數</span><span>${items.length} 筆</span></div>
+      </div>
+      <div class="proj-detail-list" style="overflow-y:auto;flex:1">${listHtml}</div>
+      <div class="modal-actions" style="margin-top:12px">
+        <button class="btn btn-outline btn-sm" id="btn-close-proj-detail">關閉</button>
+      </div>
+    </div>`;
+    document.body.appendChild(modal);
+    modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+    Utils.el('btn-close-proj-detail').addEventListener('click', () => modal.remove());
   }
 
   // ── New project modal ─────────────────────────────────────────────────────
