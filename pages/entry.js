@@ -63,6 +63,15 @@ Router.register('entry', (() => {
     const map = { '現金': '💵', '銀行': '🏦', '信用卡': '💳', '證券帳戶': '📊' };
     return map[type] || '🏦';
   }
+  function isAcctCreditCard(role, name) {
+    return Store.allAccountsFlat().some(a => a.role === role && a.name === name && a.type === '信用卡');
+  }
+  function canInstallment(sh) {
+    if (sh.kind !== 'cat' && sh.kind !== 'proj') return false;
+    if (isAcctCreditCard(sh.role, sh.account)) return true;
+    if (sh.payAccount && isAcctCreditCard(sh.payRole, sh.payAccount)) return true;
+    return false;
+  }
   // 代付補款的轉入目標：信用卡 → 綁定的扣款帳戶；現金/活存等 → 代付帳戶本身
   function getPaymentInfo(payRole, payName, payType) {
     const all = Store.allAccountsFlat();
@@ -218,7 +227,7 @@ Router.register('entry', (() => {
         return `<option value="${v.replace(/"/g, '&quot;')}"${cur ? ' selected' : ''}>${acctIcon(a.type)} ${a.role}／${a.name}</option>`;
       }).join('');
     const payInfo = sh.payAccount ? getPaymentInfo(sh.payRole, sh.payAccount, sh.payType) : null;
-    const canAuto = !!payInfo && sh.role !== sh.payRole && nonCCAccts.length > 0;
+    const canAuto = !!payInfo && sh.role !== sh.payRole && nonCCAccts.length > 0 && !(sh.installment > 1);
     const tfOpts = nonCCAccts
       .map(a => `<option value="${a.name.replace(/"/g, '&quot;')}"${sh.transferFrom === a.name ? ' selected' : ''}>${a.name}</option>`).join('');
     return `<details class="sheet-adv"${sh.payAccount ? ' open' : ''}>
@@ -237,6 +246,48 @@ Router.register('entry', (() => {
           <div class="sheet-row"><label>轉入</label><span class="sheet-static">${payInfo.role}／${payInfo.account}</span></div>` : ''}
       ` : ''}
     </details>`;
+  }
+
+  function shiftMonth(dateStr, months) {
+    const [y, m, d] = dateStr.split('/').map(Number);
+    const dt = new Date(y, m - 1 + months, d);
+    return `${dt.getFullYear()}/${String(dt.getMonth()+1).padStart(2,'0')}/${String(dt.getDate()).padStart(2,'0')}`;
+  }
+
+  function buildInstallmentRows(sh, totalAmount, memo, date) {
+    const n = sh.installment;
+    const perPeriod = Math.floor(totalAmount / n);
+    const dim  = sh.kind === 'proj' ? '專案' : '日常';
+    const proj = sh.kind === 'proj' ? (sh.project || '') : '';
+    const cat  = sh.kind === 'proj' ? (sh.projCat || '').trim() : sh.category;
+    const rows = [];
+    for (let i = 0; i < n; i++) {
+      const amt = i === n - 1 ? totalAmount - perPeriod * (n - 1) : perPeriod;
+      const instMemo = Utils.sheetText(`${memo ? memo + ' ' : ''}分期${i+1}/${n}`);
+      const instDate = i === 0 ? date : shiftMonth(date, i);
+      rows.push([Utils.uid(), sh.role, dim, proj, '支出', cat, instMemo, instDate, amt,
+                  sh.account, '', '', sh.payRole || '', sh.payAccount || '', '']);
+    }
+    return rows;
+  }
+
+  function buildInstallmentSection(sh) {
+    const opts = [0, 3, 6, 12, 24].map(n => {
+      const label = n === 0 ? '不分期' : `${n} 期`;
+      return `<button type="button" class="sheet-chip${sh.installment === n ? ' active' : ''}" data-action="installment" data-val="${n}">${label}</button>`;
+    }).join('');
+    let info = '';
+    if (sh.installment > 1 && sh.amount) {
+      const total = parseFloat(sh.amount) || 0;
+      const n = sh.installment;
+      const perPeriod = Math.floor(total / n);
+      const last = total - perPeriod * (n - 1);
+      info = `<div class="sheet-installment-info">每期 NT$ ${perPeriod.toLocaleString()}${last !== perPeriod ? `，末期 NT$ ${last.toLocaleString()}` : ''}</div>`;
+    }
+    return `<div class="sheet-installment">
+      <div class="sheet-row"><label>分期</label><div class="sheet-installment-chips">${opts}</div></div>
+      ${info}
+    </div>`;
   }
 
   function buildPayExtra(sh, date, amount, settleId) {
@@ -258,6 +309,7 @@ Router.register('entry', (() => {
       _sh.role = _role; _sh.account = lastAcct(_role);
       _sh.payRole = ''; _sh.payAccount = ''; _sh.payType = '';
       _sh.autoTransfer = false; _sh.transferFrom = '';
+      _sh.installment = 0;
     } else if (kind === 'income') {
       _sh.category = '';
       _sh.role = _role; _sh.account = lastAcct(_role);
@@ -266,6 +318,7 @@ Router.register('entry', (() => {
       _sh.project = ''; _sh.projCat = ''; _sh.locked = false;
       _sh.payRole = ''; _sh.payAccount = ''; _sh.payType = '';
       _sh.autoTransfer = false; _sh.transferFrom = '';
+      _sh.installment = 0;
     } else if (kind === 'transfer') {
       const prefillRoleOut = opts.roleOut && CFG.ROLES.includes(opts.roleOut) ? opts.roleOut : _role;
       _sh.roleOut = prefillRoleOut;
@@ -332,6 +385,7 @@ Router.register('entry', (() => {
       body += `<div class="sheet-row"><label>帳戶</label>${acctSelect('sel-sheet-acct', _sh.role, _sh.account)}</div>`;
       if (_sh.kind === 'cat') {
         body += buildPaySection(_sh);
+        if (canInstallment(_sh)) body += buildInstallmentSection(_sh);
       }
     } else if (_sh.kind === 'proj') {
       const projects = Store.get().projects.filter(p => p.status === '進行中');
@@ -343,6 +397,7 @@ Router.register('entry', (() => {
       body += `<div class="sheet-row"><label>帳戶</label>${acctSelect('sel-sheet-acct', _sh.role, _sh.account)}</div>`;
 
       body += buildPaySection(_sh);
+      if (canInstallment(_sh)) body += buildInstallmentSection(_sh);
     } else if (_sh.kind === 'transfer') {
       const projects = Store.get().projects.filter(p => p.status === '進行中');
       const projLocked = !!_sh.project && (() => {
@@ -450,6 +505,14 @@ Router.register('entry', (() => {
           if (disp) { disp.textContent = `$ ${fmtAmtDisplay(cur)}`; disp.classList.toggle('zero', !cur); }
           const btn = _sheetEl.querySelector('#btn-sheet-submit');
           if (btn) btn.textContent = cur ? `✓ 記帳 NT$ ${fmtAmtDisplay(cur)}` : '✓ 記帳';
+          const infoEl = _sheetEl.querySelector('.sheet-installment-info');
+          if (infoEl && _sh.installment > 1) {
+            const total = parseFloat(cur) || 0;
+            const n = _sh.installment;
+            const pp = Math.floor(total / n);
+            const last = total - pp * (n - 1);
+            infoEl.textContent = total ? `每期 NT$ ${pp.toLocaleString()}${last !== pp ? `，末期 NT$ ${last.toLocaleString()}` : ''}` : '';
+          }
           return;
         }
 
@@ -459,6 +522,11 @@ Router.register('entry', (() => {
         if (action === 'close') closeSheet();
         else if (action === 'submit') submitSheet();
         else if (action === 'inc-cat') { _sh.category = val; renderSheet(); }
+        else if (action === 'installment') {
+          _sh.installment = parseInt(val) || 0;
+          if (_sh.installment > 1 && _sh.payAccount) _sh.autoTransfer = false;
+          renderSheet();
+        }
         else if (action === 'memo-chip') {
           _sh.memo = val;
           const inp = _sheetEl.querySelector('#inp-sheet-memo');
@@ -481,7 +549,11 @@ Router.register('entry', (() => {
       if (mainInp) mainInp.value = _date;
     });
     _sheetEl.querySelector('#inp-sheet-memo')?.addEventListener('input', e => { _sh.memo = e.target.value; });
-    _sheetEl.querySelector('#sel-sheet-acct')?.addEventListener('change', e => { _sh.account = e.target.value; });
+    _sheetEl.querySelector('#sel-sheet-acct')?.addEventListener('change', e => {
+      _sh.account = e.target.value;
+      if (!canInstallment(_sh)) _sh.installment = 0;
+      renderSheet();
+    });
 
     _sheetEl.querySelector('#sel-sheet-proj')?.addEventListener('change', e => {
       const val = e.target.value;
@@ -507,12 +579,13 @@ Router.register('entry', (() => {
         const [r, n, t] = val.split('||');
         _sh.payRole = r; _sh.payAccount = n; _sh.payType = t;
         const pi = getPaymentInfo(r, n, t);
-        if (pi && _sh.role !== r) {
+        if (pi && _sh.role !== r && !(_sh.installment > 1)) {
           _sh.autoTransfer = true;
           _sh.transferFrom = (acctsForRole(_sh.role).filter(a => a.type !== '信用卡')[0] || {}).name || '';
         } else {
           _sh.autoTransfer = false; _sh.transferFrom = '';
         }
+        if (!canInstallment(_sh)) _sh.installment = 0;
       }
       renderSheet();
     });
@@ -561,9 +634,13 @@ Router.register('entry', (() => {
 
     if (_sh.kind === 'cat') {
       if (!_sh.account) return Utils.toast('請選擇帳戶', 'warn');
-      row = [Utils.uid(), _sh.role, '日常', '', '支出', _sh.category, memoCell, date, amount, _sh.account, '', '', _sh.payRole || '', _sh.payAccount || '', ''];
+      if (_sh.installment > 1) {
+        row = buildInstallmentRows(_sh, amount, memo, date);
+      } else {
+        row = [Utils.uid(), _sh.role, '日常', '', '支出', _sh.category, memoCell, date, amount, _sh.account, '', '', _sh.payRole || '', _sh.payAccount || '', ''];
+        extra = buildPayExtra(_sh, date, amount, row[0]);
+      }
       usedRole = _sh.role; usedAcct = _sh.account;
-      extra = buildPayExtra(_sh, date, amount, row[0]);
     } else if (_sh.kind === 'income') {
       if (!_sh.category) return Utils.toast('請選擇收入分類', 'warn');
       if (!_sh.account)  return Utils.toast('請選擇帳戶', 'warn');
@@ -572,10 +649,14 @@ Router.register('entry', (() => {
     } else if (_sh.kind === 'proj') {
       if (!_sh.project) return Utils.toast('請選擇專案', 'warn');
       if (!_sh.account) return Utils.toast('請選擇帳戶', 'warn');
-      row = [Utils.uid(), _sh.role, '專案', _sh.project, '支出', (_sh.projCat || '').trim(), memoCell, date, amount,
-             _sh.account, '', '', _sh.payRole || '', _sh.payAccount || '', ''];
+      if (_sh.installment > 1) {
+        row = buildInstallmentRows(_sh, amount, memo, date);
+      } else {
+        row = [Utils.uid(), _sh.role, '專案', _sh.project, '支出', (_sh.projCat || '').trim(), memoCell, date, amount,
+               _sh.account, '', '', _sh.payRole || '', _sh.payAccount || '', ''];
+        extra = buildPayExtra(_sh, date, amount, row[0]);
+      }
       usedRole = _sh.role; usedAcct = _sh.account;
-      extra = buildPayExtra(_sh, date, amount, row[0]);
     } else if (_sh.kind === 'transfer') {
       if (!_sh.accountOut) return Utils.toast('請選擇轉出帳戶', 'warn');
       if (!_sh.accountIn)  return Utils.toast('請選擇轉入帳戶', 'warn');
@@ -590,7 +671,11 @@ Router.register('entry', (() => {
     if (btn) { btn.disabled = true; btn.textContent = '儲存中…'; }
 
     try {
-      await API.append(sid, 'Ledger!A:O', row);
+      if (Array.isArray(row[0])) {
+        for (const r of row) await API.append(sid, 'Ledger!A:O', r);
+      } else {
+        await API.append(sid, 'Ledger!A:O', row);
+      }
       if (extra) await API.append(sid, 'Ledger!A:O', extra);
       Store.invalidate();
       if (usedRole && usedAcct) localStorage.setItem(LS_LAST_ACCT(usedRole), usedAcct);

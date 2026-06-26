@@ -1080,6 +1080,9 @@ html, body {
 .sheet-adv { margin: 8px 0; border-top: 1px dashed var(--border); padding-top: 8px; }
 .sheet-adv summary { font-size: 13px; color: var(--text-muted); cursor: pointer; }
 .sheet-auto-toggle { display: flex; align-items: center; gap: 8px; font-size: 13px; margin: 8px 0; }
+.sheet-installment { margin: 8px 0; border-top: 1px dashed var(--border); padding-top: 8px; }
+.sheet-installment-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.sheet-installment-info { font-size: 12px; color: var(--text-muted); margin: 4px 0 0 0; padding-left: 2px; }
 .sheet-numpad { margin-top: 10px; }
 .sheet-submit { margin-top: 10px; }
 .entry-memo-chips { display: flex; gap: 6px; overflow-x: auto; margin: 6px 0; scrollbar-width: none; }
