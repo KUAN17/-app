@@ -331,6 +331,7 @@ Router.register('entry', (() => {
       _sh.project = '';
       _sh.category = opts.category || '';
       _sh.settleId = opts.settleId || '';
+      _sh.repayBatch = Array.isArray(opts.repayBatch) ? opts.repayBatch : null;
       if (opts.memo) _sh.memo = opts.memo;
     }
 
@@ -412,11 +413,12 @@ Router.register('entry', (() => {
             ? `<span class="sheet-static">🔒 ${_sh.roleIn}／${_sh.accountIn}</span>`
             : roleSelect('sel-in-role', _sh.roleIn) + acctSelect('sel-in-acct', _sh.roleIn, _sh.accountIn)}
         </div>
-        ${projects.length ? `<div class="sheet-row"><label>專案</label>
+        ${projects.length && !_sh.repayBatch ? `<div class="sheet-row"><label>專案</label>
           <select id="sel-tr-proj" class="form-select">
             <option value="">無（一般轉帳）</option>
             ${projects.map(p => `<option value="${p.name}"${_sh.project === p.name ? ' selected' : ''}>📁 ${p.name}</option>`).join('')}
-          </select></div>` : ''}`;
+          </select></div>` : ''}
+        ${_sh.repayBatch ? `<div class="sheet-batch-hint">全額補款 ${_sh.repayBatch.length} 期：將分別建立 ${_sh.repayBatch.length} 筆補款轉帳（總額 ${Utils.formatMoney(_sh.repayBatch.reduce((s,m)=>s+Number(m.amount||0),0))}）</div>` : ''}`;
     }
 
     const memoChips = recentMemos.length
@@ -660,9 +662,17 @@ Router.register('entry', (() => {
     } else if (_sh.kind === 'transfer') {
       if (!_sh.accountOut) return Utils.toast('請選擇轉出帳戶', 'warn');
       if (!_sh.accountIn)  return Utils.toast('請選擇轉入帳戶', 'warn');
-      const isProj = !!_sh.project;
-      row = [Utils.uid(), _sh.roleOut, isProj ? '專案' : '日常', _sh.project || '', '轉帳', _sh.category || '', memoCell, date, amount,
-             _sh.accountOut, _sh.roleIn, _sh.accountIn, '', '', _sh.settleId || ''];
+      if (_sh.repayBatch && _sh.repayBatch.length) {
+        // 全額補款：每期各建一筆轉帳，各自綁定 settleId（金額由各期帶入，不受輸入金額影響）
+        row = _sh.repayBatch.map(item => [
+          Utils.uid(), _sh.roleOut, '日常', '', '轉帳', _sh.category || '', Utils.sheetText(item.memo || memo),
+          date, Number(item.amount), _sh.accountOut, _sh.roleIn, _sh.accountIn, '', '', item.settleId || ''
+        ]);
+      } else {
+        const isProj = !!_sh.project;
+        row = [Utils.uid(), _sh.roleOut, isProj ? '專案' : '日常', _sh.project || '', '轉帳', _sh.category || '', memoCell, date, amount,
+               _sh.accountOut, _sh.roleIn, _sh.accountIn, '', '', _sh.settleId || ''];
+      }
       usedRole = _sh.roleOut; usedAcct = _sh.accountOut;
     }
 

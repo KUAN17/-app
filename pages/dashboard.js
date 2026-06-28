@@ -7,6 +7,14 @@ Router.register('dashboard', (() => {
   let _openAcct = false;
   let _openProj = true;
   let _openPay  = true;
+  let _payGroups = [];   // 分期代付分組，供「記補款」全額補款使用
+
+  // 解析分期備忘：「商品名 分期3/6」→ { base, idx, total }
+  function parseInstallment(memo) {
+    const m = (memo || '').match(/^(.*?)\s*分期(\d+)\/(\d+)$/);
+    if (!m) return null;
+    return { base: m[1].trim(), idx: parseInt(m[2]), total: parseInt(m[3]) };
+  }
 
   const COLORS = ['#5B8DEF', '#FF8A65', '#34C99A', '#FFC757', '#A78BFA', '#F472B6', '#94A3B8'];
 
@@ -328,19 +336,36 @@ Router.register('dashboard', (() => {
     if (!items.length) return '';
     items.sort((a, b) => a.date.localeCompare(b.date));
 
+    // 分期分組：同 base＋總期數＋債權人＋債務人視為同一組，供全額補款
+    _payGroups = [];
+    const gidByKey = {};
+    items.forEach(e => {
+      const pi = parseInstallment(e.memo);
+      if (!pi) return;
+      const gk = `${pi.base}||${pi.total}||${e.creditor}||${e.debtor}`;
+      if (!(gk in gidByKey)) {
+        gidByKey[gk] = _payGroups.length;
+        _payGroups.push({ creditor: e.creditor, debtor: e.debtor, members: [] });
+      }
+      e._gid = gidByKey[gk];
+      _payGroups[e._gid].members.push({ settleId: e.id, amount: e.remaining, date: e.date, memo: e.memo });
+    });
+
     const id = Utils.identity();
-    const rows = items.map(({ id: expId, creditor, debtor, date, amount, remaining, memo }) => {
+    const rows = items.map(({ id: expId, creditor, debtor, date, amount, remaining, memo, _gid }) => {
       const isMyDebt = debtor === id;
       const isMyRecv = creditor === id;
       const label = isMyDebt ? `我欠 ${creditor}` : isMyRecv ? `${debtor} 欠我` : `${debtor} 欠 ${creditor}`;
       const partial = remaining < amount ? `（剩 ${Utils.formatMoney(remaining)}）` : '';
       const sub = `${date.slice(5)}${memo ? ' · ' + memo : ''}${partial}`;
       const repayMemo = `補款／${date.slice(5)}${memo ? ' ' + memo : ''}`;
+      const grouped = _gid !== undefined && _payGroups[_gid].members.length > 1;
       const payBtn = `<button type="button" class="dash-repay-btn"
         data-creditor="${creditor.replace(/"/g, '&quot;')}"
         data-debtor="${debtor.replace(/"/g, '&quot;')}"
         data-amount="${remaining}"
         data-settle="${(expId || '').replace(/"/g, '&quot;')}"
+        data-group="${grouped ? _gid : ''}"
         data-memo="${repayMemo.replace(/"/g, '&quot;')}">記補款 →</button>`;
       return `<div class="dash-acct-row dash-pay-row">
         <div class="dash-pay-info">
@@ -494,16 +519,12 @@ Router.register('dashboard', (() => {
     });
     el.querySelectorAll('.dash-repay-btn').forEach(btn => {
       btn.addEventListener('click', () => {
-        localStorage.setItem('ff_entry_prefill', JSON.stringify({
-          type: '轉帳',
-          roleOut: btn.dataset.debtor,
-          roleIn: btn.dataset.creditor,
-          amount: btn.dataset.amount,
-          category: CFG.CAT_REPAYMENT,
-          settleId: btn.dataset.settle || '',
-          memo: btn.dataset.memo || ''
-        }));
-        Router.go('entry');
+        const gid = btn.dataset.group;
+        if (gid !== '' && gid !== undefined && _payGroups[parseInt(gid)]?.members.length > 1) {
+          showRepayChooser(btn, _payGroups[parseInt(gid)]);
+        } else {
+          prefillSingleRepay(btn);
+        }
       });
     });
     document.getElementById('dash-col-acct')?.addEventListener('toggle', e => { _openAcct = e.target.open; });
@@ -512,6 +533,59 @@ Router.register('dashboard', (() => {
     el.querySelectorAll('.proj-card').forEach(c =>
       c.addEventListener('click', () => Router.go('projects'))
     );
+  }
+
+  function prefillSingleRepay(btn) {
+    localStorage.setItem('ff_entry_prefill', JSON.stringify({
+      type: '轉帳',
+      roleOut: btn.dataset.debtor,
+      roleIn: btn.dataset.creditor,
+      amount: btn.dataset.amount,
+      category: CFG.CAT_REPAYMENT,
+      settleId: btn.dataset.settle || '',
+      memo: btn.dataset.memo || ''
+    }));
+    Router.go('entry');
+  }
+
+  function prefillBatchRepay(g) {
+    const total = g.members.reduce((s, m) => s + m.amount, 0);
+    localStorage.setItem('ff_entry_prefill', JSON.stringify({
+      type: '轉帳',
+      roleOut: g.debtor,
+      roleIn: g.creditor,
+      category: CFG.CAT_REPAYMENT,
+      amount: total,
+      repayBatch: g.members.map(m => ({
+        settleId: m.settleId,
+        amount: m.amount,
+        memo: `補款／${m.date.slice(5)} ${m.memo}`
+      }))
+    }));
+    Router.go('entry');
+  }
+
+  // 分期代付的補款方式選擇：補這期 vs 補全部剩餘
+  function showRepayChooser(btn, g) {
+    const single = Number(btn.dataset.amount) || 0;
+    const total = g.members.reduce((s, m) => s + m.amount, 0);
+    const n = g.members.length;
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.innerHTML = `<div class="modal-card">
+      <div class="modal-title">補款方式</div>
+      <p class="section-hint">這筆是分期代付，共有 ${n} 期未補。</p>
+      <div class="modal-actions" style="flex-direction:column;align-items:stretch;gap:8px">
+        <button class="btn btn-outline" id="repay-one">補這期　${Utils.formatMoney(single)}</button>
+        <button class="btn btn-primary" id="repay-all">補全部剩餘 ${n} 期　${Utils.formatMoney(total)}</button>
+        <button class="btn btn-outline btn-sm" id="repay-cancel">取消</button>
+      </div>
+    </div>`;
+    document.body.appendChild(modal);
+    modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+    document.getElementById('repay-cancel').addEventListener('click', () => modal.remove());
+    document.getElementById('repay-one').addEventListener('click', () => { modal.remove(); prefillSingleRepay(btn); });
+    document.getElementById('repay-all').addEventListener('click', () => { modal.remove(); prefillBatchRepay(g); });
   }
 
   return { render, onMount };

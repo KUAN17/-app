@@ -220,17 +220,18 @@ Router.register('ledger', (() => {
     // 轉帳與專案支出分類可留空；其他類型仍需分類
     if (!category && !isTransfer && tx.dimension !== '專案') return Utils.toast('請選擇分類', 'warn');
 
+    // 保留 M/N/O（payRole、payAccount、settleId），避免編輯代付支出時抹掉代付資訊與補款綁定
     const row = [
       tx.id, tx.roleOut, tx.dimension, tx.projectTag,
       tx.type, category, Utils.sheetText(memo), date, amount, accountOut,
-      roleIn, accountIn
+      roleIn, accountIn, tx.payRole || '', tx.payAccount || '', tx.settleId || ''
     ];
 
     const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID);
     const saveBtn = document.getElementById('btn-save-edit');
     if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = '儲存中…'; }
     try {
-      await API.updateRange(sid, `Ledger!A${tx._row}:L${tx._row}`, [row]);
+      await API.updateRange(sid, `Ledger!A${tx._row}:O${tx._row}`, [row]);
       Store.invalidate();
       await Store.load(true);
       modal.remove();
@@ -242,18 +243,69 @@ Router.register('ledger', (() => {
     }
   }
 
+  // 解析分期備忘：「商品名 分期3/6」→ { base:'商品名', idx:3, total:6 }
+  function parseInstallment(memo) {
+    const m = (memo || '').match(/^(.*?)\s*分期(\d+)\/(\d+)$/);
+    if (!m) return null;
+    return { base: m[1].trim(), idx: parseInt(m[2]), total: parseInt(m[3]) };
+  }
+  // 找出綁定此支出的補款轉帳（settleId 指向該筆）
+  function linkedRepays(expId) {
+    if (!expId) return [];
+    return Store.get().ledger.filter(t =>
+      t.type === '轉帳' && t.category === CFG.CAT_REPAYMENT && t.settleId === expId);
+  }
+  // 找出同組分期的所有支出（同 base、同總期數、同帳戶/代付/專案/分類）
+  function installmentSiblings(tx, inst) {
+    return Store.get().ledger.filter(t => {
+      if (t.type !== '支出') return false;
+      const pi = parseInstallment(t.memo);
+      if (!pi) return false;
+      return pi.base === inst.base && pi.total === inst.total &&
+        t.roleOut === tx.roleOut && t.accountOut === tx.accountOut &&
+        (t.payAccount || '') === (tx.payAccount || '') &&
+        (t.projectTag || '') === (tx.projectTag || '') &&
+        (t.category || '') === (tx.category || '');
+    });
+  }
+
   async function deleteTx(tx, modal) {
-    if (!confirm(`確定刪除這筆記錄？\n${tx.date} ${tx.category} ${Utils.formatMoney(tx.amount)}`)) return;
+    let toDelete = [tx];
+    const inst = tx.type === '支出' ? parseInstallment(tx.memo) : null;
+
+    if (inst) {
+      const siblings = installmentSiblings(tx, inst);
+      if (siblings.length > 1) {
+        if (!confirm(`這是分期記錄（${inst.idx}/${inst.total}），共 ${siblings.length} 筆。\n刪除將移除整組 ${siblings.length} 期及其補款。要繼續嗎？`)) return;
+        toDelete = siblings;
+      } else {
+        if (!confirm(`確定刪除這筆記錄？\n${tx.date} ${tx.memo || tx.category} ${Utils.formatMoney(tx.amount)}`)) return;
+      }
+    } else {
+      if (!confirm(`確定刪除這筆記錄？\n${tx.date} ${tx.category} ${Utils.formatMoney(tx.amount)}`)) return;
+    }
+
+    // 連帶刪除：每筆代付支出綁定的補款轉帳
+    const repays = [];
+    toDelete.forEach(e => { if (e.type === '支出') repays.push(...linkedRepays(e.id)); });
+
+    // 以 _row 去重，由大到小排序逐筆刪（單次 batchUpdate 依序執行，先刪大列號不影響小列號）
+    const byRow = new Map([...toDelete, ...repays].map(r => [r._row, r]));
+    const rowsDesc = [...byRow.keys()].sort((a, b) => b - a);
+
     const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID);
     const sheetId = Store.getSheetId('Ledger');
     Utils.showLoading(true);
     try {
-      await API.deleteRow(sid, sheetId, tx._row - 1);
+      await API.batchUpdate(sid, rowsDesc.map(r => ({
+        deleteDimension: { range: { sheetId, dimension: 'ROWS', startIndex: r - 1, endIndex: r } }
+      })));
       Store.invalidate();
       await Store.load(true);
       modal.remove();
       refreshList();
-      Utils.toast('已刪除', 'success');
+      const n = rowsDesc.length;
+      Utils.toast(n > 1 ? `已刪除 ${n} 筆` : '已刪除', 'success');
     } catch (e) {
       Utils.toast('刪除失敗：' + e.message, 'error');
     } finally {
