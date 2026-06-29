@@ -64,7 +64,8 @@ Router.register('dashboard', (() => {
     let income = 0, expense = 0;
     txs.forEach(tx => {
       if (tx.type === '收入' && set.has(tx.roleOut)) income  += tx.amount;
-      if (tx.type === '支出' && set.has(tx.roleOut)) expense += tx.amount;
+      // 繳卡費（信用卡費）是還債非消費，刷卡當下已計入支出，不重複計算
+      if (tx.type === '支出' && tx.category !== CFG.CAT_CARD_BILL && set.has(tx.roleOut)) expense += tx.amount;
     });
     return { income, expense };
   }
@@ -72,7 +73,7 @@ Router.register('dashboard', (() => {
   function catData(txs, topN = 5) {
     const set = new Set(scopeRoles());
     const map = {};
-    txs.filter(t => t.type === '支出' && set.has(t.roleOut))
+    txs.filter(t => t.type === '支出' && t.category !== CFG.CAT_CARD_BILL && set.has(t.roleOut))
        .forEach(t => {
          const c = t.category || (t.projectTag ? `📁${t.projectTag}` : '未分類');
          map[c] = (map[c] || 0) + t.amount;
