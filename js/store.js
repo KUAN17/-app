@@ -209,7 +209,11 @@ window.Store = (() => {
     _data.ledger.forEach(tx => {
       if (normBase && tx.date < normBase) return;
       if (isCC) {
-        // 信用卡＝累積消費：只累加刷卡金額，還款/轉入/收入皆不影響
+        // 信用卡＝未繳卡債：刷卡累加，轉帳入卡（繳費）扣減，繳清後歸零
+        if (tx.type === '轉帳' || tx.type === '公積金提撥') {
+          if (tx.roleIn === role && tx.accountIn === accountName) balance -= tx.amount;
+          return;
+        }
         if (tx.type !== '支出') return;
         if (tx.payAccount) {
           if (tx.payAccount === accountName && (!tx.payRole || tx.payRole === role)) balance += tx.amount;
@@ -244,13 +248,14 @@ window.Store = (() => {
         map[`${role}||${a.name}`] = { bal: a.balance, base: (a.baseDate || '').replace(/-/g, '/'), isCC: a.type === '信用卡' };
       });
     });
-    // kind: 'charge'=刷卡消費（加進信用卡累積）, 'in'=收入/轉入, 'out'=轉出
+    // kind: 'charge'=刷卡消費, 'in'=收入, 'tin'=轉帳轉入, 'out'=轉出
     function apply(role, name, date, amt, kind) {
       const e = map[`${role}||${name}`];
       if (!e || (e.base && date < e.base)) return;
       if (e.isCC) {
-        // 信用卡＝累積消費：只累加刷卡金額，還款/轉入/收入皆不影響
+        // 信用卡＝未繳卡債：刷卡累加，轉帳入卡（繳費）扣減，繳清後歸零
         if (kind === 'charge') e.bal += -amt; // amt 為負，轉成正的消費額
+        else if (kind === 'tin') e.bal -= amt; // 繳費金額，卡債減少
         return;
       }
       e.bal += amt;
@@ -273,7 +278,7 @@ window.Store = (() => {
         }
       } else if (tx.type === '轉帳' || tx.type === '公積金提撥') {
         apply(tx.roleOut, tx.accountOut, tx.date, -tx.amount, 'out');
-        apply(tx.roleIn, tx.accountIn, tx.date, tx.amount, 'in');
+        apply(tx.roleIn, tx.accountIn, tx.date, tx.amount, 'tin');
       }
     });
     const res = {};
