@@ -63,9 +63,11 @@ Router.register('dashboard', (() => {
     const set = new Set(scopeRoles());
     let income = 0, expense = 0;
     txs.forEach(tx => {
-      if (tx.type === '收入' && set.has(tx.roleOut)) income  += tx.amount;
-      // 繳卡費（信用卡費）是還債非消費，刷卡當下已計入支出，不重複計算
-      if (tx.type === '支出' && tx.category !== CFG.CAT_CARD_BILL && set.has(tx.roleOut)) expense += tx.amount;
+      if (!set.has(tx.roleOut)) return;
+      // 排除非真實收支：信用卡費是還債（刷卡當下已計入）、調帳是對帳校正非消費
+      if (tx.category === CFG.CAT_CARD_BILL || tx.category === CFG.CAT_ADJUST) return;
+      if (tx.type === '收入') income  += tx.amount;
+      if (tx.type === '支出') expense += tx.amount;
     });
     return { income, expense };
   }
@@ -73,7 +75,7 @@ Router.register('dashboard', (() => {
   function catData(txs, topN = 5) {
     const set = new Set(scopeRoles());
     const map = {};
-    txs.filter(t => t.type === '支出' && t.category !== CFG.CAT_CARD_BILL && set.has(t.roleOut))
+    txs.filter(t => t.type === '支出' && t.category !== CFG.CAT_CARD_BILL && t.category !== CFG.CAT_ADJUST && set.has(t.roleOut))
        .forEach(t => {
          const c = t.category || (t.projectTag ? `📁${t.projectTag}` : '未分類');
          map[c] = (map[c] || 0) + t.amount;
