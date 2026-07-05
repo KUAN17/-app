@@ -259,7 +259,10 @@ Router.register('entry', (() => {
 
   function shiftMonth(dateStr, months) {
     const [y, m, d] = dateStr.split('/').map(Number);
-    const dt = new Date(y, m - 1 + months, d);
+    // 先定位目標月，再把日期夾在該月最後一天內，避免月底購買跳月（1/31+1月 → 2/28 而非 3/3）
+    const first = new Date(y, m - 1 + months, 1);
+    const lastDay = new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate();
+    const dt = new Date(first.getFullYear(), first.getMonth(), Math.min(d, lastDay));
     return `${dt.getFullYear()}/${String(dt.getMonth()+1).padStart(2,'0')}/${String(dt.getDate()).padStart(2,'0')}`;
   }
 
