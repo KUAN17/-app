@@ -709,16 +709,70 @@ Router.register('settings', (() => {
     Utils.el('btn-add-member')?.addEventListener('click', addMember);
   }
 
-  async function renameMember(i) {
+  // 成員新增/改名共用的輸入 modal（取代原生 prompt/confirm，互動語言統一）
+  function memberModal({ title, name = '', type = 'personal', showType = true, hint = '', okLabel = '確認', onOk }) {
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.innerHTML = `<div class="modal-card">
+      <div class="modal-title">${title}</div>
+      <div class="form-row">
+        <label>名稱</label>
+        <input type="text" id="inp-member-name" class="form-input" value="${name.replace(/"/g, '&quot;')}" placeholder="例如：爸爸、小孩" autocomplete="off">
+      </div>
+      ${showType ? `<div class="form-row">
+        <label>類型</label>
+        <div class="proj-type-toggle">
+          <button type="button" class="proj-type-btn${type !== 'shared' ? ' active' : ''}" id="mtype-personal">個人</button>
+          <button type="button" class="proj-type-btn${type === 'shared' ? ' active' : ''}" id="mtype-shared">🏠 共享</button>
+        </div>
+        <p class="input-hint">共享＝全家共同的錢包（如家用、房貸專戶）</p>
+      </div>` : ''}
+      ${hint ? `<p class="input-hint" style="margin-bottom:12px">${hint}</p>` : ''}
+      <div class="modal-actions">
+        <button class="btn btn-primary btn-sm" id="btn-member-ok">${okLabel}</button>
+        <button class="btn btn-outline btn-sm" id="btn-member-cancel">取消</button>
+      </div>
+    </div>`;
+    document.body.appendChild(modal);
+    modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+    if (showType) {
+      ['personal', 'shared'].forEach(k => Utils.el(`mtype-${k}`).addEventListener('click', () => {
+        Utils.el('mtype-personal').classList.toggle('active', k === 'personal');
+        Utils.el('mtype-shared').classList.toggle('active', k === 'shared');
+      }));
+    }
+    Utils.el('btn-member-cancel').addEventListener('click', () => modal.remove());
+    Utils.el('btn-member-ok').addEventListener('click', () => {
+      const nm = (Utils.el('inp-member-name').value || '').trim();
+      if (!nm) return Utils.toast('請輸入名稱', 'warn');
+      const tp = showType && Utils.el('mtype-shared').classList.contains('active') ? 'shared' : 'personal';
+      modal.remove();
+      onOk(nm, tp);
+    });
+  }
+
+  function renameMember(i) {
+    const oldName = Store.members()[i].name;
+    const refCount = Store.get().ledger.filter(tx =>
+      tx.roleOut === oldName || tx.roleIn === oldName || tx.payRole === oldName).length;
+    memberModal({
+      title: `成員改名（${oldName}）`,
+      name: oldName,
+      showType: false,
+      hint: refCount ? `儲存後將同步更新帳本 ${refCount} 筆紀錄、帳戶設定、專案歸屬與身份設定。` : '',
+      okLabel: '改名並同步',
+      onOk: newName => doRenameMember(i, newName)
+    });
+  }
+
+  async function doRenameMember(i, newName) {
     const ms = Store.members().map(m => ({ ...m }));
     const oldName = ms[i].name;
-    const newName = (prompt(`成員改名：「${oldName}」改為`, oldName) || '').trim();
     if (!newName || newName === oldName) return;
     if (ms.some(m => m.name === newName)) return Utils.toast('名稱與現有成員重複', 'warn');
 
     const { ledger, projects } = Store.get();
     const refs = ledger.filter(tx => tx.roleOut === oldName || tx.roleIn === oldName || tx.payRole === oldName);
-    if (!confirm(`「${oldName}」→「${newName}」\n將同步更新帳本 ${refs.length} 筆紀錄、帳戶設定、專案歸屬與身份設定。繼續？`)) return;
 
     const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID) || CFG.SHEET_ID;
     Utils.showLoading(true);
@@ -763,35 +817,39 @@ Router.register('settings', (() => {
     }
   }
 
-  async function addMember() {
-    const name = (prompt('新成員名稱（例如：小孩、爸爸）') || '').trim();
-    if (!name) return;
-    if (Store.members().some(m => m.name === name)) return Utils.toast('名稱與現有成員重複', 'warn');
-    const shared = confirm('要設為「共享角色」嗎？\n\n確定＝共享（全家共同錢包，如家用）\n取消＝個人成員');
-    const ms = [...Store.members().map(m => ({ ...m })), { name, type: shared ? 'shared' : 'personal' }];
-    Utils.showLoading(true);
-    try {
-      await Store.saveMembers(ms);
-      _acctState[name] = _acctState[name] || [];
-      Store.invalidate();
-      renderIdentityRow();
-      renderMemberSection();
-      renderAccountMgmt();
-      Utils.toast(`已新增成員「${name}」，可至帳戶管理新增其帳戶`, 'success');
-    } catch (e) {
-      Utils.toast('新增失敗：' + e.message, 'error');
-    } finally {
-      Utils.showLoading(false);
-    }
+  function addMember() {
+    memberModal({
+      title: '新增成員',
+      okLabel: '新增',
+      onOk: async (name, type) => {
+        if (Store.members().some(m => m.name === name)) return Utils.toast('名稱與現有成員重複', 'warn');
+        const ms = [...Store.members().map(m => ({ ...m })), { name, type }];
+        Utils.showLoading(true);
+        try {
+          await Store.saveMembers(ms);
+          _acctState[name] = _acctState[name] || [];
+          Store.invalidate();
+          renderIdentityRow();
+          renderMemberSection();
+          renderAccountMgmt();
+          Utils.toast(`已新增成員「${name}」，可至帳戶管理新增其帳戶`, 'success');
+        } catch (e) {
+          Utils.toast('新增失敗：' + e.message, 'error');
+        } finally {
+          Utils.showLoading(false);
+        }
+      }
+    });
   }
 
+  // 直接刪除＋Undo Toast（有引用時擋下）
   async function deleteMember(i) {
-    const ms = Store.members().map(m => ({ ...m }));
+    const before = Store.members().map(m => ({ ...m }));
+    const ms = before.map(m => ({ ...m }));
     const name = ms[i].name;
     const refs = Store.get().ledger.filter(tx => tx.roleOut === name || tx.roleIn === name || tx.payRole === name).length;
     const accts = (Store.get().accounts[name] || []).length;
     if (refs || accts) return Utils.toast(`「${name}」仍有 ${refs} 筆帳本紀錄、${accts} 個帳戶，請先處理後再刪除`, 'warn');
-    if (!confirm(`刪除成員「${name}」？`)) return;
     ms.splice(i, 1);
     Utils.showLoading(true);
     try {
@@ -800,7 +858,24 @@ Router.register('settings', (() => {
       renderIdentityRow();
       renderMemberSection();
       renderAccountMgmt();
-      Utils.toast('成員已刪除', 'success');
+      Utils.toast(`已刪除成員「${name}」`, 'success', {
+        actionLabel: '復原',
+        onAction: async () => {
+          Utils.showLoading(true);
+          try {
+            await Store.saveMembers(before);
+            Store.invalidate();
+            renderIdentityRow();
+            renderMemberSection();
+            renderAccountMgmt();
+            Utils.toast('已復原', 'success');
+          } catch (e) {
+            Utils.toast('復原失敗：' + e.message, 'error');
+          } finally {
+            Utils.showLoading(false);
+          }
+        }
+      });
     } catch (e) {
       Utils.toast('刪除失敗：' + e.message, 'error');
     } finally {

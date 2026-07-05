@@ -13,7 +13,16 @@ Router.register('ledger', (() => {
     if (_filter.role) rows = rows.filter(tx => tx.roleOut === _filter.role);
     if (_filter.type) rows = rows.filter(tx => tx.type === _filter.type);
 
-    if (rows.length === 0) return `<p class="empty-hint">無符合記錄</p>`;
+    if (rows.length === 0) {
+      // 完全沒有記帳 → 引導 CTA；有資料但篩選無結果 → 一般提示
+      return ledger.length === 0
+        ? `<div class="empty-cta">
+            <div class="empty-cta-icon">📒</div>
+            <p>還沒有任何記帳</p>
+            <button class="btn btn-primary" id="btn-empty-entry">記下第一筆 →</button>
+          </div>`
+        : `<p class="empty-hint">無符合記錄</p>`;
+    }
 
     const hasMore = rows.length > _limit;
     if (hasMore) rows = rows.slice(0, _limit);
@@ -85,6 +94,7 @@ Router.register('ledger', (() => {
       _limit += PAGE_SIZE;
       refreshList();
     });
+    Utils.el('btn-empty-entry')?.addEventListener('click', () => Router.go('entry'));
   }
 
   function showDetail(id) {
@@ -301,20 +311,20 @@ Router.register('ledger', (() => {
     });
   }
 
+  // 還原用：tx 物件 → 15 欄列
+  function txToRow(t) {
+    return [t.id, t.roleOut, t.dimension, t.projectTag, t.type, t.category,
+            Utils.sheetText(t.memo), t.date, t.amount, t.accountOut,
+            t.roleIn, t.accountIn, t.payRole, t.payAccount, t.settleId];
+  }
+
+  // 直接刪除＋Undo Toast（取代 confirm）：分期整組、綁定補款自動連帶
   async function deleteTx(tx, modal) {
     let toDelete = [tx];
     const inst = tx.type === '支出' ? parseInstallment(tx.memo) : null;
-
     if (inst) {
       const siblings = installmentSiblings(tx, inst);
-      if (siblings.length > 1) {
-        if (!confirm(`這是分期記錄（${inst.idx}/${inst.total}），共 ${siblings.length} 筆。\n刪除將移除整組 ${siblings.length} 期及其補款。要繼續嗎？`)) return;
-        toDelete = siblings;
-      } else {
-        if (!confirm(`確定刪除這筆記錄？\n${tx.date} ${tx.memo || tx.category} ${Utils.formatMoney(tx.amount)}`)) return;
-      }
-    } else {
-      if (!confirm(`確定刪除這筆記錄？\n${tx.date} ${tx.category} ${Utils.formatMoney(tx.amount)}`)) return;
+      if (siblings.length > 1) toDelete = siblings;
     }
 
     // 連帶刪除：每筆代付支出綁定的補款轉帳
@@ -324,6 +334,7 @@ Router.register('ledger', (() => {
     // 以 _row 去重，由大到小排序逐筆刪（單次 batchUpdate 依序執行，先刪大列號不影響小列號）
     const byRow = new Map([...toDelete, ...repays].map(r => [r._row, r]));
     const rowsDesc = [...byRow.keys()].sort((a, b) => b - a);
+    const backup = [...byRow.values()].sort((a, b) => a._row - b._row).map(txToRow);
 
     const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID);
     Utils.showLoading(true);
@@ -337,8 +348,28 @@ Router.register('ledger', (() => {
       await Store.load(true);
       modal.remove();
       refreshList();
+
       const n = rowsDesc.length;
-      Utils.toast(n > 1 ? `已刪除 ${n} 筆` : '已刪除', 'success');
+      const msg = toDelete.length > 1
+        ? `已刪除整組分期 ${n} 筆`
+        : (n > 1 ? `已刪除（含補款共 ${n} 筆）` : `已刪除 ${tx.memo || tx.category} ${Utils.formatMoney(tx.amount)}`);
+      Utils.toast(msg, 'success', {
+        actionLabel: '復原',
+        onAction: async () => {
+          Utils.showLoading(true);
+          try {
+            await API.append(sid, 'Ledger!A:O', backup); // 多列單次寫回
+            Store.invalidate();
+            await Store.load(true);
+            refreshList();
+            Utils.toast('已復原', 'success');
+          } catch (e) {
+            Utils.toast('復原失敗：' + e.message, 'error');
+          } finally {
+            Utils.showLoading(false);
+          }
+        }
+      });
     } catch (e) {
       Utils.toast('刪除失敗：' + e.message, 'error');
     } finally {

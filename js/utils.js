@@ -61,12 +61,42 @@ window.Utils = {
     return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
   },
 
-  toast(msg, type = 'info') {
+  // opts.actionLabel + opts.onAction：顯示動作按鈕（如「復原」），取代 confirm 彈窗的 Undo 模式
+  toast(msg, type = 'info', opts = {}) {
     const el = document.getElementById('toast');
     if (!el) return;
+    clearTimeout(this._toastTimer);
     el.textContent = msg;
+    if (opts.actionLabel && typeof opts.onAction === 'function') {
+      const btn = document.createElement('button');
+      btn.className = 'toast-action';
+      btn.textContent = opts.actionLabel;
+      btn.addEventListener('click', () => {
+        clearTimeout(this._toastTimer);
+        el.classList.remove('show');
+        opts.onAction();
+      });
+      el.appendChild(btn);
+    }
     el.className = `toast toast-${type} show`;
-    setTimeout(() => el.classList.remove('show'), 2800);
+    this._toastTimer = setTimeout(() => el.classList.remove('show'),
+      opts.duration || (opts.actionLabel ? 6000 : 2800));
+  },
+
+  // 信用卡帳單週期（billing 頁與 dashboard 待辦卡共用）
+  billingWindows(today, billingDay, dueDay) {
+    const bd = billingDay || 15;
+    const dd = dueDay || 25;
+    const y = today.getFullYear(), m = today.getMonth(), d = today.getDate();
+    const pastEnd   = d >= bd ? new Date(y, m, bd) : new Date(y, m - 1, bd);
+    const pastStart = new Date(new Date(pastEnd.getFullYear(), pastEnd.getMonth() - 1, bd).getTime() + 86400000);
+    const pastDue   = new Date(pastEnd.getFullYear(), pastEnd.getMonth() + 1, dd);
+    const curStart  = new Date(pastEnd.getTime() + 86400000);
+    const curEnd    = new Date(pastEnd.getFullYear(), pastEnd.getMonth() + 1, bd);
+    return {
+      past:    { start: pastStart, end: pastEnd, due: pastDue },
+      current: { start: curStart,  end: curEnd }
+    };
   },
 
   showLoading(show = true) {

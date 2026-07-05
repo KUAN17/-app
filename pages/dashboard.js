@@ -18,6 +18,14 @@ Router.register('dashboard', (() => {
 
   const COLORS = ['#5B8DEF', '#FF8A65', '#34C99A', '#FFC757', '#A78BFA', '#F472B6', '#94A3B8'];
 
+  // 分類固定色：已知分類查表，未知（📁專案等）以名稱雜湊取固定色，跨月份顏色不變
+  function colorFor(label) {
+    if (CFG.CAT_COLORS[label]) return CFG.CAT_COLORS[label];
+    let h = 0;
+    for (const ch of String(label)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+    return COLORS[h % COLORS.length];
+  }
+
   function scopeRoles() {
     const id = Utils.identity();
     if (_scope === '我的') return Store.isShared(id) ? [id] : [id, ...Store.sharedRoleNames()];
@@ -166,10 +174,10 @@ Router.register('dashboard', (() => {
     const r = (size - stroke) / 2;
     const c = 2 * Math.PI * r;
     let offset = 0;
-    const segs = entries.map(([, amt], i) => {
+    const segs = entries.map(([cat, amt]) => {
       const dash = amt / total * c;
       const s = `<circle r="${r}" cx="${size/2}" cy="${size/2}" fill="none"
-        stroke="${COLORS[i % COLORS.length]}" stroke-width="${stroke}"
+        stroke="${colorFor(cat)}" stroke-width="${stroke}"
         stroke-dasharray="${dash.toFixed(2)} ${(c - dash).toFixed(2)}"
         stroke-dashoffset="${(-offset).toFixed(2)}" stroke-linecap="butt"
         transform="rotate(-90 ${size/2} ${size/2})"/>`;
@@ -181,8 +189,8 @@ Router.register('dashboard', (() => {
 
   function catListHtml(entries, total) {
     if (!entries.length) return '<p class="empty-hint">本期無支出</p>';
-    return entries.map(([cat, amt, sub], i) => {
-      const color = COLORS[i % COLORS.length];
+    return entries.map(([cat, amt, sub]) => {
+      const color = colorFor(cat);
       const rowInner = `
         <span class="dash-catl-dot" style="background:${color}"></span>
         <span class="dash-catl-name">${cat}</span>
@@ -348,7 +356,8 @@ Router.register('dashboard', (() => {
   }
 
   // ── 代付往來 ──────────────────────────────────────────────────────────────
-  function payablesCollapse(ledger) {
+  // 未結清代付清單（payablesCollapse 與待辦卡共用）
+  function computePayables(ledger) {
     // 逐筆列出未結清的代付支出；代付補款轉帳依「債務人→債權人」FIFO（先借先還）沖銷
     const expById = {};    // 支出 ID → 該筆代付支出
     const expByPair = {};  // `creditor||debtor` → [代付支出…]
@@ -390,8 +399,13 @@ Router.register('dashboard', (() => {
     });
 
     const items = Object.values(expById).filter(e => e.remaining >= 1);
-    if (!items.length) return '';
     items.sort((a, b) => a.date.localeCompare(b.date));
+    return items;
+  }
+
+  function payablesCollapse(ledger) {
+    const items = computePayables(ledger);
+    if (!items.length) return '';
 
     // 分期分組：同 base＋總期數＋債權人＋債務人視為同一組，供全額補款
     _payGroups = [];
@@ -449,6 +463,49 @@ Router.register('dashboard', (() => {
       <summary>代付往來<span class="dash-collapse-badge">${badge}</span></summary>
       <div class="dash-collapse-body"><div class="card dash-acct-card">${rows}</div></div>
     </details>`;
+  }
+
+  // ── 待辦卡：信用卡未繳＋未結代付，最需要行動的資訊放最上面 ──────────────────
+  function todoCard(ledger) {
+    const rows = [];
+    const today = new Date();
+    const fmt = d => `${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}`;
+
+    Store.allAccountsFlat().filter(a => a.type === '信用卡').forEach(a => {
+      const w = Utils.billingWindows(today, a.billingDate, a.dueDate);
+      const ps = fmt(w.past.start), pe = fmt(w.past.end), due = fmt(w.past.due);
+      const spent = ledger.filter(tx =>
+        (tx.accountOut === a.name || tx.payAccount === a.name) &&
+        tx.type === '支出' && tx.date >= ps && tx.date <= pe).reduce((s, t) => s + t.amount, 0);
+      const paid = ledger.filter(tx =>
+        tx.accountIn === a.name && tx.type === '轉帳' &&
+        tx.date > pe && tx.date <= due).reduce((s, t) => s + t.amount, 0);
+      const remain = spent - paid;
+      if (remain < 1) return;
+      const daysLeft = Math.ceil((w.past.due - today) / 86400000);
+      rows.push(`<div class="dash-todo-row">
+        <span class="dash-todo-icon">💳</span>
+        <span class="dash-todo-txt">${a.name}<small>${daysLeft < 0 ? '⚠ 已逾期' : daysLeft + ' 天後截止'}</small></span>
+        <span class="dash-todo-amt">${Utils.formatMoney(remain)}</span>
+        <button class="dash-todo-btn" data-act="todo-pay"
+          data-role="${a.role.replace(/"/g, '&quot;')}" data-name="${a.name.replace(/"/g, '&quot;')}"
+          data-amount="${remain}">去繳費</button>
+      </div>`);
+    });
+
+    const pays = computePayables(ledger);
+    if (pays.length) {
+      const sum = pays.reduce((s, x) => s + x.remaining, 0);
+      rows.push(`<div class="dash-todo-row">
+        <span class="dash-todo-icon">🤝</span>
+        <span class="dash-todo-txt">未結代付<small>${pays.length} 筆</small></span>
+        <span class="dash-todo-amt">${Utils.formatMoney(sum)}</span>
+        <button class="dash-todo-btn" data-act="todo-payables">查看</button>
+      </div>`);
+    }
+
+    if (!rows.length) return '';
+    return `<div class="card dash-todo-card">${rows.join('')}</div>`;
   }
 
   // ── 版型一：分析版（環圈圖為主角） ─────────────────────────────────────────
@@ -550,10 +607,17 @@ Router.register('dashboard', (() => {
       ? buildV1(ledger, accounts, investments, balances)
       : buildV2(ledger, accounts, investments, balances);
 
+    const emptyCta = !ledger.length ? `<div class="card empty-cta">
+      <div class="empty-cta-icon">👋</div>
+      <p>歡迎！從第一筆記帳開始</p>
+      <button class="btn btn-primary" data-act="goto-entry">記下第一筆 →</button>
+    </div>` : '';
+
     el.innerHTML = `<div class="page-inner">
       ${topRow()}
       ${navRow()}
-      ${main}
+      ${todoCard(ledger)}
+      ${emptyCta || main}
       ${acctCollapse(accounts, balances, warnings)}
       ${payablesCollapse(ledger)}
       ${projCollapse(projects)}
@@ -563,6 +627,20 @@ Router.register('dashboard', (() => {
     el.querySelectorAll('[data-act]').forEach(btn => {
       btn.addEventListener('click', () => {
         const { act, val } = btn.dataset;
+        if (act === 'goto-entry') { Router.go('entry'); return; }
+        if (act === 'todo-pay') {
+          localStorage.setItem('ff_entry_prefill', JSON.stringify({
+            type: '轉帳', roleIn: btn.dataset.role, accountIn: btn.dataset.name, amount: btn.dataset.amount
+          }));
+          Router.go('entry');
+          return;
+        }
+        if (act === 'todo-payables') {
+          _openPay = true;
+          renderAll();
+          document.getElementById('dash-col-pay')?.scrollIntoView({ behavior: 'smooth' });
+          return;
+        }
         if (act === 'role')   _scope  = val;
         if (act === 'period') _period = val;
         if (act === 'prev-m') shiftMonth(-1);

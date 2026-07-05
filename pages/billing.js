@@ -23,8 +23,13 @@ Router.register('billing', (() => {
     const roles = Object.keys(byRole);
     if (!roles.length) {
       el.innerHTML = `<div class="page-inner">
-        <p class="empty-hint" style="margin-top:32px">尚無信用卡帳戶。<br>請至設定 → 帳戶管理新增帳戶，並將類型設為「信用卡」。</p>
+        <div class="empty-cta" style="margin-top:32px">
+          <div class="empty-cta-icon">💳</div>
+          <p>尚無信用卡帳戶<br><span class="label-sm">新增帳戶並將類型設為「信用卡」，即可管理帳單週期</span></p>
+          <button class="btn btn-primary" id="btn-goto-settings">前往帳戶管理 →</button>
+        </div>
       </div>`;
+      Utils.el('btn-goto-settings')?.addEventListener('click', () => Router.go('settings'));
       return;
     }
 
@@ -63,23 +68,6 @@ Router.register('billing', (() => {
     return `${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}`;
   }
 
-  function getBillingWindows(today, billingDay, dueDay) {
-    const bd = billingDay || 15;
-    const dd = dueDay || 25;
-    const y = today.getFullYear(), m = today.getMonth(), d = today.getDate();
-
-    const pastEnd   = d >= bd ? new Date(y, m, bd) : new Date(y, m - 1, bd);
-    const pastStart = new Date(new Date(pastEnd.getFullYear(), pastEnd.getMonth() - 1, bd).getTime() + 86400000);
-    const pastDue   = new Date(pastEnd.getFullYear(), pastEnd.getMonth() + 1, dd);
-    const curStart  = new Date(pastEnd.getTime() + 86400000);
-    const curEnd    = new Date(pastEnd.getFullYear(), pastEnd.getMonth() + 1, bd);
-
-    return {
-      past:    { start: pastStart, end: pastEnd, due: pastDue },
-      current: { start: curStart,  end: curEnd }
-    };
-  }
-
   function filterTxs(ledger, acctName, startStr, endStr) {
     return ledger
       .filter(tx =>
@@ -101,7 +89,7 @@ Router.register('billing', (() => {
   }
 
   function renderCard(acct, ledger, today, baseIdx) {
-    const { past, current } = getBillingWindows(today, acct.billingDate, acct.dueDate);
+    const { past, current } = Utils.billingWindows(today, acct.billingDate, acct.dueDate);
     const todayStr  = fmtDate(today);
     const safeName  = acct.name.replace(/"/g, '&quot;');
 

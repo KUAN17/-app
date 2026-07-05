@@ -8,6 +8,7 @@ Router.register('entry', (() => {
   };
   const LS_LAST_ROLE = 'ff_entry_role';
   const LS_LAST_ACCT = r => `ff_entry_acct_${r}`;
+  const LS_LAST_CAT  = 'ff_entry_cat';
 
   let _el = null;
   let _role = '';
@@ -126,7 +127,14 @@ Router.register('entry', (() => {
     } catch {}
 
     renderMain();
-    if (prefill?.type === '轉帳') openSheet('transfer', prefill);
+    if (prefill?.type === '轉帳') {
+      openSheet('transfer', prefill);
+    } else {
+      // 三秒記帳：進頁直接開表單（上次分類），關閉表單即可回到分類磚牆
+      const saved = localStorage.getItem(LS_LAST_CAT);
+      const cat = CFG.CATEGORIES['支出'].includes(saved) ? saved : catOrder(_role)[0];
+      if (cat) openSheet('cat', { category: cat });
+    }
   }
 
   // ── 主畫面 ────────────────────────────────────────────────────────────────
@@ -386,6 +394,11 @@ Router.register('entry', (() => {
 
     let body = '';
     if (_sh.kind === 'cat' || _sh.kind === 'income') {
+      if (_sh.kind === 'cat') {
+        body += `<div class="sheet-cat-chips sheet-cat-scroll">${catOrder(_sh.role).map(c =>
+          `<button type="button" class="sheet-chip${_sh.category === c ? ' active' : ''}" data-action="cat-switch" data-val="${c}">${CAT_ICONS[c] || ''} ${c}</button>`
+        ).join('')}</div>`;
+      }
       if (_sh.kind === 'income') {
         body += `<div class="sheet-cat-chips">${CFG.CATEGORIES['收入'].map(c =>
           `<button type="button" class="sheet-chip${_sh.category === c ? ' active' : ''}" data-action="inc-cat" data-val="${c}">${CAT_ICONS[c] || ''} ${c}</button>`
@@ -533,6 +546,7 @@ Router.register('entry', (() => {
         if (action === 'close') closeSheet();
         else if (action === 'submit') submitSheet();
         else if (action === 'inc-cat') { _sh.category = val; renderSheet(); }
+        else if (action === 'cat-switch') { _sh.category = val; renderSheet(); }
         else if (action === 'installment') {
           _sh.installment = parseInt(val) || 0;
           if (_sh.installment > 1 && _sh.payAccount) _sh.autoTransfer = false;
@@ -696,6 +710,7 @@ Router.register('entry', (() => {
       await API.append(sid, 'Ledger!A:O', allRows);
       Store.invalidate();
       if (usedRole && usedAcct) localStorage.setItem(LS_LAST_ACCT(usedRole), usedAcct);
+      if (_sh.kind === 'cat' && _sh.category) localStorage.setItem(LS_LAST_CAT, _sh.category);
       Utils.toast('記帳成功！', 'success');
       closeSheet();
       _date = todayISO();

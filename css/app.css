@@ -882,7 +882,12 @@ html, body {
   font-size: 14px; font-weight: 500; z-index: 200;
   opacity: 0; transition: opacity .2s, transform .2s; pointer-events: none; white-space: nowrap;
 }
-#toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+#toast.show { opacity: 1; transform: translateX(-50%) translateY(0); pointer-events: auto; }
+.toast-action {
+  background: none; border: none; color: #7EB3FF; font-weight: 700;
+  font-size: 14px; margin-left: 12px; cursor: pointer; padding: 0;
+}
+#toast.toast-warn .toast-action { color: var(--primary); }
 #toast.toast-success { background: #059669; }
 #toast.toast-warn { background: var(--warning); color: var(--text); }
 #toast.toast-error { background: var(--danger); }
@@ -1093,6 +1098,30 @@ html, body {
 .acct-cur-label { color: var(--text-muted); }
 .acct-cur-row b { font-size: 15px; }
 .acct-cur-date { margin-left: auto; font-size: 11px; color: var(--text-muted); }
+
+/* dashboard 待辦卡（信用卡未繳/未結代付） */
+.dash-todo-card { padding: 4px 14px; }
+.dash-todo-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid var(--border); }
+.dash-todo-row:first-child { border-top: none; }
+.dash-todo-icon { font-size: 18px; flex-shrink: 0; }
+.dash-todo-txt { font-size: 14px; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; flex-direction: column; }
+.dash-todo-txt small { font-size: 11px; font-weight: 400; color: var(--text-muted); }
+.dash-todo-amt { margin-left: auto; font-weight: 700; color: var(--danger); flex-shrink: 0; }
+.dash-todo-btn {
+  flex-shrink: 0; border: none; background: var(--primary); color: #fff;
+  border-radius: 8px; padding: 7px 12px; font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.dash-todo-btn:active { opacity: .75; }
+
+/* 記帳表單內：分類橫向切換列 */
+.sheet-cat-scroll { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+.sheet-cat-scroll::-webkit-scrollbar { display: none; }
+.sheet-cat-scroll .sheet-chip { flex-shrink: 0; }
+
+/* 空狀態引導 */
+.empty-cta { text-align: center; padding: 36px 16px; }
+.empty-cta-icon { font-size: 44px; margin-bottom: 8px; }
+.empty-cta p { color: var(--text-muted); font-size: 15px; margin-bottom: 16px; line-height: 1.6; }
 
 /* 設定頁：成員管理 */
 .member-row { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-top: 1px solid var(--border); }

@@ -463,8 +463,8 @@ Router.register('projects', (() => {
     }
   }
 
+  // 直接結案＋Undo Toast（取代 confirm）
   async function closeProject(name) {
-    if (!confirm(`確定將「${name}」結案？`)) return;
     const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID);
     const { projects } = Store.get();
     const idx = projects.findIndex(p => p.name === name);
@@ -475,7 +475,23 @@ Router.register('projects', (() => {
       Store.invalidate();
       await Store.load(true);
       await onMount();
-      Utils.toast('已結案', 'success');
+      Utils.toast(`「${name}」已結案`, 'success', {
+        actionLabel: '復原',
+        onAction: async () => {
+          Utils.showLoading(true);
+          try {
+            await API.updateRange(sid, `Projects!A${idx + 2}`, [['進行中']]);
+            Store.invalidate();
+            await Store.load(true);
+            await onMount();
+            Utils.toast('已復原', 'success');
+          } catch (e) {
+            Utils.toast('復原失敗：' + e.message, 'error');
+          } finally {
+            Utils.showLoading(false);
+          }
+        }
+      });
     } catch (e) {
       Utils.toast('操作失敗：' + e.message, 'error');
     } finally {
