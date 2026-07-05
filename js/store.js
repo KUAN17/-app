@@ -211,9 +211,10 @@ window.Store = (() => {
   // ── Account balance calculation ──────────────────────────────────────────
   function calcBalance(role, accountName) {
     const cfg = (_data.accounts[role] || []).find(a => a.name === accountName);
-    const initial = cfg ? cfg.balance : 0;
     const baseDate = cfg ? cfg.baseDate : '';
     const isCC = !!(cfg && cfg.type === '信用卡');
+    // 信用卡忽略期初餘額：設定當下的應繳金額現實中會繳掉，待繳純由帳本推算（基準日起）
+    const initial = isCC ? 0 : (cfg ? cfg.balance : 0);
 
     const normBase = baseDate ? baseDate.replace(/-/g, '/') : '';
     let balance = initial;
@@ -256,7 +257,9 @@ window.Store = (() => {
     const map = {};
     Object.entries(_data.accounts).forEach(([role, accts]) => {
       accts.forEach(a => {
-        map[`${role}||${a.name}`] = { bal: a.balance, base: (a.baseDate || '').replace(/-/g, '/'), isCC: a.type === '信用卡' };
+        const isCC = a.type === '信用卡';
+        // 信用卡忽略期初餘額（同 calcBalance）
+        map[`${role}||${a.name}`] = { bal: isCC ? 0 : a.balance, base: (a.baseDate || '').replace(/-/g, '/'), isCC };
       });
     });
     // kind: 'charge'=刷卡消費, 'in'=收入, 'tin'=轉帳轉入, 'out'=轉出

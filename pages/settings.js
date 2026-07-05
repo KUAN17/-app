@@ -245,13 +245,14 @@ Router.register('settings', (() => {
       <input type="text" id="inp-acct-purpose" class="form-input" placeholder="選填，例：日常消費" value="${acct.purpose||''}">
     </div>
     ${isNew ? `
-    <div class="form-row">
+    <div class="form-row" id="acct-balance-row" style="display:${t==='信用卡'?'none':'block'}">
       <label>期初餘額</label>
       <input type="number" id="inp-acct-balance2" class="form-input" placeholder="0" value="${acct.balance||0}">
     </div>
     <div class="form-row">
       <label>基準日期</label>
       <input type="date" id="inp-acct-date2" class="form-input" value="${acct.baseDate ? acct.baseDate.replace(/\//g,'-') : today}">
+      <p class="input-hint" id="acct-cc-hint" style="display:${t==='信用卡'?'block':'none'}">信用卡無需期初餘額，待繳由基準日起的刷卡與繳費自動試算。</p>
     </div>` : ''}
     <div id="cc-acct-fields" style="display:${t==='信用卡'?'block':'none'}">
       <div class="form-row">
@@ -290,6 +291,10 @@ Router.register('settings', (() => {
         ['cash','bank','cc','broker'].forEach(x => Utils.el(`atype-${x}`).classList.remove('active'));
         Utils.el(`atype-${key}`).classList.add('active');
         Utils.el('cc-acct-fields').style.display = key === 'cc' ? 'block' : 'none';
+        const balRow = Utils.el('acct-balance-row');
+        if (balRow) balRow.style.display = key === 'cc' ? 'none' : 'block';
+        const ccHint = Utils.el('acct-cc-hint');
+        if (ccHint) ccHint.style.display = key === 'cc' ? 'block' : 'none';
       });
     });
 
@@ -300,7 +305,7 @@ Router.register('settings', (() => {
       onConfirm({
         name,
         purpose:     Utils.el('inp-acct-purpose').value.trim(),
-        balance:     isNew ? (parseFloat(Utils.el('inp-acct-balance2').value) || 0) : acct.balance,
+        balance:     isNew ? (type === '信用卡' ? 0 : (parseFloat(Utils.el('inp-acct-balance2')?.value) || 0)) : acct.balance,
         baseDate:    isNew ? Utils.el('inp-acct-date2').value.replace(/-/g, '/') : acct.baseDate,
         type,
         billingDate: type === '信用卡' ? parseInt(Utils.el('inp-acct-billing').value) || 0 : 0,
