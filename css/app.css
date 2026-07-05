@@ -1084,6 +1084,16 @@ html, body {
 .sheet-installment-chips { display: flex; gap: 6px; flex-wrap: wrap; }
 .sheet-installment-info { font-size: 12px; color: var(--text-muted); margin: 4px 0 0 0; padding-left: 2px; }
 .sheet-batch-hint { font-size: 13px; color: var(--primary); background: var(--primary-light); border-radius: 8px; padding: 8px 10px; margin: 6px 0; line-height: 1.4; }
+
+/* 設定頁：帳戶目前餘額列 */
+.acct-cur-row { display: flex; align-items: baseline; gap: 8px; padding: 2px 0 6px; font-size: 13px; }
+.acct-cur-label { color: var(--text-muted); }
+.acct-cur-row b { font-size: 15px; }
+.acct-cur-date { margin-left: auto; font-size: 11px; color: var(--text-muted); }
+
+/* dashboard 分類列可點擊查看明細 */
+.dash-catl-row[data-cat], .dash-catl-sub-row[data-cat] { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.dash-catl-row[data-cat]:active, .dash-catl-sub-row[data-cat]:active { opacity: .6; }
 .sheet-numpad { margin-top: 10px; }
 .sheet-submit { margin-top: 10px; }
 .entry-memo-chips { display: flex; gap: 6px; overflow-x: auto; margin: 6px 0; scrollbar-width: none; }

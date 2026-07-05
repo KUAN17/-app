@@ -130,13 +130,36 @@ Router.register('settings', (() => {
     attachListListeners();
   }
 
+  // 該帳戶在帳本中的最後異動日（含代付扣款）
+  function lastTxDate(role, name) {
+    let d = '';
+    Store.get().ledger.forEach(tx => {
+      const hit = (tx.roleOut === role && tx.accountOut === name) ||
+                  (tx.roleIn === role && tx.accountIn === name) ||
+                  (tx.payAccount === name && (!tx.payRole || tx.payRole === role));
+      if (hit && tx.date > d) d = tx.date;
+    });
+    return d;
+  }
+
   function renderRoleList(role) {
     const visible = _acctState[role].map((a, i) => ({ ...a, _i: i })).filter(a => !a._deleted);
     if (!visible.length) return `<p class="empty-hint" style="padding:10px 0">尚無帳戶</p>`;
+    const balances = Store.calcAllBalances();
 
     return visible.map(a => {
       const typeClass = a.type === '現金' ? 'cash' : a.type === '信用卡' ? 'cc' : a.type === '證券帳戶' ? 'broker' : 'bank';
       const typeLabel = a.type || '銀行';
+      // 目前餘額＝期初＋帳本試算（含調帳校正）；未儲存的新帳戶尚無帳本紀錄，即期初值
+      const cur = a._new ? (a.balance || 0) : ((balances[role] || {})[a.name] ?? (a.balance || 0));
+      const last = a._new ? '' : lastTxDate(role, a.name);
+      const curLabel = a.type === '信用卡' ? '目前待繳' : '目前餘額';
+      const curRow = a.type === '證券帳戶' ? '' : `
+        <div class="acct-cur-row">
+          <span class="acct-cur-label">${curLabel}</span>
+          <b class="${a.type === '信用卡' ? (cur > 0 ? 'amount-out' : '') : (cur < 0 ? 'amount-out' : '')}">${cur < 0 ? '-' : ''}${Utils.formatMoney(cur)}</b>
+          ${last ? `<span class="acct-cur-date">最後異動 ${last.slice(5)}</span>` : ''}
+        </div>`;
       return `
       <div class="acct-item">
         <div class="acct-item-top">
@@ -147,6 +170,7 @@ Router.register('settings', (() => {
           <button class="btn btn-outline btn-sm acct-edit-btn" data-role="${role}" data-i="${a._i}" style="margin-left:auto">編輯</button>
           <button class="btn btn-danger btn-sm acct-del-btn" data-role="${role}" data-i="${a._i}">✕</button>
         </div>
+        ${curRow}
         <div class="acct-item-inputs">
           <input type="number" class="form-input inp-acct-balance" data-role="${role}" data-i="${a._i}"
                  value="${a.balance || ''}" placeholder="期初餘額">
@@ -417,6 +441,7 @@ Router.register('settings', (() => {
         });
         modal.remove();
         await saveAccounts(true);
+        await Store.load(true); // 重新載入，讓「目前餘額」立即反映新期初值
         renderAccountMgmt();
         return;
       }

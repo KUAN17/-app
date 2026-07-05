@@ -188,8 +188,9 @@ Router.register('dashboard', (() => {
         <span class="dash-catl-pct">${(amt / total * 100).toFixed(0)}%</span>
         <span class="dash-catl-amt">${Utils.formatMoney(amt)}</span>`;
       if (sub && sub.length) {
+        // 「其他」列本身是展開/收合，明細點擊掛在子列上
         const subRows = sub.map(([sc, sa]) => `
-          <div class="dash-catl-sub-row">
+          <div class="dash-catl-sub-row" data-cat="${sc.replace(/"/g, '&quot;')}">
             <span class="dash-catl-name">${sc}</span>
             <span class="dash-catl-pct">${(sa / total * 100).toFixed(0)}%</span>
             <span class="dash-catl-amt">${Utils.formatMoney(sa)}</span>
@@ -199,8 +200,60 @@ Router.register('dashboard', (() => {
           <div class="dash-catl-sub">${subRows}</div>
         </details>`;
       }
-      return `<div class="dash-catl-row">${rowInner}</div>`;
+      return `<div class="dash-catl-row" data-cat="${cat.replace(/"/g, '&quot;')}">${rowInner}</div>`;
     }).join('');
+  }
+
+  // ── 分類支出明細 ──────────────────────────────────────────────────────────
+  function showCatDetail(label) {
+    const { ledger } = Store.get();
+    const set = new Set(scopeRoles());
+    const txs = periodTxs(ledger).filter(t => {
+      if (t.type !== '支出' || !set.has(t.roleOut)) return false;
+      if (t.category === CFG.CAT_CARD_BILL || t.category === CFG.CAT_ADJUST) return false;
+      // 與 catData 相同的標籤規則：分類 → 📁專案 → 未分類
+      const c = t.category || (t.projectTag ? `📁${t.projectTag}` : '未分類');
+      return c === label;
+    }).sort((a, b) => b.date.localeCompare(a.date));
+
+    const total = txs.reduce((s, t) => s + t.amount, 0);
+    const [y, m] = _month.split('-').map(Number);
+    const periodLabel = _period === 'month' ? `${y}年${m}月` : `${_year}年`;
+
+    const listHtml = txs.length ? txs.map(tx => {
+      const name = tx.memo || tx.category || '（未命名）';
+      const payTag = tx.payAccount
+        ? `<span class="proj-detail-paytag">${tx.payRole || ''}${tx.payRole ? '／' : ''}${tx.payAccount} 代付</span>` : '';
+      return `<div class="proj-detail-item">
+        <div class="proj-detail-item-main">
+          <span class="proj-detail-item-name">${name}</span>
+          <span class="proj-detail-item-amt amount-out">${Utils.formatMoney(tx.amount)}</span>
+        </div>
+        <div class="proj-detail-item-sub">
+          <span>${tx.date}</span>
+          <span>· ${tx.roleOut}／${tx.accountOut}</span>
+          ${tx.projectTag ? `<span>· 📁${tx.projectTag}</span>` : ''}
+          ${payTag}
+        </div>
+      </div>`;
+    }).join('') : `<p class="empty-hint">本期無此分類支出</p>`;
+
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.innerHTML = `<div class="modal-card" style="max-height:80vh;display:flex;flex-direction:column">
+      <div class="modal-title">${label}｜${periodLabel}</div>
+      <div class="proj-detail-summary">
+        <div><span class="label-sm">合計</span><span class="amount-out">${Utils.formatMoney(total)}</span></div>
+        <div><span class="label-sm">筆數</span><span>${txs.length} 筆</span></div>
+      </div>
+      <div class="proj-detail-list" style="overflow-y:auto;flex:1">${listHtml}</div>
+      <div class="modal-actions" style="margin-top:12px">
+        <button class="btn btn-outline btn-sm" id="btn-close-cat-detail">關閉</button>
+      </div>
+    </div>`;
+    document.body.appendChild(modal);
+    modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+    Utils.el('btn-close-cat-detail').addEventListener('click', () => modal.remove());
   }
 
   function trendChart(ledger) {
@@ -529,6 +582,9 @@ Router.register('dashboard', (() => {
           prefillSingleRepay(btn);
         }
       });
+    });
+    el.querySelectorAll('[data-cat]').forEach(row => {
+      row.addEventListener('click', () => showCatDetail(row.dataset.cat));
     });
     document.getElementById('dash-col-acct')?.addEventListener('toggle', e => { _openAcct = e.target.open; });
     document.getElementById('dash-col-pay')?.addEventListener('toggle',  e => { _openPay  = e.target.open; });
