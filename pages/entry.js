@@ -415,7 +415,14 @@ Router.register('entry', (() => {
         `<option value="${r}"${r === current ? ' selected' : ''}>${r}</option>`).join('')}</select>`;
     }
 
+    // 表單內切換記帳角色（含 🏠 共享），不用關表單；專案鎖定歸屬時不顯示
     let body = '';
+    const showRoleChips = (_sh.kind === 'cat' || _sh.kind === 'income' || _sh.kind === 'proj') && !(_sh.kind === 'proj' && _sh.locked);
+    if (showRoleChips) {
+      body += `<div class="sheet-role-row">${visibleRoles().map(r =>
+        `<button type="button" class="sheet-chip sheet-role-chip${_sh.role === r ? ' active' : ''}" data-action="sheet-role" data-val="${r}">${Store.isShared(r) ? '🏠 ' : ''}${r}</button>`
+      ).join('')}</div>`;
+    }
     if (_sh.kind === 'cat' || _sh.kind === 'income') {
       if (_sh.kind === 'cat') {
         body += `<div class="sheet-cat-chips sheet-cat-scroll">${catOrder(_sh.role).map(c =>
@@ -576,6 +583,18 @@ Router.register('entry', (() => {
         else if (action === 'submit') submitSheet();
         else if (action === 'inc-cat') { _sh.category = val; renderSheet(); }
         else if (action === 'cat-switch') { _sh.category = val; renderSheet(); }
+        else if (action === 'sheet-role') {
+          _role = val;
+          localStorage.setItem(LS_LAST_ROLE, val);
+          _sh.role = val;
+          _sh.account = lastAcct(val);
+          // 角色相依狀態重置：代付/自動補款/分期依新角色重新判斷
+          _sh.payRole = ''; _sh.payAccount = ''; _sh.payType = '';
+          _sh.autoTransfer = false; _sh.transferFrom = '';
+          if (_sh.installment && !canInstallment(_sh)) _sh.installment = 0;
+          renderMain(); // 背後主畫面的角色列同步
+          renderSheet();
+        }
         else if (action === 'installment') {
           _sh.installment = parseInt(val) || 0;
           if (_sh.installment > 1 && _sh.payAccount) _sh.autoTransfer = false;

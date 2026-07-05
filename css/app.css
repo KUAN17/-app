@@ -1061,7 +1061,13 @@ html, body {
   transform: translateY(100%); transition: transform .25s ease;
 }
 .entry-sheet.open { transform: none; }
-.entry-sheet-handle { width: 44px; height: 5px; border-radius: 3px; background: #c0c4cc; margin: 0 auto 10px; touch-action: none; }
+/* 橫槓視覺 5px，但觸控熱區放大到 124×21（padding + background-clip），手指才拉得到 */
+.entry-sheet-handle {
+  width: 124px; height: 21px; box-sizing: border-box;
+  padding: 8px 40px; background-clip: content-box;
+  border-radius: 3px; background-color: #c0c4cc;
+  margin: -6px auto 4px; touch-action: none; cursor: grab;
+}
 .entry-sheet-head { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 15px; margin-bottom: 4px; touch-action: none; }
 .entry-sheet-date { margin-left: auto; font-size: 12px; color: var(--text-muted); font-weight: 500; }
 .entry-sheet-close {
@@ -1121,6 +1127,11 @@ html, body {
   transition: all .15s; white-space: nowrap;
 }
 .sheet-kind-tab.active { background: var(--card); color: var(--primary); box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+
+/* 記帳表單內：角色切換列 */
+.sheet-role-row { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; margin: 0 0 6px; }
+.sheet-role-row::-webkit-scrollbar { display: none; }
+.sheet-role-chip { flex-shrink: 0; }
 
 /* 記帳表單內：分類橫向切換列 */
 .sheet-cat-scroll { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
