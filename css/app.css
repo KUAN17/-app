@@ -531,9 +531,12 @@ html, body {
 .reconcile-diff.neg { color: var(--danger, #dc2626); }
 .reconcile-diff.match { color: var(--text-muted); font-weight: 400; }
 .acct-item:first-child { border-top: none; }
-.acct-item-top { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
-.acct-item-name { font-size: 14px; font-weight: 600; }
-.acct-item-purpose { font-size: 11px; color: var(--text-muted); background: var(--bg); border-radius: 99px; padding: 2px 8px; }
+/* 單行排版：類型/用途標籤與編輯/刪除按鈕固定位置，名稱過長以 … 截斷 */
+.acct-item-top { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: nowrap; min-width: 0; }
+.acct-item-name { font-size: 14px; font-weight: 600; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acct-item-purpose { font-size: 11px; color: var(--text-muted); background: var(--bg); border-radius: 99px; padding: 2px 8px; flex-shrink: 0; max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acct-item-top .acct-type-badge { flex-shrink: 0; }
+.acct-item-top .btn { flex-shrink: 0; white-space: nowrap; }
 .acct-item-inputs { display: flex; gap: 8px; }
 .acct-item-inputs .form-input { flex: 1; font-size: 14px; padding: 9px 12px; }
 
