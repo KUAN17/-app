@@ -1098,6 +1098,7 @@ html, body {
 .dash-catl-row[data-cat], .dash-catl-sub-row[data-cat] { cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .dash-catl-row[data-cat]:active, .dash-catl-sub-row[data-cat]:active { opacity: .6; }
 .sheet-numpad { margin-top: 10px; }
+.sheet-numpad.disabled { opacity: .35; pointer-events: none; }
 .sheet-submit { margin-top: 10px; }
 .entry-memo-chips { display: flex; gap: 6px; overflow-x: auto; margin: 6px 0; scrollbar-width: none; }
 .entry-memo-chips::-webkit-scrollbar { display: none; }

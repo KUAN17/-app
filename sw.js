@@ -1,4 +1,4 @@
-const CACHE = 'family-finance-v90';
+const CACHE = 'family-finance-v91';
 const SHELL = [
   '.', 'index.html', 'css/app.css',
   'js/config.js', 'js/utils.js', 'js/auth.js', 'js/api.js',
@@ -28,12 +28,13 @@ self.addEventListener('fetch', e => {
   if (!url.startsWith('http')) return;
   if (url.includes('googleapis.com') || url.includes('accounts.google.com')) return;
   if (!url.startsWith(self.location.origin)) return;
+  // network-first：優先抓最新版（部署後免清快取），離線或失敗才退回快取
   e.respondWith(
-    caches.match(e.request).then(hit => hit || fetch(e.request).then(res => {
+    fetch(e.request).then(res => {
       // 立即 clone：res 會被回傳給頁面消耗，延後到 caches.open resolve 後再 clone 會失敗
       const copy = res.ok ? res.clone() : null;
       if (copy) caches.open(CACHE).then(c => c.put(e.request, copy));
       return res;
-    }))
+    }).catch(() => caches.match(e.request))
   );
 });

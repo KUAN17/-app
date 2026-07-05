@@ -130,6 +130,15 @@ Router.register('settings', (() => {
     attachListListeners();
   }
 
+  // 該帳戶在帳本中被引用的筆數（轉出/轉入/代付）
+  function acctLedgerRefs(role, name) {
+    return Store.get().ledger.filter(tx =>
+      (tx.roleOut === role && tx.accountOut === name) ||
+      (tx.roleIn === role && tx.accountIn === name) ||
+      (tx.payAccount === name && (!tx.payRole || tx.payRole === role))
+    ).length;
+  }
+
   // 該帳戶在帳本中的最後異動日（含代付扣款）
   function lastTxDate(role, name) {
     let d = '';
@@ -181,7 +190,11 @@ Router.register('settings', (() => {
       btn.replaceWith(fresh);
       fresh.addEventListener('click', () => {
         const { role, i } = fresh.dataset;
-        _acctState[role][parseInt(i)]._deleted = true;
+        const acct = _acctState[role][parseInt(i)];
+        // 刪除防呆：帳本仍有引用時警告（餘額試算與代付紀錄會失去對應帳戶）
+        const refs = acctLedgerRefs(role, acct.name);
+        if (refs > 0 && !confirm(`「${acct.name}」在帳本中仍有 ${refs} 筆紀錄。\n刪除帳戶後這些紀錄仍在，但餘額試算與代付對應會失效。仍要刪除？`)) return;
+        acct._deleted = true;
         Utils.el(`acct-list-${role}`).innerHTML = renderRoleList(role);
         attachListListeners();
       });
@@ -310,7 +323,47 @@ Router.register('settings', (() => {
       title: `編輯帳戶（${role}）`,
       role,
       acct,
-      onConfirm(data) {
+      async onConfirm(data) {
+        const oldName = acct.name;
+        // 改名連動：帳本歷史（轉出/轉入/代付）、信用卡扣款設定、專案預設帳戶一併改寫，
+        // 否則舊名稱紀錄會脫鉤，餘額試算漏算歷史
+        if (!acct._new && data.name !== oldName) {
+          const refs = Store.get().ledger.filter(tx =>
+            (tx.roleOut === role && tx.accountOut === oldName) ||
+            (tx.roleIn === role && tx.accountIn === oldName) ||
+            (tx.payAccount === oldName && (!tx.payRole || tx.payRole === role)));
+          if (!confirm(`帳戶改名「${oldName}」→「${data.name}」\n將同步更新帳本 ${refs.length} 筆紀錄與相關設定，並立即儲存。繼續？`)) return;
+
+          const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID) || CFG.SHEET_ID;
+          Utils.showLoading(true);
+          try {
+            const updates = [];
+            refs.forEach(tx => {
+              if (tx.roleOut === role && tx.accountOut === oldName) updates.push({ range: `Ledger!J${tx._row}`, values: [[data.name]] });
+              if (tx.roleIn === role && tx.accountIn === oldName)   updates.push({ range: `Ledger!L${tx._row}`, values: [[data.name]] });
+              if (tx.payAccount === oldName && (!tx.payRole || tx.payRole === role)) updates.push({ range: `Ledger!N${tx._row}`, values: [[data.name]] });
+            });
+            if (updates.length) await API.batchUpdateValues(sid, updates);
+
+            const projUpd = Store.get().projects
+              .filter(p => p.ownerRole === role && p.defaultAccount === oldName)
+              .map(p => ({ range: `Projects!N${p._row}`, values: [[data.name]] }));
+            if (projUpd.length) await API.batchUpdateValues(sid, projUpd);
+
+            // 同角色信用卡的扣款帳戶引用
+            _acctState[role].forEach(a => { if (a.paymentAccount === oldName) a.paymentAccount = data.name; });
+            _acctState[role][idx] = { ...acct, ...data };
+            await saveAccounts();
+            await Store.load(true);
+            renderAccountMgmt();
+            Utils.toast(`已改名並同步 ${updates.length} 筆帳本紀錄`, 'success');
+          } catch (e) {
+            Utils.toast('改名同步失敗：' + e.message, 'error');
+          } finally {
+            Utils.showLoading(false);
+          }
+          return;
+        }
         _acctState[role][idx] = { ...acct, ...data };
         Utils.el(`acct-list-${role}`).innerHTML = renderRoleList(role);
         attachListListeners();
@@ -456,9 +509,7 @@ Router.register('settings', (() => {
       btn.disabled = true; btn.textContent = '儲存中…';
       Utils.showLoading(true);
       try {
-        for (const row of ledgerRows) {
-          await API.append(sid, 'Ledger!A:O', row);
-        }
+        await API.append(sid, 'Ledger!A:O', ledgerRows); // 多列單次寫入
         Store.invalidate();
         await Store.load(true);
         modal.remove();

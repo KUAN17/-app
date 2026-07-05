@@ -398,7 +398,9 @@ Router.register('dashboard', (() => {
     items.forEach(e => {
       const pi = parseInstallment(e.memo);
       if (!pi) return;
-      const gk = `${pi.base}||${pi.total}||${e.creditor}||${e.debtor}`;
+      // 新資料以 ID 前綴（gid-i期數）精準分組，舊資料退回備忘＋雙方比對
+      const gm = (e.id || '').match(/^(.+)-i\d+$/);
+      const gk = gm ? `id:${gm[1]}` : `${pi.base}||${pi.total}||${e.creditor}||${e.debtor}`;
       if (!(gk in gidByKey)) {
         gidByKey[gk] = _payGroups.length;
         _payGroups.push({ creditor: e.creditor, debtor: e.debtor, members: [] });

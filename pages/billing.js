@@ -134,13 +134,17 @@ Router.register('billing', (() => {
     const pastSpending = pastTxs.reduce((s, tx) => s + tx.amount, 0);
     const pastListId   = `cc-tx-${baseIdx * 2 + 1}`;
 
-    const paymentTx = ledger.find(tx =>
+    // 已繳金額＝期間內所有轉帳入卡的合計，與帳單金額比對（支援部分繳費）
+    const payments = ledger.filter(tx =>
       tx.accountIn === acct.name && tx.type === '轉帳' &&
       tx.date > pastEndStr && tx.date <= fmtDate(past.due)
     );
+    const paidSum = payments.reduce((s, tx) => s + tx.amount, 0);
+    const lastPayDate = payments.reduce((m, tx) => tx.date > m ? tx.date : m, '');
+    const remain = pastSpending - paidSum;
 
     let pastSection;
-    if (paymentTx) {
+    if ((pastSpending > 0 || paidSum > 0) && remain <= 0) {
       pastSection = `
         <div class="cc-period-section cc-period-past">
           <div class="cc-period-header">
@@ -150,7 +154,7 @@ Router.register('billing', (() => {
           </div>
           <div class="cc-amount" style="color:var(--text-muted)">${Utils.formatMoney(pastSpending)}</div>
           <div class="cc-due-row">
-            <span class="cc-auto-pay">轉帳 ${Utils.formatMoney(paymentTx.amount)} · ${paymentTx.date.slice(5)}</span>
+            <span class="cc-auto-pay">轉帳合計 ${Utils.formatMoney(paidSum)}${lastPayDate ? ' · ' + lastPayDate.slice(5) : ''}</span>
           </div>
         </div>`;
     } else {
@@ -166,7 +170,10 @@ Router.register('billing', (() => {
             <span class="cc-period-range">${pastStartStr.slice(5)} ～ ${pastEndStr.slice(5)}</span>
             <span class="cc-status ${statusClass}">${statusText}</span>
           </div>
-          <div class="cc-amount">${Utils.formatMoney(pastSpending)}</div>
+          <div class="cc-amount">${Utils.formatMoney(remain)}</div>
+          ${paidSum > 0 ? `<div class="cc-due-row">
+            <span class="label-sm">帳單 ${Utils.formatMoney(pastSpending)}，已繳 ${Utils.formatMoney(paidSum)}</span>
+          </div>` : ''}
           <div class="cc-due-row">
             <span class="label-sm">繳費截止</span>
             <span>${fmtDate(past.due)}</span>
@@ -175,7 +182,7 @@ Router.register('billing', (() => {
             ${pastTxs.length ? `<button class="btn btn-outline btn-sm cc-expand-btn"
                 data-idx="${baseIdx * 2 + 1}" data-count="${pastTxs.length}">展開明細（${pastTxs.length}）</button>` : ''}
             <button class="btn btn-primary btn-sm cc-pay-btn"
-                data-role="${acct.role}" data-name="${safeName}" data-amount="${pastSpending}">前往繳費 →</button>
+                data-role="${acct.role}" data-name="${safeName}" data-amount="${remain}">前往繳費 →</button>
           </div>
           ${txListHtml(pastTxs, pastListId)}
         </div>`;

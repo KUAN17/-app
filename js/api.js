@@ -30,10 +30,20 @@ window.API = (() => {
     return (data.valueRanges || []).map(vr => vr.values || []);
   }
 
-  async function append(sheetId, range, row) {
+  async function append(sheetId, range, rowOrRows) {
+    // 支援單列（1D）或多列（2D）：多列以單一請求寫入，避免逐筆中斷留下半組資料
+    const values = Array.isArray(rowOrRows[0]) ? rowOrRows : [rowOrRows];
     return req(
       `${base}/${sheetId}/values/${encodeURIComponent(range)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
-      { method: 'POST', body: JSON.stringify({ values: [row] }) }
+      { method: 'POST', body: JSON.stringify({ values }) }
+    );
+  }
+
+  // 一次更新多個不連續 range：data = [{ range, values }]
+  async function batchUpdateValues(sheetId, data) {
+    return req(
+      `${base}/${sheetId}/values:batchUpdate`,
+      { method: 'POST', body: JSON.stringify({ valueInputOption: 'USER_ENTERED', data }) }
     );
   }
 
@@ -72,5 +82,5 @@ window.API = (() => {
     }]);
   }
 
-  return { getRange, batchGet, append, updateRange, batchUpdate, getSheetMeta, deleteRow };
+  return { getRange, batchGet, append, updateRange, batchUpdate, batchUpdateValues, getSheetMeta, deleteRow };
 })();

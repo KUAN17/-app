@@ -312,6 +312,13 @@ window.Store = (() => {
     return s ? s.id : null;
   }
 
+  // 快取路徑下 load() 不會抓 sheet meta；刪除列等操作前先確保已載入
+  async function ensureSheetMeta() {
+    if (_sheetMeta.length) return;
+    const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID) || CFG.SHEET_ID;
+    if (sid) _sheetMeta = await API.getSheetMeta(sid);
+  }
+
   function get() { return _data; }
   function isDirty() { return _dirty; }
 
@@ -363,5 +370,5 @@ window.Store = (() => {
     return true;
   }
 
-  return { load, invalidate, calcBalance, calcAllBalances, accountsForRole, brokersForRole, allAccountsFlat, getSheetId, get, isDirty, loadIdentity, saveIdentity };
+  return { load, invalidate, calcBalance, calcAllBalances, accountsForRole, brokersForRole, allAccountsFlat, getSheetId, ensureSheetMeta, get, isDirty, loadIdentity, saveIdentity };
 })();

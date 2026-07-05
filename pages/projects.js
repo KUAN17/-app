@@ -428,11 +428,22 @@ Router.register('projects', (() => {
     if (newBudget <= 0) return Utils.toast('請輸入金額', 'warn');
     if (!ownerRole)  return Utils.toast('請選擇費用歸屬角色', 'warn');
 
+    // 改名連動：帳本 projectTag 一併改寫，否則已花費/已補代付/明細會因名稱脫鉤而歸零
+    const renamed = newName !== oldProj.name;
+    const tagRefs = renamed
+      ? Store.get().ledger.filter(tx => tx.projectTag === oldProj.name)
+      : [];
+    if (renamed && tagRefs.length &&
+        !confirm(`專案改名「${oldProj.name}」→「${newName}」\n將同步更新帳本 ${tagRefs.length} 筆紀錄的專案標籤。繼續？`)) return;
+
     const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID);
     const saveBtn = Utils.el('btn-save-edit-proj');
     if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = '儲存中…'; }
     try {
       await API.updateRange(sid, `Projects!B${sheetRow}:C${sheetRow}`, [[newName, newBudget]]);
+      if (tagRefs.length) {
+        await API.batchUpdateValues(sid, tagRefs.map(tx => ({ range: `Ledger!D${tx._row}`, values: [[newName]] })));
+      }
       await API.updateRange(sid, `Projects!M${sheetRow}:N${sheetRow}`, [[ownerRole, defaultAcct]]);
       if (isLoan) {
         const monthly   = parseFloat(Utils.el('inp-edit-monthly').value) || 0;

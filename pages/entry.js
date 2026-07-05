@@ -260,12 +260,15 @@ Router.register('entry', (() => {
     const dim  = sh.kind === 'proj' ? '專案' : '日常';
     const proj = sh.kind === 'proj' ? (sh.project || '') : '';
     const cat  = sh.kind === 'proj' ? (sh.projCat || '').trim() : sh.category;
+    // 同組分期共用 gid，各期 ID 為「gid-i期數」：刪除連動與全額補款以 ID 前綴精準分組，
+    // 不受備忘重複/留空/事後修改影響
+    const gid = Utils.uid();
     const rows = [];
     for (let i = 0; i < n; i++) {
       const amt = i === n - 1 ? totalAmount - perPeriod * (n - 1) : perPeriod;
       const instMemo = Utils.sheetText(`${memo ? memo + ' ' : ''}分期${i+1}/${n}`);
       const instDate = i === 0 ? date : shiftMonth(date, i);
-      rows.push([Utils.uid(), sh.role, dim, proj, '支出', cat, instMemo, instDate, amt,
+      rows.push([`${gid}-i${i+1}`, sh.role, dim, proj, '支出', cat, instMemo, instDate, amt,
                   sh.account, '', '', sh.payRole || '', sh.payAccount || '', '']);
     }
     return rows;
@@ -446,7 +449,7 @@ Router.register('entry', (() => {
       <div class="sheet-row"><label>備忘</label>
         <input type="text" id="inp-sheet-memo" class="form-input" placeholder="選填" value="${(_sh.memo || '').replace(/"/g, '&quot;')}" autocomplete="off">
       </div>
-      <div class="numpad-keys sheet-numpad">
+      <div class="numpad-keys sheet-numpad${_sh.repayBatch ? ' disabled' : ''}">
         ${['1','2','3','4','5','6','7','8','9','.','0','⌫'].map(k =>
           `<button type="button" class="numpad-key${k === '⌫' ? ' numpad-del' : ''}" data-key="${k}">${k}</button>`).join('')}
       </div>
@@ -497,6 +500,7 @@ Router.register('entry', (() => {
 
         const key = e.target.closest('[data-key]');
         if (key) {
+          if (_sh.repayBatch) return; // 全額補款金額由各期帶入，不可手動修改
           const k = key.dataset.key;
           let cur = _sh.amount || '';
           if (k === '⌫') cur = cur.slice(0, -1);
@@ -681,12 +685,10 @@ Router.register('entry', (() => {
     if (btn) { btn.disabled = true; btn.textContent = '儲存中…'; }
 
     try {
-      if (Array.isArray(row[0])) {
-        for (const r of row) await API.append(sid, 'Ledger!A:O', r);
-      } else {
-        await API.append(sid, 'Ledger!A:O', row);
-      }
-      if (extra) await API.append(sid, 'Ledger!A:O', extra);
+      // 單一請求寫入全部列（分期/批次補款/代付＋自動補款），不會中斷留下半組資料
+      const allRows = Array.isArray(row[0]) ? [...row] : [row];
+      if (extra) allRows.push(extra);
+      await API.append(sid, 'Ledger!A:O', allRows);
       Store.invalidate();
       if (usedRole && usedAcct) localStorage.setItem(LS_LAST_ACCT(usedRole), usedAcct);
       Utils.toast('記帳成功！', 'success');

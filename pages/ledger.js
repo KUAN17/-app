@@ -136,6 +136,25 @@ Router.register('ledger', (() => {
       `<option value="${a.replace(/"/g,'&quot;')}"${a === tx.accountOut ? ' selected' : ''}>${a}</option>`
     ).join('');
 
+    // 支出可編輯代付來源（記錯代付帳戶時不必刪掉重記）
+    let payField = '';
+    if (!isTransfer && tx.type === '支出') {
+      const payOpts = Store.allAccountsFlat()
+        .filter(a => a.type !== '證券帳戶')
+        .map(a => {
+          const v = `${a.role}||${a.name}`;
+          const cur = tx.payAccount === a.name && (!tx.payRole || tx.payRole === a.role);
+          return `<option value="${v.replace(/"/g,'&quot;')}"${cur ? ' selected' : ''}>${a.role}／${a.name}</option>`;
+        }).join('');
+      payField = `
+        <div class="form-row">
+          <label>代付帳戶</label>
+          <select id="edit-pay" class="form-select">
+            <option value="">不使用代付</option>${payOpts}
+          </select>
+        </div>`;
+    }
+
     let transferFields = '';
     if (isTransfer) {
       const roleInOpts = CFG.ROLES.map(r =>
@@ -180,6 +199,7 @@ Router.register('ledger', (() => {
           ${acctOutOptions || `<option value="${tx.accountOut}">${tx.accountOut}</option>`}
         </select>
       </div>
+      ${payField}
       ${transferFields}
       <div class="form-row">
         <label>備忘</label>
@@ -220,11 +240,17 @@ Router.register('ledger', (() => {
     // 轉帳與專案支出分類可留空；其他類型仍需分類
     if (!category && !isTransfer && tx.dimension !== '專案') return Utils.toast('請選擇分類', 'warn');
 
-    // 保留 M/N/O（payRole、payAccount、settleId），避免編輯代付支出時抹掉代付資訊與補款綁定
+    // M/N 代付欄：支出可經下拉修改；其餘保留原值。O settleId 一律保留補款綁定
+    let payRole = tx.payRole || '', payAccount = tx.payAccount || '';
+    const paySel = document.getElementById('edit-pay');
+    if (paySel) {
+      if (!paySel.value) { payRole = ''; payAccount = ''; }
+      else [payRole, payAccount] = paySel.value.split('||');
+    }
     const row = [
       tx.id, tx.roleOut, tx.dimension, tx.projectTag,
       tx.type, category, Utils.sheetText(memo), date, amount, accountOut,
-      roleIn, accountIn, tx.payRole || '', tx.payAccount || '', tx.settleId || ''
+      roleIn, accountIn, payRole, payAccount, tx.settleId || ''
     ];
 
     const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID);
@@ -255,10 +281,16 @@ Router.register('ledger', (() => {
     return Store.get().ledger.filter(t =>
       t.type === '轉帳' && t.category === CFG.CAT_REPAYMENT && t.settleId === expId);
   }
-  // 找出同組分期的所有支出（同 base、同總期數、同帳戶/代付/專案/分類）
+  // 找出同組分期的所有支出。新資料以 ID 前綴（gid-i期數）精準分組；
+  // 舊資料退回備忘比對（同 base、同總期數、同帳戶/代付/專案/分類）
   function installmentSiblings(tx, inst) {
+    const gm = (tx.id || '').match(/^(.+)-i\d+$/);
+    if (gm) {
+      return Store.get().ledger.filter(t => t.id.startsWith(`${gm[1]}-i`));
+    }
     return Store.get().ledger.filter(t => {
       if (t.type !== '支出') return false;
+      if (/-i\d+$/.test(t.id || '')) return false; // 新制資料不與舊制混組
       const pi = parseInstallment(t.memo);
       if (!pi) return false;
       return pi.base === inst.base && pi.total === inst.total &&
@@ -294,9 +326,10 @@ Router.register('ledger', (() => {
     const rowsDesc = [...byRow.keys()].sort((a, b) => b - a);
 
     const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID);
-    const sheetId = Store.getSheetId('Ledger');
     Utils.showLoading(true);
     try {
+      await Store.ensureSheetMeta(); // 快取路徑下 meta 可能尚未載入
+      const sheetId = Store.getSheetId('Ledger');
       await API.batchUpdate(sid, rowsDesc.map(r => ({
         deleteDimension: { range: { sheetId, dimension: 'ROWS', startIndex: r - 1, endIndex: r } }
       })));
