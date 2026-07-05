@@ -198,7 +198,8 @@ Router.register('settings', (() => {
 
   function _acctTypeModal(opts) {
     // Shared HTML builder for add/edit account modal
-    const { title, acct, role, onConfirm } = opts;
+    // isNew：新增帳戶需填期初餘額；編輯不顯示（餘額校正一律走「對帳校正」）
+    const { title, acct, role, onConfirm, isNew } = opts;
     const modal = document.createElement('div');
     modal.className = 'modal-overlay';
     const today = new Date().toISOString().slice(0, 10);
@@ -222,6 +223,7 @@ Router.register('settings', (() => {
       <label>主要用途</label>
       <input type="text" id="inp-acct-purpose" class="form-input" placeholder="選填，例：日常消費" value="${acct.purpose||''}">
     </div>
+    ${isNew ? `
     <div class="form-row">
       <label>期初餘額</label>
       <input type="number" id="inp-acct-balance2" class="form-input" placeholder="0" value="${acct.balance||0}">
@@ -229,7 +231,7 @@ Router.register('settings', (() => {
     <div class="form-row">
       <label>基準日期</label>
       <input type="date" id="inp-acct-date2" class="form-input" value="${acct.baseDate ? acct.baseDate.replace(/\//g,'-') : today}">
-    </div>
+    </div>` : ''}
     <div id="cc-acct-fields" style="display:${t==='信用卡'?'block':'none'}">
       <div class="form-row">
         <label>帳單結帳日（每月幾號）</label>
@@ -277,8 +279,8 @@ Router.register('settings', (() => {
       onConfirm({
         name,
         purpose:     Utils.el('inp-acct-purpose').value.trim(),
-        balance:     parseFloat(Utils.el('inp-acct-balance2').value) || 0,
-        baseDate:    Utils.el('inp-acct-date2').value.replace(/-/g, '/'),
+        balance:     isNew ? (parseFloat(Utils.el('inp-acct-balance2').value) || 0) : acct.balance,
+        baseDate:    isNew ? Utils.el('inp-acct-date2').value.replace(/-/g, '/') : acct.baseDate,
         type,
         billingDate: type === '信用卡' ? parseInt(Utils.el('inp-acct-billing').value) || 0 : 0,
         dueDate:     type === '信用卡' ? parseInt(Utils.el('inp-acct-dueday').value) || 0 : 0,
@@ -292,6 +294,7 @@ Router.register('settings', (() => {
     _acctTypeModal({
       title: `新增帳戶（${role}）`,
       role,
+      isNew: true,
       acct: { name:'', purpose:'', balance:0, baseDate:'', type:'銀行', billingDate:0, dueDate:0, paymentAccount:'' },
       onConfirm(data) {
         _acctState[role].push({ ...data, _deleted: false, _new: true });
