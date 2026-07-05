@@ -477,10 +477,13 @@ Router.register('dashboard', (() => {
       const spent = ledger.filter(tx =>
         (tx.accountOut === a.name || tx.payAccount === a.name) &&
         tx.type === '支出' && tx.date >= ps && tx.date <= pe).reduce((s, t) => s + t.amount, 0);
+      // 結帳日後的任何繳費都算（含逾期補繳），不設截止日上限
       const paid = ledger.filter(tx =>
         tx.accountIn === a.name && tx.type === '轉帳' &&
-        tx.date > pe && tx.date <= due).reduce((s, t) => s + t.amount, 0);
-      const remain = spent - paid;
+        tx.date > pe).reduce((s, t) => s + t.amount, 0);
+      // 上期未繳不可能超過該卡總待繳（繳費日期回填到結帳日前時仍能對齊）
+      const debt = Math.max(0, Store.calcBalance(a.role, a.name));
+      const remain = Math.min(spent - paid, debt);
       if (remain < 1) return;
       const daysLeft = Math.ceil((w.past.due - today) / 86400000);
       rows.push(`<div class="dash-todo-row">

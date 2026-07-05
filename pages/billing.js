@@ -122,14 +122,15 @@ Router.register('billing', (() => {
     const pastSpending = pastTxs.reduce((s, tx) => s + tx.amount, 0);
     const pastListId   = `cc-tx-${baseIdx * 2 + 1}`;
 
-    // 已繳金額＝期間內所有轉帳入卡的合計，與帳單金額比對（支援部分繳費）
+    // 已繳金額＝結帳日後所有轉帳入卡的合計（含逾期補繳），與帳單金額比對（支援部分繳費）
     const payments = ledger.filter(tx =>
-      tx.accountIn === acct.name && tx.type === '轉帳' &&
-      tx.date > pastEndStr && tx.date <= fmtDate(past.due)
+      tx.accountIn === acct.name && tx.type === '轉帳' && tx.date > pastEndStr
     );
     const paidSum = payments.reduce((s, tx) => s + tx.amount, 0);
     const lastPayDate = payments.reduce((m, tx) => tx.date > m ? tx.date : m, '');
-    const remain = pastSpending - paidSum;
+    // 未繳額以該卡總待繳為上限（繳費日期回填到結帳日前時仍能對齊）
+    const debt = Math.max(0, Store.calcBalance(acct.role, acct.name));
+    const remain = Math.min(pastSpending - paidSum, debt);
 
     let pastSection;
     if ((pastSpending > 0 || paidSum > 0) && remain <= 0) {
