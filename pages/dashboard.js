@@ -99,19 +99,20 @@ Router.register('dashboard', (() => {
     return { entries, total };
   }
 
-  function assetInfo(accounts, investments, balances) {
+  function assetInfo(accounts, investments, balances, ledger) {
     const roles = scopeRoles();
     const set = new Set(roles);
+    const today = new Date();
     let acctSum = 0, ccDebt = 0;
     roles.forEach(role => {
       (accounts[role] || []).forEach(a => {
-        const bal = (balances[role] || {})[a.name] || 0;
         if (a.type === '信用卡') {
-          if (bal > 0) ccDebt += bal; // 欠款為正數（期初+消費-付款）
+          // 信用卡應繳＝帳單引擎所有未繳清帳單剩餘總和（含未出帳與未來分期）
+          ccDebt += Utils.cardBills(role, a, ledger, today).unpaidTotal;
           return;
         }
         if (a.type === '證券帳戶') return;
-        acctSum += bal;
+        acctSum += (balances[role] || {})[a.name] || 0;
       });
     });
     const invs = investments.filter(i => set.has(i.role));
@@ -471,28 +472,21 @@ Router.register('dashboard', (() => {
     const today = new Date();
     const fmt = d => `${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}`;
 
+    // 帳單引擎：只提醒「已出帳且未繳清」的帳單；去繳費帶該卡全部未繳合計（一次繳清）
     Store.allAccountsFlat().filter(a => a.type === '信用卡').forEach(a => {
-      const w = Utils.billingWindows(today, a.billingDate, a.dueDate);
-      const ps = fmt(w.past.start), pe = fmt(w.past.end), due = fmt(w.past.due);
-      const spent = ledger.filter(tx =>
-        (tx.accountOut === a.name || tx.payAccount === a.name) &&
-        tx.type === '支出' && tx.date >= ps && tx.date <= pe).reduce((s, t) => s + t.amount, 0);
-      // 結帳日後的任何繳費都算（含逾期補繳），不設截止日上限
-      const paid = ledger.filter(tx =>
-        tx.accountIn === a.name && tx.type === '轉帳' &&
-        tx.date > pe).reduce((s, t) => s + t.amount, 0);
-      // 上期未繳不可能超過該卡總待繳（繳費日期回填到結帳日前時仍能對齊）
-      const debt = Math.max(0, Store.calcBalance(a.role, a.name));
-      const remain = Math.min(spent - paid, debt);
-      if (remain < 1) return;
-      const daysLeft = Math.ceil((w.past.due - today) / 86400000);
+      const { issuedUnpaid } = Utils.cardBills(a.role, a, ledger, today);
+      if (!issuedUnpaid.length) return;
+      const total = issuedUnpaid.reduce((s, b) => s + b.remain, 0);
+      const oldest = issuedUnpaid[0]; // 依結帳日排序，最舊的一期
+      const daysLeft = Math.ceil((oldest.dueDate - today) / 86400000);
+      const sub = `${daysLeft < 0 ? '⚠ 已逾期' : daysLeft + ' 天後截止'}${issuedUnpaid.length > 1 ? `・含 ${issuedUnpaid.length} 期` : ''}`;
       rows.push(`<div class="dash-todo-row">
         <span class="dash-todo-icon">💳</span>
-        <span class="dash-todo-txt">${a.name}<small>${daysLeft < 0 ? '⚠ 已逾期' : daysLeft + ' 天後截止'}</small></span>
-        <span class="dash-todo-amt">${Utils.formatMoney(remain)}</span>
+        <span class="dash-todo-txt">${a.name}<small>${sub}</small></span>
+        <span class="dash-todo-amt">${Utils.formatMoney(total)}</span>
         <button class="dash-todo-btn" data-act="todo-pay"
           data-role="${a.role.replace(/"/g, '&quot;')}" data-name="${a.name.replace(/"/g, '&quot;')}"
-          data-amount="${remain}">去繳費</button>
+          data-amount="${total}">去繳費</button>
       </div>`);
     });
 
@@ -517,7 +511,7 @@ Router.register('dashboard', (() => {
     const { income, expense } = sumIO(txs);
     const net = income - expense;
     const { entries, total } = catData(txs);
-    const assets = assetInfo(accounts, investments, balances);
+    const assets = assetInfo(accounts, investments, balances, ledger);
 
     const donutBlock = `
       <div class="card dash-donut-card">
@@ -541,7 +535,7 @@ Router.register('dashboard', (() => {
           <div class="dash-mini-label">總資產</div>
           <div class="dash-mini-val">${Utils.formatMoney(assets.total)}</div>
           <div class="dash-mini-sub">帳戶 ${Utils.formatMoney(assets.acctSum)}</div>
-          ${assets.ccDebt > 0 ? `<div class="dash-cc-debt">信用卡待繳 -${Utils.formatMoney(assets.ccDebt)}</div>` : ''}
+          ${assets.ccDebt > 0 ? `<div class="dash-cc-debt">信用卡應繳 -${Utils.formatMoney(assets.ccDebt)}</div>` : ''}
         </div>
         <div class="card dash-mini-card">
           <div class="dash-mini-label">投資</div>
@@ -559,7 +553,7 @@ Router.register('dashboard', (() => {
     const { income, expense } = sumIO(txs);
     const net = income - expense;
     const { entries, total } = catData(txs, 3);
-    const assets = assetInfo(accounts, investments, balances);
+    const assets = assetInfo(accounts, investments, balances, ledger);
 
     const grid = `
       <div class="dash-grid2">
@@ -570,7 +564,7 @@ Router.register('dashboard', (() => {
         <div class="card dash-g-card">
           <div class="dash-mini-label">總資產</div>
           <div class="dash-g-val">${Utils.formatMoney(assets.total)}</div>
-          ${assets.ccDebt > 0 ? `<div class="dash-cc-debt">信用卡待繳 -${Utils.formatMoney(assets.ccDebt)}</div>` : ''}
+          ${assets.ccDebt > 0 ? `<div class="dash-cc-debt">信用卡應繳 -${Utils.formatMoney(assets.ccDebt)}</div>` : ''}
         </div>
         <div class="card dash-g-card">
           <div class="dash-mini-label">收入 / 支出</div>

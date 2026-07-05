@@ -68,15 +68,6 @@ Router.register('billing', (() => {
     return `${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}`;
   }
 
-  function filterTxs(ledger, acctName, startStr, endStr) {
-    return ledger
-      .filter(tx =>
-        (tx.accountOut === acctName || tx.payAccount === acctName) &&
-        tx.type === '支出' && tx.date >= startStr && tx.date <= endStr
-      )
-      .sort((a, b) => b.date.localeCompare(a.date));
-  }
-
   function txListHtml(txs, listId) {
     if (!txs.length) return '';
     const items = txs.map(tx => `
@@ -90,24 +81,26 @@ Router.register('billing', (() => {
 
   function renderCard(acct, ledger, today, baseIdx) {
     const { past, current } = Utils.billingWindows(today, acct.billingDate, acct.dueDate);
-    const todayStr  = fmtDate(today);
-    const safeName  = acct.name.replace(/"/g, '&quot;');
+    const safeName = acct.name.replace(/"/g, '&quot;');
+
+    // 帳單引擎：金額/已繳/狀態單一來源（FIFO 沖最舊，不看繳費日期）
+    const { bills, issuedUnpaid } = Utils.cardBills(acct.role, acct, ledger, today);
+    const unpaidSum = issuedUnpaid.reduce((s, b) => s + b.remain, 0); // 去繳費帶全卡未繳合計
 
     // ── 本期（進行中）
-    const curStartStr = fmtDate(current.start);
-    const curEndStr   = fmtDate(current.end);
-    const curTxs      = filterTxs(ledger, acct.name, curStartStr, todayStr);
-    const curSpending = curTxs.reduce((s, tx) => s + tx.amount, 0);
-    const curListId   = `cc-tx-${baseIdx * 2}`;
+    const curEndStr = fmtDate(current.end);
+    const curBill   = bills.find(b => b.end === curEndStr);
+    const curTxs    = (curBill?.txs || []).slice().sort((a, b) => b.date.localeCompare(a.date));
+    const curListId = `cc-tx-${baseIdx * 2}`;
 
     const curSection = `
       <div class="cc-period-section">
         <div class="cc-period-header">
           <span class="cc-period-label">本期</span>
-          <span class="cc-period-range">${curStartStr.slice(5)} ～ ${curEndStr.slice(5)}</span>
+          <span class="cc-period-range">${fmtDate(current.start).slice(5)} ～ ${curEndStr.slice(5)}</span>
           <span class="cc-status status-progress">進行中</span>
         </div>
-        <div class="cc-amount">${Utils.formatMoney(curSpending)}</div>
+        <div class="cc-amount">${Utils.formatMoney(curBill?.amount || 0)}</div>
         <div class="cc-actions">
           ${curTxs.length ? `<button class="btn btn-outline btn-sm cc-expand-btn"
               data-idx="${baseIdx * 2}" data-count="${curTxs.length}">展開明細（${curTxs.length}）</button>` : ''}
@@ -115,40 +108,15 @@ Router.register('billing', (() => {
         ${txListHtml(curTxs, curListId)}
       </div>`;
 
-    // ── 上期（已結算）
-    const pastStartStr = fmtDate(past.start);
-    const pastEndStr   = fmtDate(past.end);
-    const pastTxs      = filterTxs(ledger, acct.name, pastStartStr, pastEndStr);
-    const pastSpending = pastTxs.reduce((s, tx) => s + tx.amount, 0);
-    const pastListId   = `cc-tx-${baseIdx * 2 + 1}`;
-
-    // 已繳金額＝結帳日後所有轉帳入卡的合計（含逾期補繳），與帳單金額比對（支援部分繳費）
-    const payments = ledger.filter(tx =>
-      tx.accountIn === acct.name && tx.type === '轉帳' && tx.date > pastEndStr
-    );
-    const paidSum = payments.reduce((s, tx) => s + tx.amount, 0);
-    const lastPayDate = payments.reduce((m, tx) => tx.date > m ? tx.date : m, '');
-    // 未繳額以該卡總待繳為上限（繳費日期回填到結帳日前時仍能對齊）
-    const debt = Math.max(0, Store.calcBalance(acct.role, acct.name));
-    const remain = Math.min(pastSpending - paidSum, debt);
+    // ── 上期（已出帳）
+    const pastEndStr = fmtDate(past.end);
+    const pastBill   = bills.find(b => b.end === pastEndStr);
+    const pastTxs    = (pastBill?.txs || []).slice().sort((a, b) => b.date.localeCompare(a.date));
+    const pastListId = `cc-tx-${baseIdx * 2 + 1}`;
 
     let pastSection;
-    if ((pastSpending > 0 || paidSum > 0) && remain <= 0) {
-      pastSection = `
-        <div class="cc-period-section cc-period-past">
-          <div class="cc-period-header">
-            <span class="cc-period-label">上期</span>
-            <span class="cc-period-range">${pastStartStr.slice(5)} ～ ${pastEndStr.slice(5)}</span>
-            <span class="cc-status status-progress">✓ 已繳清</span>
-          </div>
-          <div class="cc-amount" style="color:var(--text-muted)">${Utils.formatMoney(pastSpending)}</div>
-          <div class="cc-due-row">
-            <span class="cc-auto-pay">轉帳合計 ${Utils.formatMoney(paidSum)}${lastPayDate ? ' · ' + lastPayDate.slice(5) : ''}</span>
-          </div>
-        </div>`;
-    } else {
-      const msLeft    = past.due - today;
-      const daysLeft  = Math.ceil(msLeft / 86400000);
+    if (pastBill && pastBill.status === '未繳清') {
+      const daysLeft  = Math.ceil((past.due - today) / 86400000);
       const statusClass = daysLeft <= 5 ? 'status-urgent' : 'status-pending';
       const statusText  = daysLeft < 0 ? '⚠ 逾期' : `${daysLeft} 天後截止`;
 
@@ -156,12 +124,12 @@ Router.register('billing', (() => {
         <div class="cc-period-section cc-period-past">
           <div class="cc-period-header">
             <span class="cc-period-label">上期</span>
-            <span class="cc-period-range">${pastStartStr.slice(5)} ～ ${pastEndStr.slice(5)}</span>
+            <span class="cc-period-range">${pastBill.start.slice(5)} ～ ${pastEndStr.slice(5)}</span>
             <span class="cc-status ${statusClass}">${statusText}</span>
           </div>
-          <div class="cc-amount">${Utils.formatMoney(remain)}</div>
-          ${paidSum > 0 ? `<div class="cc-due-row">
-            <span class="label-sm">帳單 ${Utils.formatMoney(pastSpending)}，已繳 ${Utils.formatMoney(paidSum)}</span>
+          <div class="cc-amount">${Utils.formatMoney(pastBill.remain)}</div>
+          ${pastBill.paid > 0 ? `<div class="cc-due-row">
+            <span class="label-sm">帳單 ${Utils.formatMoney(pastBill.amount)}，已繳 ${Utils.formatMoney(pastBill.paid)}</span>
           </div>` : ''}
           <div class="cc-due-row">
             <span class="label-sm">繳費截止</span>
@@ -171,16 +139,49 @@ Router.register('billing', (() => {
             ${pastTxs.length ? `<button class="btn btn-outline btn-sm cc-expand-btn"
                 data-idx="${baseIdx * 2 + 1}" data-count="${pastTxs.length}">展開明細（${pastTxs.length}）</button>` : ''}
             <button class="btn btn-primary btn-sm cc-pay-btn"
-                data-role="${acct.role}" data-name="${safeName}" data-amount="${remain}">前往繳費 →</button>
+                data-role="${acct.role}" data-name="${safeName}" data-amount="${unpaidSum}">前往繳費 →</button>
           </div>
           ${txListHtml(pastTxs, pastListId)}
         </div>`;
+    } else {
+      // 無上期帳單或已繳清
+      pastSection = `
+        <div class="cc-period-section cc-period-past">
+          <div class="cc-period-header">
+            <span class="cc-period-label">上期</span>
+            <span class="cc-period-range">${(pastBill?.start || fmtDate(past.start)).slice(5)} ～ ${pastEndStr.slice(5)}</span>
+            <span class="cc-status status-progress">${pastBill ? '✓ 已繳清' : '無消費'}</span>
+          </div>
+          <div class="cc-amount" style="color:var(--text-muted)">${Utils.formatMoney(pastBill?.amount || 0)}</div>
+          ${pastBill ? `<div class="cc-due-row">
+            <span class="cc-auto-pay">已繳 ${Utils.formatMoney(pastBill.paid)}</span>
+          </div>` : ''}
+        </div>`;
     }
+
+    // ── 更早未繳（上期之前仍未繳清的帳單，過去看不到的盲區）
+    const earlier = issuedUnpaid.filter(b => b.end < pastEndStr);
+    const earlierSection = earlier.length ? `
+      <div class="cc-period-section cc-period-past">
+        <div class="cc-period-header">
+          <span class="cc-period-label">更早未繳</span>
+          <span class="cc-status status-urgent">⚠ ${earlier.length} 期</span>
+        </div>
+        ${earlier.map(b => `<div class="cc-due-row">
+          <span class="label-sm">${b.start.slice(5)} ～ ${b.end.slice(5)}（截止 ${b.due.slice(5)}）</span>
+          <span class="amount-out">${Utils.formatMoney(b.remain)}</span>
+        </div>`).join('')}
+        <div class="cc-actions">
+          <button class="btn btn-primary btn-sm cc-pay-btn"
+              data-role="${acct.role}" data-name="${safeName}" data-amount="${unpaidSum}">一次繳清 ${Utils.formatMoney(unpaidSum)} →</button>
+        </div>
+      </div>` : '';
 
     return `<div class="card cc-card">
       <div class="cc-card-name">💳 ${acct.name}</div>
       ${curSection}
       ${pastSection}
+      ${earlierSection}
     </div>`;
   }
 

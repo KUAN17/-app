@@ -168,9 +168,10 @@ Router.register('settings', (() => {
       const typeClass = a.type === '現金' ? 'cash' : a.type === '信用卡' ? 'cc' : a.type === '證券帳戶' ? 'broker' : 'bank';
       const typeLabel = a.type || '銀行';
       // 目前餘額＝期初＋帳本試算（含調帳校正）；未儲存的新帳戶尚無帳本紀錄，即期初值
-      const cur = a._new ? (a.balance || 0) : ((balances[role] || {})[a.name] ?? (a.balance || 0));
+      let cur = a._new ? (a.balance || 0) : ((balances[role] || {})[a.name] ?? (a.balance || 0));
+      if (a.type === '信用卡') cur = Math.max(0, cur); // 應繳＝未繳帳單合計，溢繳不顯示負數
       const last = a._new ? '' : lastTxDate(role, a.name);
-      const curLabel = a.type === '信用卡' ? '目前待繳' : '目前餘額';
+      const curLabel = a.type === '信用卡' ? '目前應繳' : '目前餘額';
       const curRow = a.type === '證券帳戶' ? '' : `
         <div class="acct-cur-row">
           <span class="acct-cur-label">${curLabel}</span>
