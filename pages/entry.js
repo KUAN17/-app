@@ -19,10 +19,11 @@ Router.register('entry', (() => {
   // ── 身份 ──────────────────────────────────────────────────────────────────
   function primaryRoles() {
     const id = Utils.identity();
-    if (!id) return [...CFG.ROLES];
-    return id === '家用' ? ['家用'] : [id, '家用'];
+    if (!id || !Store.roleNames().includes(id)) return [...Store.roleNames()];
+    // 個人身份 → 自己＋共享角色；共享身份 → 僅共享角色
+    return Store.isShared(id) ? [id] : [id, ...Store.sharedRoleNames()];
   }
-  function visibleRoles() { return _showAll ? [...CFG.ROLES] : primaryRoles(); }
+  function visibleRoles() { return _showAll ? [...Store.roleNames()] : primaryRoles(); }
 
   // ── 小工具 ────────────────────────────────────────────────────────────────
   function todayISO() { return new Date().toISOString().slice(0, 10); }
@@ -133,12 +134,12 @@ Router.register('entry', (() => {
     const today = todayISO();
     const dateLabel = _date === today ? '今天' : _date.replace(/-/g, '/');
     const roles = visibleRoles();
-    const hasMore = !_showAll && roles.length < CFG.ROLES.length;
+    const hasMore = !_showAll && roles.length < Store.roleNames().length;
     const id = Utils.identity();
 
     const roleCards = roles.map(r =>
       `<button type="button" class="entry-id-card${_role === r ? ' active' : ''}" data-action="role" data-val="${r}">
-        ${r === '家用' ? '🏠 ' : ''}${r}${id === r ? '<span class="entry-id-tag">我</span>' : ''}
+        ${Store.isShared(r) ? '🏠 ' : ''}${r}${id === r ? '<span class="entry-id-tag">我</span>' : ''}
       </button>`
     ).join('') + (hasMore
       ? `<button type="button" class="entry-id-card entry-id-more" data-action="more-roles">⋯</button>` : '');
@@ -323,11 +324,15 @@ Router.register('entry', (() => {
       _sh.autoTransfer = false; _sh.transferFrom = '';
       _sh.installment = 0;
     } else if (kind === 'transfer') {
-      const prefillRoleOut = opts.roleOut && CFG.ROLES.includes(opts.roleOut) ? opts.roleOut : _role;
+      const prefillRoleOut = opts.roleOut && Store.roleNames().includes(opts.roleOut) ? opts.roleOut : _role;
       _sh.roleOut = prefillRoleOut;
       _sh.accountOut = lastAcct(prefillRoleOut);
-      let roleIn = opts.roleIn && CFG.ROLES.includes(opts.roleIn) ? opts.roleIn
-        : (_role === '家用' ? (Utils.identity() && Utils.identity() !== '家用' ? Utils.identity() : CFG.ROLES[0]) : '家用');
+      // 預設轉入對象：共享角色記帳 → 轉給個人（身份優先）；個人記帳 → 轉給共享角色
+      const myId = Utils.identity();
+      let roleIn = opts.roleIn && Store.roleNames().includes(opts.roleIn) ? opts.roleIn
+        : (Store.isShared(_role)
+            ? ((myId && !Store.isShared(myId) && Store.roleNames().includes(myId)) ? myId : (Store.personalRoleNames()[0] || Store.roleNames()[0]))
+            : (Store.sharedRoleNames()[0] || Store.roleNames().find(r => r !== _role) || _role));
       _sh.roleIn = roleIn;
       const inNames = acctsForRole(roleIn).map(a => a.name);
       _sh.accountIn = (opts.accountIn && inNames.includes(opts.accountIn)) ? opts.accountIn : lastAcct(roleIn);
@@ -375,7 +380,7 @@ Router.register('entry', (() => {
       return `<select id="${id}" class="form-select">${opts || '<option value="">無帳戶</option>'}</select>`;
     }
     function roleSelect(id, current) {
-      return `<select id="${id}" class="form-select" style="flex:0 0 92px">${CFG.ROLES.map(r =>
+      return `<select id="${id}" class="form-select" style="flex:0 0 92px">${Store.roleNames().map(r =>
         `<option value="${r}"${r === current ? ' selected' : ''}>${r}</option>`).join('')}</select>`;
     }
 
@@ -406,7 +411,7 @@ Router.register('entry', (() => {
       const projects = Store.get().projects.filter(p => p.status === '進行中');
       const projLocked = !!_sh.project && (() => {
         const p = Store.get().projects.find(x => x.name === _sh.project);
-        return !!(p?.ownerRole && CFG.ROLES.includes(p.ownerRole));
+        return !!(p?.ownerRole && Store.roleNames().includes(p.ownerRole));
       })();
       body += `
         <div class="sheet-row"><label>轉出</label>${roleSelect('sel-out-role', _sh.roleOut)}${acctSelect('sel-out-acct', _sh.roleOut, _sh.accountOut)}</div>
@@ -565,7 +570,7 @@ Router.register('entry', (() => {
       const val = e.target.value;
       _sh.project = val;
       const p = Store.get().projects.find(x => x.name === val);
-      if (val && p?.ownerRole && CFG.ROLES.includes(p.ownerRole)) {
+      if (val && p?.ownerRole && Store.roleNames().includes(p.ownerRole)) {
         _sh.role = p.ownerRole;
         const names = acctsForRole(p.ownerRole).map(a => a.name);
         _sh.account = (p.defaultAccount && names.includes(p.defaultAccount)) ? p.defaultAccount : (names[0] || '');
@@ -620,7 +625,7 @@ Router.register('entry', (() => {
       const val = e.target.value;
       _sh.project = val;
       const p = Store.get().projects.find(x => x.name === val);
-      if (val && p?.ownerRole && CFG.ROLES.includes(p.ownerRole)) {
+      if (val && p?.ownerRole && Store.roleNames().includes(p.ownerRole)) {
         _sh.roleIn = p.ownerRole;
         const names = acctsForRole(p.ownerRole).map(a => a.name);
         _sh.accountIn = (p.defaultAccount && names.includes(p.defaultAccount)) ? p.defaultAccount : (names[0] || '');

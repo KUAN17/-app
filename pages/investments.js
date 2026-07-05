@@ -1,7 +1,7 @@
 Router.register('investments', (() => {
   let _lots = [];
   let _activeRole = null;
-  const PERSONAL_ROLES = () => CFG.ROLES.filter(r => r !== '家用');
+  const PERSONAL_ROLES = () => Store.personalRoleNames();
 
   const STOCK_LS = 'ff_stock_list', STOCK_TS = 'ff_stock_list_ts', STOCK_TTL = 86400000;
 

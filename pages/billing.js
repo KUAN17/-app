@@ -11,7 +11,7 @@ Router.register('billing', (() => {
     const today = new Date();
 
     const byRole = {};
-    CFG.ROLES.forEach(role => {
+    Store.roleNames().forEach(role => {
       (accounts[role] || []).forEach(a => {
         if (a.type === '信用卡') {
           if (!byRole[role]) byRole[role] = [];

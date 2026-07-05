@@ -1094,6 +1094,11 @@ html, body {
 .acct-cur-row b { font-size: 15px; }
 .acct-cur-date { margin-left: auto; font-size: 11px; color: var(--text-muted); }
 
+/* 設定頁：成員管理 */
+.member-row { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-top: 1px solid var(--border); }
+.member-row:first-child { border-top: none; }
+.member-name { font-size: 14px; font-weight: 600; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 /* dashboard 分類列可點擊查看明細 */
 .dash-catl-row[data-cat], .dash-catl-sub-row[data-cat] { cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .dash-catl-row[data-cat]:active, .dash-catl-sub-row[data-cat]:active { opacity: .6; }

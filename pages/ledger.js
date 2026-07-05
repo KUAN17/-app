@@ -62,7 +62,7 @@ Router.register('ledger', (() => {
         </select>
         <select id="fil-role" class="filter-sel">
           <option value="">全部角色</option>
-          ${CFG.ROLES.map(r => `<option value="${r}" ${r === _filter.role ? 'selected' : ''}>${r}</option>`).join('')}
+          ${Store.roleNames().map(r => `<option value="${r}" ${r === _filter.role ? 'selected' : ''}>${r}</option>`).join('')}
         </select>
         <select id="fil-type" class="filter-sel">
           <option value="">全部類型</option>
@@ -157,7 +157,7 @@ Router.register('ledger', (() => {
 
     let transferFields = '';
     if (isTransfer) {
-      const roleInOpts = CFG.ROLES.map(r =>
+      const roleInOpts = Store.roleNames().map(r =>
         `<option value="${r}"${r === tx.roleIn ? ' selected' : ''}>${r}</option>`
       ).join('');
       const acctIns = Store.accountsForRole(tx.roleIn);

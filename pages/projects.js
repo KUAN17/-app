@@ -229,7 +229,7 @@ Router.register('projects', (() => {
   function showNewProjModal() {
     const modal = document.createElement('div');
     modal.className = 'modal-overlay';
-    const roleOpts = CFG.ROLES.map(r => `<option value="${r}">${r}</option>`).join('');
+    const roleOpts = Store.roleNames().map(r => `<option value="${r}">${r}</option>`).join('');
     modal.innerHTML = `<div class="modal-card">
       <div class="modal-title">新增專案</div>
       <div class="form-row">
@@ -355,7 +355,7 @@ Router.register('projects', (() => {
     const isLoan = p.monthlyPayment > 0;
     const modal = document.createElement('div');
     modal.className = 'modal-overlay';
-    const roleOpts = CFG.ROLES.map(r =>
+    const roleOpts = Store.roleNames().map(r =>
       `<option value="${r}"${p.ownerRole===r?' selected':''}>${r}</option>`
     ).join('');
     const accts = p.ownerRole ? Store.accountsForRole(p.ownerRole) : [];

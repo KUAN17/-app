@@ -20,8 +20,8 @@ Router.register('dashboard', (() => {
 
   function scopeRoles() {
     const id = Utils.identity();
-    if (_scope === '我的') return id === '家用' ? ['家用'] : [id, '家用'];
-    if (_scope === '全部') return [...CFG.ROLES];
+    if (_scope === '我的') return Store.isShared(id) ? [id] : [id, ...Store.sharedRoleNames()];
+    if (_scope === '全部') return [...Store.roleNames()];
     return [_scope];
   }
 
@@ -35,7 +35,7 @@ Router.register('dashboard', (() => {
     if (!_year)  _year  = now.getFullYear();
     if (!_scope) {
       const id = Utils.identity();
-      _scope = (id && id !== '家用') ? '我的' : '全部';
+      _scope = (id && Store.roleNames().includes(id) && !Store.isShared(id)) ? '我的' : '全部';
     }
     await Store.load();
     renderAll();
@@ -121,7 +121,8 @@ Router.register('dashboard', (() => {
   // ── 共用 UI 片段 ──────────────────────────────────────────────────────────
   function topRow() {
     const id = Utils.identity();
-    const opts = (id && id !== '家用') ? ['我的', '全部', ...CFG.ROLES] : ['全部', ...CFG.ROLES];
+    const opts = (id && Store.roleNames().includes(id) && !Store.isShared(id))
+      ? ['我的', '全部', ...Store.roleNames()] : ['全部', ...Store.roleNames()];
     const chips = opts.map(r =>
       `<button class="dash-chip ${_scope === r ? 'active' : ''}" data-val="${r}" data-act="role">${r}</button>`
     ).join('');

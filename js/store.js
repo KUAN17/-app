@@ -1,6 +1,6 @@
 window.Store = (() => {
   // 本機快取資料結構版本：改動解析邏輯時 +1，自動讓舊快取失效並重抓
-  const SCHEMA_V = 2;
+  const SCHEMA_V = 3;
 
   // 統一日期格式為 YYYY/MM/DD，相容多種來源格式以避免字串比較失敗：
   //  - 試算表序列值（UNFORMATTED_VALUE 下日期欄可能回傳純數字，如 46000）
@@ -26,9 +26,15 @@ window.Store = (() => {
     projects: [],
     investments: [],
     accounts: {},       // { '阿熊': [{name, balance, baseDate}], ... }
+    members: [],        // [{ name, type: 'personal'|'shared' }]，空時退回 CFG.ROLES 預設
     categories: {},     // overrides from Backend
     activeProjects: []  // names only
   };
+
+  // 預設成員：沿用 CFG.ROLES，「家用」視為共享角色（舊資料自動遷移）
+  function defaultMembers() {
+    return CFG.ROLES.map(r => ({ name: r, type: r === '家用' ? 'shared' : 'personal' }));
+  }
   let _sheetMeta = [];
   let _dirty = true;
 
@@ -139,14 +145,19 @@ window.Store = (() => {
         'Ledger!A2:O',
         'Projects!A2:N',
         'Investments!A2:K',
-        'Backend!L2:T'
+        'Backend!L2:T',
+        'Backend!V2:W'
       ];
-      const [ledgerRows, projRows, invRows, acctRows] = await API.batchGet(sid, ranges);
+      const [ledgerRows, projRows, invRows, acctRows, memberRows] = await API.batchGet(sid, ranges);
 
       _data.ledger = ledgerRows.filter(r => r[0]).map(parseLedgerRow);
       _data.projects = projRows.filter(r => r[1]).map((row, idx) => parseProjectRow(row, idx));
       _data.investments = invRows.filter(r => r[2]).map(parseInvestRow);
       _data.accounts = parseAccountConfig(acctRows);
+      _data.members = (memberRows || [])
+        .filter(r => r[0])
+        .map(r => ({ name: String(r[0]), type: r[1] === '共享' ? 'shared' : 'personal' }));
+      if (!_data.members.length) _data.members = defaultMembers();
       _data.activeProjects = _data.projects.filter(p => p.status === '進行中').map(p => p.name);
 
       // Recalculate project financials from ledger — independent of Sheets formula columns
@@ -289,6 +300,24 @@ window.Store = (() => {
     return res;
   }
 
+  // ── 成員（角色）───────────────────────────────────────────────────────────
+  function members() {
+    return _data.members.length ? _data.members : defaultMembers();
+  }
+  function roleNames()         { return members().map(m => m.name); }
+  function personalRoleNames() { return members().filter(m => m.type !== 'shared').map(m => m.name); }
+  function sharedRoleNames()   { return members().filter(m => m.type === 'shared').map(m => m.name); }
+  function isShared(name)      { return members().some(m => m.name === name && m.type === 'shared'); }
+
+  async function saveMembers(list) {
+    const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID) || CFG.SHEET_ID;
+    const rows = list.map(m => [m.name, m.type === 'shared' ? '共享' : '個人']);
+    while (rows.length < 20) rows.push(['', '']); // 覆蓋舊資料
+    await API.updateRange(sid, 'Backend!V1:W1', [['成員', '類型']]);
+    await API.updateRange(sid, 'Backend!V2:W21', rows);
+    _data.members = [...list];
+  }
+
   function accountsForRole(role) {
     return (_data.accounts[role] || []).map(a => a.name);
   }
@@ -299,7 +328,7 @@ window.Store = (() => {
 
   function allAccountsFlat() {
     const result = [];
-    CFG.ROLES.forEach(role => {
+    roleNames().forEach(role => {
       (_data.accounts[role] || []).forEach(acct => {
         result.push({ role, ...acct });
       });
@@ -351,7 +380,7 @@ window.Store = (() => {
       }
     }
     const hit = rows.find(r => (r[0] || '').toLowerCase() === email);
-    const identity = hit && CFG.ROLES.includes(hit[1]) ? hit[1] : null;
+    const identity = hit && roleNames().includes(hit[1]) ? hit[1] : null;
     if (identity) localStorage.setItem(CFG.LS_KEYS.IDENTITY, identity);
     return { email, identity };
   }
@@ -370,5 +399,6 @@ window.Store = (() => {
     return true;
   }
 
-  return { load, invalidate, calcBalance, calcAllBalances, accountsForRole, brokersForRole, allAccountsFlat, getSheetId, ensureSheetMeta, get, isDirty, loadIdentity, saveIdentity };
+  return { load, invalidate, calcBalance, calcAllBalances, accountsForRole, brokersForRole, allAccountsFlat, getSheetId, ensureSheetMeta, get, isDirty, loadIdentity, saveIdentity,
+           members, roleNames, personalRoleNames, sharedRoleNames, isShared, saveMembers };
 })();

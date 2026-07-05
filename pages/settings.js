@@ -13,12 +13,20 @@ Router.register('settings', (() => {
       <!-- ── 身份 ────────────────────────────────── -->
       <div class="settings-identity-card card">
         <p class="input-hint" id="id-email-hint" style="margin:0 0 10px">記帳頁與 Dashboard 會以此身份為主（自己＋家用）。</p>
-        <div class="id-toggle">
-          ${CFG.ROLES.map(r =>
-            `<button type="button" class="proj-type-btn${curId === r ? ' active' : ''}" data-identity="${r}">${r === '家用' ? '🏠 家用視角' : r}</button>`
-          ).join('')}
-        </div>
+        <div class="id-toggle" id="id-toggle"></div>
       </div>
+
+      <!-- ── 成員管理 ──────────────────────────────── -->
+      <details class="settings-section">
+        <summary class="settings-section-hd">
+          <span>👥 成員管理</span>
+          <span class="settings-section-arrow">›</span>
+        </summary>
+        <div class="settings-section-body">
+          <p class="section-hint">成員改名會同步更新帳本與所有設定；共享角色（🏠）代表全家共同的錢包。</p>
+          <div id="member-mgmt-section"><div class="spinner"></div></div>
+        </div>
+      </details>
 
       <!-- ── 帳戶管理 ──────────────────────────────── -->
       <details class="settings-section" open>
@@ -78,10 +86,10 @@ Router.register('settings', (() => {
     try {
       await Store.load();
       const raw = Store.get().accounts;
-      const isEmpty = CFG.ROLES.every(r => !(raw[r] || []).length);
+      const isEmpty = Store.roleNames().every(r => !(raw[r] || []).length);
 
       _acctState = {};
-      CFG.ROLES.forEach(r => {
+      Store.roleNames().forEach(r => {
         _acctState[r] = (raw[r] || []).map(a => ({
           ...a,
           type:        a.type || '',
@@ -108,7 +116,7 @@ Router.register('settings', (() => {
 
   function renderAccountMgmt() {
     const el = Utils.el('acct-mgmt-section');
-    el.innerHTML = CFG.ROLES.map(role => `
+    el.innerHTML = Store.roleNames().map(role => `
       <div class="card settings-card acct-role-card" style="margin-bottom:12px">
         <div class="acct-role-header">
           <span class="balance-role-badge">${role}</span>
@@ -121,7 +129,7 @@ Router.register('settings', (() => {
      <button class="btn btn-outline btn-full" id="btn-reconcile" style="margin-top:8px">📋 對帳校正</button>
      <div style="height:8px"></div>`;
 
-    CFG.ROLES.forEach(role => {
+    Store.roleNames().forEach(role => {
       Utils.el(`acct-mgmt-section`).querySelector(`.btn-add-acct[data-role="${role}"]`)
         .addEventListener('click', () => showAddModal(role));
     });
@@ -152,7 +160,7 @@ Router.register('settings', (() => {
   }
 
   function renderRoleList(role) {
-    const visible = _acctState[role].map((a, i) => ({ ...a, _i: i })).filter(a => !a._deleted);
+    const visible = (_acctState[role] || []).map((a, i) => ({ ...a, _i: i })).filter(a => !a._deleted);
     if (!visible.length) return `<p class="empty-hint" style="padding:10px 0">尚無帳戶</p>`;
     const balances = Store.calcAllBalances();
 
@@ -377,7 +385,7 @@ Router.register('settings', (() => {
     modal.className = 'modal-overlay';
 
     // 信用卡＝累積消費、證券＝持倉市值，皆不適用現金餘額對帳，排除
-    const rows = CFG.ROLES.flatMap(role =>
+    const rows = Store.roleNames().flatMap(role =>
       (_acctState[role] || [])
         .map((a, i) => ({ ...a, _i: i, role }))
         .filter(a => !a._deleted && a.type !== '信用卡' && a.type !== '證券帳戶')
@@ -527,8 +535,8 @@ Router.register('settings', (() => {
   async function saveAccounts() {
     // 期初餘額/基準日透過「編輯」modal 或對帳校正修改，列表本身為純顯示
     const rows = [];
-    CFG.ROLES.forEach(role => {
-      _acctState[role].filter(a => !a._deleted).forEach(a => {
+    Store.roleNames().forEach(role => {
+      (_acctState[role] || []).filter(a => !a._deleted).forEach(a => {
         rows.push([role, a.name, a.balance||0, a.baseDate||'', a.purpose||'', a.type||'', a.billingDate||'', a.dueDate||'', a.paymentAccount||'']);
       });
     });
@@ -577,7 +585,7 @@ Router.register('settings', (() => {
 
     const rows = _projState.map((p, i) => {
       const statusClass = p.status === '進行中' ? 'type-bank' : 'type-cash';
-      const roleOpts = CFG.ROLES.map(r =>
+      const roleOpts = Store.roleNames().map(r =>
         `<option value="${r}"${p.ownerRole===r?' selected':''}>${r}</option>`
       ).join('');
       const accts = p.ownerRole ? Store.accountsForRole(p.ownerRole) : [];
@@ -640,6 +648,161 @@ Router.register('settings', (() => {
       Utils.toast('專案設定已儲存', 'success');
     } catch(e) {
       Utils.toast('儲存失敗：' + e.message, 'error');
+    } finally {
+      Utils.showLoading(false);
+    }
+  }
+
+  // ── Member management ────────────────────────────────────────────────────
+  function renderIdentityRow() {
+    const wrap = Utils.el('id-toggle');
+    if (!wrap) return;
+    const curId = Utils.identity();
+    wrap.innerHTML = Store.members().map(m =>
+      `<button type="button" class="proj-type-btn${curId === m.name ? ' active' : ''}" data-identity="${m.name}">${m.type === 'shared' ? '🏠 ' + m.name + ' 視角' : m.name}</button>`
+    ).join('');
+    wrap.querySelectorAll('[data-identity]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.identity;
+        wrap.querySelectorAll('[data-identity]').forEach(b => b.classList.toggle('active', b === btn));
+        try {
+          const synced = await Store.saveIdentity(id);
+          Utils.toast(synced
+            ? `身份已設定為「${id}」，並同步到雲端`
+            : `身份已設定為「${id}」（僅此裝置，無法取得登入帳號）`, 'success');
+        } catch (e) {
+          Utils.toast(`身份已設定為「${id}」，但雲端同步失敗：${e.message}`, 'warn');
+        }
+      });
+    });
+  }
+
+  async function loadMemberSection() {
+    try {
+      await Store.load();
+      renderIdentityRow();
+      renderMemberSection();
+    } catch (e) {
+      const el = Utils.el('member-mgmt-section');
+      if (el) el.innerHTML = `<p class="error-msg">${e.message}</p>`;
+    }
+  }
+
+  function renderMemberSection() {
+    const el = Utils.el('member-mgmt-section');
+    if (!el) return;
+    const ms = Store.members();
+    el.innerHTML = `<div class="card settings-card">
+      ${ms.map((m, i) => `
+        <div class="member-row">
+          <span class="acct-type-badge ${m.type === 'shared' ? 'type-cash' : 'type-bank'}">${m.type === 'shared' ? '共享' : '個人'}</span>
+          <span class="member-name">${m.type === 'shared' ? '🏠 ' : ''}${m.name}</span>
+          <button class="btn btn-outline btn-sm member-rename" data-i="${i}" style="margin-left:auto">改名</button>
+          ${ms.length > 1 ? `<button class="btn btn-danger btn-sm member-del" data-i="${i}">✕</button>` : ''}
+        </div>`).join('')}
+      <button class="btn btn-outline btn-full" id="btn-add-member" style="margin-top:10px">＋ 新增成員</button>
+    </div>`;
+    el.querySelectorAll('.member-rename').forEach(btn =>
+      btn.addEventListener('click', () => renameMember(parseInt(btn.dataset.i))));
+    el.querySelectorAll('.member-del').forEach(btn =>
+      btn.addEventListener('click', () => deleteMember(parseInt(btn.dataset.i))));
+    Utils.el('btn-add-member')?.addEventListener('click', addMember);
+  }
+
+  async function renameMember(i) {
+    const ms = Store.members().map(m => ({ ...m }));
+    const oldName = ms[i].name;
+    const newName = (prompt(`成員改名：「${oldName}」改為`, oldName) || '').trim();
+    if (!newName || newName === oldName) return;
+    if (ms.some(m => m.name === newName)) return Utils.toast('名稱與現有成員重複', 'warn');
+
+    const { ledger, projects } = Store.get();
+    const refs = ledger.filter(tx => tx.roleOut === oldName || tx.roleIn === oldName || tx.payRole === oldName);
+    if (!confirm(`「${oldName}」→「${newName}」\n將同步更新帳本 ${refs.length} 筆紀錄、帳戶設定、專案歸屬與身份設定。繼續？`)) return;
+
+    const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID) || CFG.SHEET_ID;
+    Utils.showLoading(true);
+    try {
+      // 帳本：B=roleOut, K=roleIn, M=payRole
+      const upd = [];
+      refs.forEach(tx => {
+        if (tx.roleOut === oldName) upd.push({ range: `Ledger!B${tx._row}`, values: [[newName]] });
+        if (tx.roleIn === oldName)  upd.push({ range: `Ledger!K${tx._row}`, values: [[newName]] });
+        if (tx.payRole === oldName) upd.push({ range: `Ledger!M${tx._row}`, values: [[newName]] });
+      });
+      if (upd.length) await API.batchUpdateValues(sid, upd);
+      // 專案歸屬（M 欄）
+      const pu = projects.filter(p => p.ownerRole === oldName)
+        .map(p => ({ range: `Projects!M${p._row}`, values: [[newName]] }));
+      if (pu.length) await API.batchUpdateValues(sid, pu);
+      // 帳戶設定：搬移 _acctState key 後整份重寫
+      _acctState[newName] = _acctState[oldName] || [];
+      delete _acctState[oldName];
+      ms[i].name = newName;
+      await Store.saveMembers(ms);
+      await saveAccounts();
+      // 身份設定（Settings 工作表 B 欄 + 本機）
+      try {
+        const rows = await API.getRange(sid, 'Settings!A2:B');
+        const su = rows.map((r, idx) => r[1] === oldName ? { range: `Settings!B${idx + 2}`, values: [[newName]] } : null).filter(Boolean);
+        if (su.length) await API.batchUpdateValues(sid, su);
+      } catch {}
+      if (Utils.identity() === oldName) localStorage.setItem(CFG.LS_KEYS.IDENTITY, newName);
+      if (localStorage.getItem('ff_entry_role') === oldName) localStorage.setItem('ff_entry_role', newName);
+
+      Store.invalidate();
+      await Store.load(true);
+      renderIdentityRow();
+      renderMemberSection();
+      renderAccountMgmt();
+      Utils.toast(`成員已改名，同步 ${upd.length} 筆帳本紀錄`, 'success');
+    } catch (e) {
+      Utils.toast('改名同步失敗：' + e.message, 'error');
+    } finally {
+      Utils.showLoading(false);
+    }
+  }
+
+  async function addMember() {
+    const name = (prompt('新成員名稱（例如：小孩、爸爸）') || '').trim();
+    if (!name) return;
+    if (Store.members().some(m => m.name === name)) return Utils.toast('名稱與現有成員重複', 'warn');
+    const shared = confirm('要設為「共享角色」嗎？\n\n確定＝共享（全家共同錢包，如家用）\n取消＝個人成員');
+    const ms = [...Store.members().map(m => ({ ...m })), { name, type: shared ? 'shared' : 'personal' }];
+    Utils.showLoading(true);
+    try {
+      await Store.saveMembers(ms);
+      _acctState[name] = _acctState[name] || [];
+      Store.invalidate();
+      renderIdentityRow();
+      renderMemberSection();
+      renderAccountMgmt();
+      Utils.toast(`已新增成員「${name}」，可至帳戶管理新增其帳戶`, 'success');
+    } catch (e) {
+      Utils.toast('新增失敗：' + e.message, 'error');
+    } finally {
+      Utils.showLoading(false);
+    }
+  }
+
+  async function deleteMember(i) {
+    const ms = Store.members().map(m => ({ ...m }));
+    const name = ms[i].name;
+    const refs = Store.get().ledger.filter(tx => tx.roleOut === name || tx.roleIn === name || tx.payRole === name).length;
+    const accts = (Store.get().accounts[name] || []).length;
+    if (refs || accts) return Utils.toast(`「${name}」仍有 ${refs} 筆帳本紀錄、${accts} 個帳戶，請先處理後再刪除`, 'warn');
+    if (!confirm(`刪除成員「${name}」？`)) return;
+    ms.splice(i, 1);
+    Utils.showLoading(true);
+    try {
+      await Store.saveMembers(ms);
+      Store.invalidate();
+      renderIdentityRow();
+      renderMemberSection();
+      renderAccountMgmt();
+      Utils.toast('成員已刪除', 'success');
+    } catch (e) {
+      Utils.toast('刪除失敗：' + e.message, 'error');
     } finally {
       Utils.showLoading(false);
     }
@@ -750,22 +913,6 @@ Router.register('settings', (() => {
 
   // ── onMount ──────────────────────────────────────────────────────────────
   function onMount() {
-    document.querySelectorAll('[data-identity]').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        const id = btn.dataset.identity;
-        document.querySelectorAll('[data-identity]').forEach(b =>
-          b.classList.toggle('active', b === btn));
-        try {
-          const synced = await Store.saveIdentity(id);
-        Utils.toast(synced
-            ? `身份已設定為「${id}」，並同步到雲端`
-            : `身份已設定為「${id}」（僅此裝置，無法取得登入帳號）`, 'success');
-        } catch (e) {
-          Utils.toast(`身份已設定為「${id}」，但雲端同步失敗：${e.message}`, 'warn');
-        }
-      });
-    });
-
     Auth.getEmail().then(em => {
       const hint = Utils.el('id-email-hint');
       if (em && hint) hint.textContent = `登入帳號：${em}。身份會跟著此 Google 帳號在 Safari／PWA／所有裝置間自動同步。`;
@@ -792,6 +939,7 @@ Router.register('settings', (() => {
       location.reload();
     });
 
+    loadMemberSection();
     loadAccountSection();
     loadProjSection();
   }
