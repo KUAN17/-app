@@ -152,24 +152,6 @@ Router.register('entry', (() => {
     ).join('') + (hasMore
       ? `<button type="button" class="entry-id-card entry-id-more" data-action="more-roles">⋯</button>` : '');
 
-    const cats = catOrder(_role);
-    const tiles = cats.map(c => ({ icon: CAT_ICONS[c] || '📌', label: c, action: 'cat', val: c }));
-    tiles.push({ icon: '📁', label: '專案', action: 'open-proj', val: '' });
-    const pages = [];
-    for (let i = 0; i < tiles.length; i += 8) pages.push(tiles.slice(i, i + 8));
-
-    const pagesHtml = pages.map(p =>
-      `<div class="entry-cat-page">${p.map(t =>
-        `<button type="button" class="entry-cat-tile" data-action="${t.action}" data-val="${t.val}">
-          <span class="entry-cat-tile-icon">${t.icon}</span><span>${t.label}</span>
-        </button>`).join('')}</div>`
-    ).join('');
-
-    const dots = pages.length > 1
-      ? `<div class="entry-dots">${pages.map((_, i) =>
-          `<span class="entry-dot${i === 0 ? ' active' : ''}"></span>`).join('')}</div>`
-      : '';
-
     _el.innerHTML = `<div class="entry-wrapper">
       <label class="entry-date-standalone" style="cursor:pointer;-webkit-tap-highlight-color:transparent">
         <span style="position:absolute;left:16px;pointer-events:none">📅</span>
@@ -179,11 +161,11 @@ Router.register('entry', (() => {
                style="position:absolute;inset:0;opacity:0;width:100%;height:100%;cursor:pointer;border:none;background:none;font-size:16px">
       </label>
       <div class="entry-id-row">${roleCards}</div>
-      <div class="entry-swipe" id="entry-swipe">${pagesHtml}</div>
-      ${dots}
+      <button type="button" class="entry-main-btn" data-action="open-expense">💸 記支出</button>
       <div class="entry-alt-row">
         <button type="button" class="entry-alt-btn alt-income" data-action="open-income">💰 收入</button>
         <button type="button" class="entry-alt-btn alt-transfer" data-action="open-transfer">⇄ 轉帳</button>
+        <button type="button" class="entry-alt-btn" data-action="open-proj">📁 專案</button>
       </div>
     </div>`;
 
@@ -198,8 +180,10 @@ Router.register('entry', (() => {
       } else if (action === 'more-roles') {
         _showAll = true;
         renderMain();
-      } else if (action === 'cat') {
-        openSheet('cat', { category: val });
+      } else if (action === 'open-expense') {
+        const savedCat = localStorage.getItem(LS_LAST_CAT);
+        const cat = CFG.CATEGORIES['支出'].includes(savedCat) ? savedCat : catOrder(_role)[0];
+        openSheet('cat', { category: cat });
       } else if (action === 'open-proj') {
         openSheet('proj');
       } else if (action === 'open-income') {
@@ -217,11 +201,6 @@ Router.register('entry', (() => {
       if (label) label.textContent = _date === todayISO() ? '今天' : _date.replace(/-/g, '/');
     });
 
-    const sw = Utils.el('entry-swipe');
-    sw?.addEventListener('scroll', () => {
-      const i = Math.round(sw.scrollLeft / sw.clientWidth);
-      _el.querySelectorAll('.entry-dot').forEach((d, j) => d.classList.toggle('active', j === i));
-    }, { passive: true });
   }
 
   // ── Bottom sheet helpers ──────────────────────────────────────────────────
@@ -497,10 +476,12 @@ Router.register('entry', (() => {
         <button type="button" class="entry-sheet-close" data-action="close">✕</button>
       </div>
       <div class="entry-sheet-amt${_sh.amount ? '' : ' zero'}" id="sheet-amt">$ ${amtDisplay}</div>
-      ${body}
-      ${memoChips}
-      <div class="sheet-row"><label>備忘</label>
-        <input type="text" id="inp-sheet-memo" class="form-input" placeholder="選填" value="${(_sh.memo || '').replace(/"/g, '&quot;')}" autocomplete="off">
+      <div class="sheet-scroll">
+        ${body}
+        ${memoChips}
+        <div class="sheet-row"><label>備忘</label>
+          <input type="text" id="inp-sheet-memo" class="form-input" placeholder="選填" value="${(_sh.memo || '').replace(/"/g, '&quot;')}" autocomplete="off">
+        </div>
       </div>
       <div class="numpad-keys sheet-numpad${_sh.repayBatch ? ' disabled' : ''}">
         ${['1','2','3','4','5','6','7','8','9','.','0','⌫'].map(k =>
@@ -521,7 +502,7 @@ Router.register('entry', (() => {
 
     sheet.addEventListener('pointerdown', e => {
       // 互動元件（輸入框、選單、按鈕、數字鍵盤）上不啟動拖曳
-      if (e.target.closest('input, select, button, details, .entry-memo-chips')) return;
+      if (e.target.closest('input, select, button, details, .entry-memo-chips, .sheet-scroll')) return;
       dragging = true; startY = e.clientY; curY = 0;
       try { sheet.setPointerCapture(e.pointerId); } catch {}
       sheet.style.transition = 'none';
