@@ -313,7 +313,7 @@ Router.register('entry', (() => {
             date, amount, sh.transferFrom, pi.role, pi.account, '', '', settleId || ''];
   }
 
-  function openSheet(kind, opts = {}) {
+  function initSheetState(kind, opts = {}) {
     _sh = { kind, amount: opts.amount ? String(opts.amount) : '', memo: '' };
 
     if (kind === 'cat') {
@@ -351,11 +351,31 @@ Router.register('entry', (() => {
       if (opts.memo) _sh.memo = opts.memo;
     }
 
+  }
+
+  function openSheet(kind, opts = {}) {
+    initSheetState(kind, opts);
     _sheetEl = document.createElement('div');
     _sheetEl.className = 'entry-sheet-overlay';
     document.body.appendChild(_sheetEl);
     renderSheet(false);
     requestAnimationFrame(() => _sheetEl.querySelector('.entry-sheet')?.classList.add('open'));
+  }
+
+  // 表單內直接切換類型（支出/收入/轉帳/專案），保留已輸入的金額與備忘
+  function switchKind(kind) {
+    if (!_sh || _sh.kind === kind) return;
+    const keep = { amount: _sh.amount, memo: _sh.memo };
+    if (kind === 'cat') {
+      const saved = localStorage.getItem(LS_LAST_CAT);
+      const cat = CFG.CATEGORIES['支出'].includes(saved) ? saved : catOrder(_role)[0];
+      initSheetState('cat', { category: cat });
+    } else {
+      initSheetState(kind);
+    }
+    _sh.amount = keep.amount;
+    _sh.memo = keep.memo;
+    renderSheet();
   }
 
   function closeSheet() {
@@ -450,8 +470,13 @@ Router.register('entry', (() => {
     const amtDisplay = fmtAmtDisplay(_sh.amount);
     const submitLabel = _sh.amount ? `✓ 記帳 NT$ ${fmtAmtDisplay(_sh.amount)}` : '✓ 記帳';
 
+    const kindTabs = `<div class="sheet-kind-tabs">${[['cat','支出'],['income','收入'],['transfer','轉帳'],['proj','📁 專案']].map(([k, l]) =>
+      `<button type="button" class="sheet-kind-tab${_sh.kind === k ? ' active' : ''}" data-action="kind" data-val="${k}">${l}</button>`
+    ).join('')}</div>`;
+
     _sheetEl.innerHTML = `<div class="entry-sheet${keepOpen ? ' open' : ''}">
       <div class="entry-sheet-handle"></div>
+      ${kindTabs}
       <div class="entry-sheet-head">
         <span>${sheetTitle()}</span>
         <label class="entry-sheet-date" style="cursor:pointer;position:relative;-webkit-tap-highlight-color:transparent">
@@ -543,6 +568,7 @@ Router.register('entry', (() => {
         const act = e.target.closest('[data-action]');
         if (!act) return;
         const { action, val } = act.dataset;
+        if (action === 'kind') { switchKind(val); return; }
         if (action === 'close') closeSheet();
         else if (action === 'submit') submitSheet();
         else if (action === 'inc-cat') { _sh.category = val; renderSheet(); }
