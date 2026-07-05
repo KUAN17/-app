@@ -171,12 +171,6 @@ Router.register('settings', (() => {
           <button class="btn btn-danger btn-sm acct-del-btn" data-role="${role}" data-i="${a._i}">✕</button>
         </div>
         ${curRow}
-        <div class="acct-item-inputs">
-          <input type="number" class="form-input inp-acct-balance" data-role="${role}" data-i="${a._i}"
-                 value="${a.balance || ''}" placeholder="期初餘額">
-          <input type="date" class="form-input inp-acct-date" data-role="${role}" data-i="${a._i}"
-                 value="${a.baseDate ? a.baseDate.replace(/\//g, '-') : ''}">
-        </div>
       </div>`;
     }).join('');
   }
@@ -321,17 +315,6 @@ Router.register('settings', (() => {
     });
   }
 
-  function readInputsIntoState() {
-    document.querySelectorAll('.inp-acct-balance').forEach(inp => {
-      const { role, i } = inp.dataset;
-      _acctState[role][parseInt(i)].balance = parseFloat(inp.value) || 0;
-    });
-    document.querySelectorAll('.inp-acct-date').forEach(inp => {
-      const { role, i } = inp.dataset;
-      _acctState[role][parseInt(i)].baseDate = inp.value.replace(/-/g, '/');
-    });
-  }
-
   function showReconcileModal() {
     const today = new Date().toISOString().slice(0, 10);
     const modal = document.createElement('div');
@@ -440,7 +423,7 @@ Router.register('settings', (() => {
           _acctState[t.role][t.idx].baseDate = t.date.replace(/-/g, '/');
         });
         modal.remove();
-        await saveAccounts(true);
+        await saveAccounts();
         await Store.load(true); // 重新載入，讓「目前餘額」立即反映新期初值
         renderAccountMgmt();
         return;
@@ -487,9 +470,8 @@ Router.register('settings', (() => {
     });
   }
 
-  async function saveAccounts(skipDOMRead = false) {
-    if (!skipDOMRead) readInputsIntoState();
-
+  async function saveAccounts() {
+    // 期初餘額/基準日透過「編輯」modal 或對帳校正修改，列表本身為純顯示
     const rows = [];
     CFG.ROLES.forEach(role => {
       _acctState[role].filter(a => !a._deleted).forEach(a => {
