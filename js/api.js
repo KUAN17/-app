@@ -1,7 +1,8 @@
 window.API = (() => {
   const base = CFG.SHEETS_BASE;
 
-  async function req(url, opts = {}) {
+  // 429（配額）/ 5xx 自動退避重試：家庭多人同時操作時 Sheets API 偶發限流
+  async function req(url, opts = {}, retries = 2) {
     const token = await Auth.getToken();
     const res = await fetch(url, {
       ...opts,
@@ -12,6 +13,10 @@ window.API = (() => {
       }
     });
     if (!res.ok) {
+      if ((res.status === 429 || res.status >= 500) && retries > 0) {
+        await new Promise(r => setTimeout(r, (3 - retries) * 1500 + 1000));
+        return req(url, opts, retries - 1);
+      }
       const err = await res.json().catch(() => ({}));
       throw new Error(err.error?.message || `HTTP ${res.status}`);
     }

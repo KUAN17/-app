@@ -1,6 +1,6 @@
 window.Store = (() => {
   // 本機快取資料結構版本：改動解析邏輯時 +1，自動讓舊快取失效並重抓
-  const SCHEMA_V = 3;
+  const SCHEMA_V = 4;
 
   // 統一日期格式為 YYYY/MM/DD，相容多種來源格式以避免字串比較失敗：
   //  - 試算表序列值（UNFORMATTED_VALUE 下日期欄可能回傳純數字，如 46000）
@@ -80,7 +80,7 @@ window.Store = (() => {
   }
 
   // ── Investments row → object ─────────────────────────────────────────────
-  function parseInvestRow(row) {
+  function parseInvestRow(row, idx) {
     const shares  = Utils.parseAmount(row[4]);
     const avgCost = Utils.parseAmount(row[5]);
     const price   = Utils.parseAmount(row[7]);
@@ -89,6 +89,7 @@ window.Store = (() => {
     const marketValue = price > 0 ? shares * price : totalCost;
     const unrealized  = marketValue - totalCost;
     return {
+      _row:        idx + 2, // 1-indexed，第 1 列為表頭
       role:        row[0] || '',
       account:     row[1] || '',
       ticker:      row[2] || '',
@@ -152,7 +153,7 @@ window.Store = (() => {
 
       _data.ledger = ledgerRows.filter(r => r[0]).map(parseLedgerRow);
       _data.projects = projRows.filter(r => r[1]).map((row, idx) => parseProjectRow(row, idx));
-      _data.investments = invRows.filter(r => r[2]).map(parseInvestRow);
+      _data.investments = invRows.filter(r => r[2]).map((row, idx) => parseInvestRow(row, idx));
       _data.accounts = parseAccountConfig(acctRows);
       _data.members = (memberRows || [])
         .filter(r => r[0])
@@ -315,6 +316,7 @@ window.Store = (() => {
   function isShared(name)      { return members().some(m => m.name === name && m.type === 'shared'); }
 
   async function saveMembers(list) {
+    if (list.length > 20) throw new Error('成員數量上限為 20 人');
     const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID) || CFG.SHEET_ID;
     const rows = list.map(m => [m.name, m.type === 'shared' ? '共享' : '個人']);
     while (rows.length < 20) rows.push(['', '']); // 覆蓋舊資料
@@ -344,6 +346,16 @@ window.Store = (() => {
   function getSheetId(sheetName) {
     const s = _sheetMeta.find(m => m.name === sheetName);
     return s ? s.id : null;
+  }
+
+  // 寫入前驗證：確認各列的 A 欄 id 仍與快取一致（多裝置並發時他人刪列會使列位移，
+  // 直接寫會損毀別筆資料）。pairs = [{ row, id }]，全部相符回 true。
+  async function verifyLedgerRows(pairs) {
+    if (!pairs.length) return true;
+    const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID) || CFG.SHEET_ID;
+    const ranges = pairs.map(p => `Ledger!A${p.row}`);
+    const results = await API.batchGet(sid, ranges);
+    return pairs.every((p, i) => ((results[i] || [])[0] || [])[0] === p.id);
   }
 
   // 快取路徑下 load() 不會抓 sheet meta；刪除列等操作前先確保已載入
@@ -404,6 +416,6 @@ window.Store = (() => {
     return true;
   }
 
-  return { load, invalidate, calcBalance, calcAllBalances, accountsForRole, brokersForRole, allAccountsFlat, getSheetId, ensureSheetMeta, get, isDirty, loadIdentity, saveIdentity,
+  return { load, invalidate, calcBalance, calcAllBalances, accountsForRole, brokersForRole, allAccountsFlat, getSheetId, ensureSheetMeta, verifyLedgerRows, get, isDirty, loadIdentity, saveIdentity,
            members, roleNames, personalRoleNames, sharedRoleNames, isShared, saveMembers };
 })();

@@ -39,8 +39,8 @@ Router.register('ledger', (() => {
         <div class="ledger-item" data-row="${tx._row}" data-id="${tx.id}">
           <div class="ledger-icon ${TYPE_CLASS[tx.type]}">${TYPE_ICON[tx.type]||''}</div>
           <div class="ledger-info">
-            <div class="ledger-cat">${tx.category || tx.type}${tx.projectTag ? ` · ${tx.projectTag}` : ''}</div>
-            <div class="ledger-meta">${tx.roleOut} · ${tx.accountOut}${tx.memo ? ` · ${tx.memo}` : ''}</div>
+            <div class="ledger-cat">${Utils.esc(tx.category || tx.type)}${tx.projectTag ? ` · ${Utils.esc(tx.projectTag)}` : ''}</div>
+            <div class="ledger-meta">${Utils.esc(tx.roleOut)} · ${Utils.esc(tx.accountOut)}${tx.memo ? ` · ${Utils.esc(tx.memo)}` : ''}</div>
           </div>
           <div class="ledger-amount ${TYPE_CLASS[tx.type]}">${Utils.formatMoney(tx.amount)}</div>
         </div>`).join('');
@@ -106,16 +106,16 @@ Router.register('ledger', (() => {
       <div class="modal-title">帳目明細</div>
       <div class="detail-grid">
         <span class="detail-label">日期</span><span>${tx.date}</span>
-        <span class="detail-label">角色（出）</span><span>${tx.roleOut}</span>
+        <span class="detail-label">角色（出）</span><span>${Utils.esc(tx.roleOut)}</span>
         <span class="detail-label">類型</span><span>${tx.type}</span>
         ${tx.dimension ? `<span class="detail-label">開銷維度</span><span>${tx.dimension}</span>` : ''}
-        ${tx.projectTag ? `<span class="detail-label">專案標籤</span><span>${tx.projectTag}</span>` : ''}
-        <span class="detail-label">主分類</span><span>${tx.category}</span>
-        ${tx.memo ? `<span class="detail-label">明細</span><span>${tx.memo}</span>` : ''}
+        ${tx.projectTag ? `<span class="detail-label">專案標籤</span><span>${Utils.esc(tx.projectTag)}</span>` : ''}
+        <span class="detail-label">主分類</span><span>${Utils.esc(tx.category)}</span>
+        ${tx.memo ? `<span class="detail-label">明細</span><span>${Utils.esc(tx.memo)}</span>` : ''}
         <span class="detail-label">金額</span><span class="amount-primary">${Utils.formatMoney(tx.amount)}</span>
-        <span class="detail-label">付款帳戶</span><span>${tx.accountOut}</span>
-        ${tx.roleIn ? `<span class="detail-label">角色（入）</span><span>${tx.roleIn}</span>` : ''}
-        ${tx.accountIn ? `<span class="detail-label">對象帳戶</span><span>${tx.accountIn}</span>` : ''}
+        <span class="detail-label">付款帳戶</span><span>${Utils.esc(tx.accountOut)}</span>
+        ${tx.roleIn ? `<span class="detail-label">角色（入）</span><span>${Utils.esc(tx.roleIn)}</span>` : ''}
+        ${tx.accountIn ? `<span class="detail-label">對象帳戶</span><span>${Utils.esc(tx.accountIn)}</span>` : ''}
       </div>
       <div class="modal-actions">
         <button class="btn btn-primary btn-sm" id="btn-edit-tx">編輯</button>
@@ -140,10 +140,10 @@ Router.register('ledger', (() => {
     const acctOuts = Store.accountsForRole(tx.roleOut);
 
     const catOptions = catList.map(c =>
-      `<option value="${c}"${c === tx.category ? ' selected' : ''}>${c || '（不選分類）'}</option>`
+      `<option value="${Utils.esc(c)}"${c === tx.category ? ' selected' : ''}>${Utils.esc(c) || '（不選分類）'}</option>`
     ).join('');
     const acctOutOptions = acctOuts.map(a =>
-      `<option value="${a.replace(/"/g,'&quot;')}"${a === tx.accountOut ? ' selected' : ''}>${a}</option>`
+      `<option value="${Utils.esc(a)}"${a === tx.accountOut ? ' selected' : ''}>${Utils.esc(a)}</option>`
     ).join('');
 
     // 支出可編輯代付來源（記錯代付帳戶時不必刪掉重記）
@@ -154,7 +154,7 @@ Router.register('ledger', (() => {
         .map(a => {
           const v = `${a.role}||${a.name}`;
           const cur = tx.payAccount === a.name && (!tx.payRole || tx.payRole === a.role);
-          return `<option value="${v.replace(/"/g,'&quot;')}"${cur ? ' selected' : ''}>${a.role}／${a.name}</option>`;
+          return `<option value="${Utils.esc(v)}"${cur ? ' selected' : ''}>${Utils.esc(a.role)}／${Utils.esc(a.name)}</option>`;
         }).join('');
       payField = `
         <div class="form-row">
@@ -168,11 +168,11 @@ Router.register('ledger', (() => {
     let transferFields = '';
     if (isTransfer) {
       const roleInOpts = Store.roleNames().map(r =>
-        `<option value="${r}"${r === tx.roleIn ? ' selected' : ''}>${r}</option>`
+        `<option value="${Utils.esc(r)}"${r === tx.roleIn ? ' selected' : ''}>${Utils.esc(r)}</option>`
       ).join('');
       const acctIns = Store.accountsForRole(tx.roleIn);
       const acctInOpts = acctIns.map(a =>
-        `<option value="${a.replace(/"/g,'&quot;')}"${a === tx.accountIn ? ' selected' : ''}>${a}</option>`
+        `<option value="${Utils.esc(a)}"${a === tx.accountIn ? ' selected' : ''}>${Utils.esc(a)}</option>`
       ).join('');
       transferFields = `
         <div class="form-row">
@@ -213,7 +213,7 @@ Router.register('ledger', (() => {
       ${transferFields}
       <div class="form-row">
         <label>備忘</label>
-        <input type="text" id="edit-memo" class="form-input" value="${tx.memo.replace(/"/g,'&quot;')}" placeholder="（選填）">
+        <input type="text" id="edit-memo" class="form-input" value="${Utils.esc(tx.memo)}" placeholder="（選填）">
       </div>
       <div class="modal-actions">
         <button class="btn btn-primary btn-sm" id="btn-save-edit">儲存</button>
@@ -228,7 +228,7 @@ Router.register('ledger', (() => {
       document.getElementById('edit-role-in').addEventListener('change', e => {
         const accts = Store.accountsForRole(e.target.value);
         const sel = document.getElementById('edit-acct-in');
-        sel.innerHTML = accts.map(a => `<option value="${a.replace(/"/g,'&quot;')}">${a}</option>`).join('');
+        sel.innerHTML = accts.map(a => `<option value="${Utils.esc(a)}">${Utils.esc(a)}</option>`).join('');
       });
     }
 
@@ -267,6 +267,11 @@ Router.register('ledger', (() => {
     const saveBtn = document.getElementById('btn-save-edit');
     if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = '儲存中…'; }
     try {
+      // 寫入前驗證列位仍是這筆（家人同時刪列會使列位移，寫錯列＝損毀別筆資料）
+      if (!await Store.verifyLedgerRows([{ row: tx._row, id: tx.id }])) {
+        Store.invalidate(); await Store.load(true); modal.remove(); refreshList();
+        return Utils.toast('資料已被其他裝置變動，已重新載入，請再操作一次', 'warn');
+      }
       await API.updateRange(sid, `Ledger!A${tx._row}:O${tx._row}`, [row]);
       Store.invalidate();
       await Store.load(true);
@@ -339,6 +344,13 @@ Router.register('ledger', (() => {
     const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID);
     Utils.showLoading(true);
     try {
+      // 刪除前驗證所有列位仍對應原資料（多裝置並發防呆）
+      const pairs = [...byRow.entries()].map(([row, t]) => ({ row, id: t.id }));
+      if (!await Store.verifyLedgerRows(pairs)) {
+        Store.invalidate(); await Store.load(true); modal.remove(); refreshList();
+        Utils.showLoading(false);
+        return Utils.toast('資料已被其他裝置變動，已重新載入，請再操作一次', 'warn');
+      }
       await Store.ensureSheetMeta(); // 快取路徑下 meta 可能尚未載入
       const sheetId = Store.getSheetId('Ledger');
       await API.batchUpdate(sid, rowsDesc.map(r => ({

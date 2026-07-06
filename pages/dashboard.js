@@ -133,7 +133,7 @@ Router.register('dashboard', (() => {
     const opts = (id && Store.roleNames().includes(id) && !Store.isShared(id))
       ? ['我的', '全部', ...Store.roleNames()] : ['全部', ...Store.roleNames()];
     const chips = opts.map(r =>
-      `<button class="dash-chip ${_scope === r ? 'active' : ''}" data-val="${r}" data-act="role">${r}</button>`
+      `<button class="dash-chip ${_scope === r ? 'active' : ''}" data-val="${Utils.esc(r)}" data-act="role">${Utils.esc(r)}</button>`
     ).join('');
     return `<div class="dash-top-row">
       <div class="dash-chips-row">${chips}</div>
@@ -194,14 +194,14 @@ Router.register('dashboard', (() => {
       const color = colorFor(cat);
       const rowInner = `
         <span class="dash-catl-dot" style="background:${color}"></span>
-        <span class="dash-catl-name">${cat}</span>
+        <span class="dash-catl-name">${Utils.esc(cat)}</span>
         <span class="dash-catl-pct">${(amt / total * 100).toFixed(0)}%</span>
         <span class="dash-catl-amt">${Utils.formatMoney(amt)}</span>`;
       if (sub && sub.length) {
         // 「其他」列本身是展開/收合，明細點擊掛在子列上
         const subRows = sub.map(([sc, sa]) => `
-          <div class="dash-catl-sub-row" data-cat="${sc.replace(/"/g, '&quot;')}">
-            <span class="dash-catl-name">${sc}</span>
+          <div class="dash-catl-sub-row" data-cat="${Utils.esc(sc)}">
+            <span class="dash-catl-name">${Utils.esc(sc)}</span>
             <span class="dash-catl-pct">${(sa / total * 100).toFixed(0)}%</span>
             <span class="dash-catl-amt">${Utils.formatMoney(sa)}</span>
           </div>`).join('');
@@ -210,7 +210,7 @@ Router.register('dashboard', (() => {
           <div class="dash-catl-sub">${subRows}</div>
         </details>`;
       }
-      return `<div class="dash-catl-row" data-cat="${cat.replace(/"/g, '&quot;')}">${rowInner}</div>`;
+      return `<div class="dash-catl-row" data-cat="${Utils.esc(cat)}">${rowInner}</div>`;
     }).join('');
   }
 
@@ -233,16 +233,16 @@ Router.register('dashboard', (() => {
     const listHtml = txs.length ? txs.map(tx => {
       const name = tx.memo || tx.category || '（未命名）';
       const payTag = tx.payAccount
-        ? `<span class="proj-detail-paytag">${tx.payRole || ''}${tx.payRole ? '／' : ''}${tx.payAccount} 代付</span>` : '';
+        ? `<span class="proj-detail-paytag">${Utils.esc(tx.payRole || '')}${tx.payRole ? '／' : ''}${Utils.esc(tx.payAccount)} 代付</span>` : '';
       return `<div class="proj-detail-item">
         <div class="proj-detail-item-main">
-          <span class="proj-detail-item-name">${name}</span>
+          <span class="proj-detail-item-name">${Utils.esc(name)}</span>
           <span class="proj-detail-item-amt amount-out">${Utils.formatMoney(tx.amount)}</span>
         </div>
         <div class="proj-detail-item-sub">
           <span>${tx.date}</span>
-          <span>· ${tx.roleOut}／${tx.accountOut}</span>
-          ${tx.projectTag ? `<span>· 📁${tx.projectTag}</span>` : ''}
+          <span>· ${Utils.esc(tx.roleOut)}／${Utils.esc(tx.accountOut)}</span>
+          ${tx.projectTag ? `<span>· 📁${Utils.esc(tx.projectTag)}</span>` : ''}
           ${payTag}
         </div>
       </div>`;
@@ -251,7 +251,7 @@ Router.register('dashboard', (() => {
     const modal = document.createElement('div');
     modal.className = 'modal-overlay';
     modal.innerHTML = `<div class="modal-card" style="max-height:80vh;display:flex;flex-direction:column">
-      <div class="modal-title">${label}｜${periodLabel}</div>
+      <div class="modal-title">${Utils.esc(label)}｜${periodLabel}</div>
       <div class="proj-detail-summary">
         <div><span class="label-sm">合計</span><span class="amount-out">${Utils.formatMoney(total)}</span></div>
         <div><span class="label-sm">筆數</span><span>${txs.length} 筆</span></div>
@@ -315,15 +315,15 @@ Router.register('dashboard', (() => {
     roles.forEach(role => {
       const accts = (accounts[role] || []).filter(a => a.type !== '信用卡' && a.type !== '證券帳戶');
       if (!accts.length) return;
-      if (roles.length > 1) inner += `<div class="dash-acct-role">${role}</div>`;
+      if (roles.length > 1) inner += `<div class="dash-acct-role">${Utils.esc(role)}</div>`;
       inner += `<div class="card dash-acct-card">
         ${accts.map(a => {
           const bal = (balances[role] || {})[a.name] || 0;
           const warn = (warnings || {})[`${role}||${a.name}`];
           return `<div class="dash-acct-row">
-            <span class="dash-acct-name">${a.name}</span>
+            <span class="dash-acct-name">${Utils.esc(a.name)}</span>
             <span class="dash-acct-bal ${bal < 0 ? 'amount-out' : ''}">${bal < 0 ? '-' : ''}${Utils.formatMoney(bal)}</span>
-          </div>${warn ? `<div class="dash-overcommit-warn">⚠ 專案剩餘預算 ${Utils.formatMoney(warn.committed)}（${warn.items.map(i => i.name).join('、')}），餘額不足，缺口 ${Utils.formatMoney(warn.shortage)}</div>` : ''}`;
+          </div>${warn ? `<div class="dash-overcommit-warn">⚠ 專案剩餘預算 ${Utils.formatMoney(warn.committed)}（${warn.items.map(i => Utils.esc(i.name)).join('、')}），餘額不足，缺口 ${Utils.formatMoney(warn.shortage)}</div>` : ''}`;
         }).join('')}
       </div>`;
     });
@@ -340,8 +340,8 @@ Router.register('dashboard', (() => {
     const inner = active.map(p => {
       const pct  = p.budget > 0 ? Math.min(p.spent / p.budget * 100, 100) : 0;
       const over = p.spent > p.budget;
-      return `<div class="card proj-card" data-proj="${p.name}">
-        <div class="proj-card-name">${p.name}</div>
+      return `<div class="card proj-card" data-proj="${Utils.esc(p.name)}">
+        <div class="proj-card-name">${Utils.esc(p.name)}</div>
         <div class="progress-wrap"><div class="progress-bar ${over ? 'over' : ''}" style="width:${pct.toFixed(1)}%"></div></div>
         <div class="proj-card-nums">
           <span>${Utils.formatMoney(p.spent)} / ${Utils.formatMoney(p.budget)}</span>
@@ -429,18 +429,18 @@ Router.register('dashboard', (() => {
     const rows = items.map(({ id: expId, creditor, debtor, date, amount, remaining, memo, _gid }) => {
       const isMyDebt = debtor === id;
       const isMyRecv = creditor === id;
-      const label = isMyDebt ? `我欠 ${creditor}` : isMyRecv ? `${debtor} 欠我` : `${debtor} 欠 ${creditor}`;
+      const label = isMyDebt ? `我欠 ${Utils.esc(creditor)}` : isMyRecv ? `${Utils.esc(debtor)} 欠我` : `${Utils.esc(debtor)} 欠 ${Utils.esc(creditor)}`;
       const partial = remaining < amount ? `（剩 ${Utils.formatMoney(remaining)}）` : '';
-      const sub = `${date.slice(5)}${memo ? ' · ' + memo : ''}${partial}`;
+      const sub = `${date.slice(5)}${memo ? ' · ' + Utils.esc(memo) : ''}${partial}`;
       const repayMemo = `補款／${date.slice(5)}${memo ? ' ' + memo : ''}`;
       const grouped = _gid !== undefined && _payGroups[_gid].members.length > 1;
       const payBtn = `<button type="button" class="dash-repay-btn"
-        data-creditor="${creditor.replace(/"/g, '&quot;')}"
-        data-debtor="${debtor.replace(/"/g, '&quot;')}"
+        data-creditor="${Utils.esc(creditor)}"
+        data-debtor="${Utils.esc(debtor)}"
         data-amount="${remaining}"
-        data-settle="${(expId || '').replace(/"/g, '&quot;')}"
+        data-settle="${Utils.esc(expId || '')}"
         data-group="${grouped ? _gid : ''}"
-        data-memo="${repayMemo.replace(/"/g, '&quot;')}">記補款 →</button>`;
+        data-memo="${Utils.esc(repayMemo)}">記補款 →</button>`;
       return `<div class="dash-acct-row dash-pay-row">
         <div class="dash-pay-info">
           <span class="dash-acct-name">${label}</span>
@@ -482,10 +482,10 @@ Router.register('dashboard', (() => {
       const sub = `${daysLeft < 0 ? '⚠ 已逾期' : daysLeft + ' 天後截止'}${issuedUnpaid.length > 1 ? `・含 ${issuedUnpaid.length} 期` : ''}`;
       rows.push(`<div class="dash-todo-row">
         <span class="dash-todo-icon">💳</span>
-        <span class="dash-todo-txt">${a.name}<small>${sub}</small></span>
+        <span class="dash-todo-txt">${Utils.esc(a.name)}<small>${sub}</small></span>
         <span class="dash-todo-amt">${Utils.formatMoney(total)}</span>
         <button class="dash-todo-btn" data-act="todo-pay"
-          data-role="${a.role.replace(/"/g, '&quot;')}" data-name="${a.name.replace(/"/g, '&quot;')}"
+          data-role="${Utils.esc(a.role)}" data-name="${Utils.esc(a.name)}"
           data-amount="${total}">去繳費</button>
       </div>`);
     });

@@ -32,6 +32,14 @@ window.Utils = {
     return parseFloat(String(str).replace(/[,$]/g, '')) || 0;
   },
 
+  // HTML 跳脫：所有使用者輸入（備忘/帳戶名/專案名/成員名…）插入 innerHTML 前必經此函式，
+  // 防止 XSS（惡意內容可偷取 localStorage 的 token 操作試算表）
+  esc(s) {
+    return String(s ?? '')
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  },
+
   // 防止 Google Sheets（USER_ENTERED）把純數字字串當數字解析而吃掉前導零
   // 例：備忘「00878」會被存成 878；加上 ' 前綴強制視為文字（讀回時前綴不會帶出來）
   sheetText(text) {
@@ -84,15 +92,23 @@ window.Utils = {
   },
 
   // 信用卡帳單週期（billing 頁與 dashboard 待辦卡共用）
+  // 月底夾擠與 cardBills 引擎一致（結帳日 31 在 2 月 → 2/28），否則兩邊帳單期對不上
   billingWindows(today, billingDay, dueDay) {
     const bd = billingDay || 15;
     const dd = dueDay || 25;
-    const y = today.getFullYear(), m = today.getMonth(), d = today.getDate();
-    const pastEnd   = d >= bd ? new Date(y, m, bd) : new Date(y, m - 1, bd);
-    const pastStart = new Date(new Date(pastEnd.getFullYear(), pastEnd.getMonth() - 1, bd).getTime() + 86400000);
-    const pastDue   = new Date(pastEnd.getFullYear(), pastEnd.getMonth() + 1, dd);
+    const clampDay = (y, mIdx, day) => {
+      const last = new Date(y, mIdx + 1, 0).getDate();
+      return new Date(y, mIdx, Math.min(day, last));
+    };
+    const y = today.getFullYear(), m = today.getMonth();
+    // 本期結帳日＝包含今天的週期終點（與引擎 cycleEnd 同語意；結帳日當天仍屬本期，故以日期字串比較）
+    const dstr = d => `${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}`;
+    let curEnd = clampDay(y, m, bd);
+    if (dstr(today) > dstr(curEnd)) curEnd = clampDay(y, m + 1, bd);
+    const pastEnd   = clampDay(curEnd.getFullYear(), curEnd.getMonth() - 1, bd);
+    const pastStart = new Date(clampDay(pastEnd.getFullYear(), pastEnd.getMonth() - 1, bd).getTime() + 86400000);
+    const pastDue   = clampDay(pastEnd.getFullYear(), pastEnd.getMonth() + 1, dd);
     const curStart  = new Date(pastEnd.getTime() + 86400000);
-    const curEnd    = new Date(pastEnd.getFullYear(), pastEnd.getMonth() + 1, bd);
     return {
       past:    { start: pastStart, end: pastEnd, due: pastDue },
       current: { start: curStart,  end: curEnd }

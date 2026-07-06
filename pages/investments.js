@@ -164,7 +164,7 @@ Router.register('investments', (() => {
 
     const roleTabs = roles.length > 1
       ? `<div class="inv-role-tabs">${roles.map(r =>
-          `<button class="inv-role-tab${r === _activeRole ? ' active' : ''}" data-role="${r}">${r}</button>`
+          `<button class="inv-role-tab${r === _activeRole ? ' active' : ''}" data-role="${Utils.esc(r)}">${Utils.esc(r)}</button>`
         ).join('')}</div>` : '';
 
     el.innerHTML = `<div class="page-inner">
@@ -220,10 +220,10 @@ Router.register('investments', (() => {
         const pnlClass  = pos.unrealized >= 0 ? 'amount-in' : 'amount-out';
         const pnlArrow  = pos.unrealized >= 0 ? '▲' : '▼';
         const pnlAmt    = Utils.formatMoney(Math.abs(Math.round(pos.unrealized)));
-        return `<div class="inv-pos-row" data-key="${acct}||${pos.ticker}" data-role="${role}">
+        return `<div class="inv-pos-row" data-key="${Utils.esc(acct)}||${Utils.esc(pos.ticker)}" data-role="${Utils.esc(role)}">
           <div class="inv-pos-left">
-            <span class="inv-pos-name">${pos.name}</span>
-            <span class="inv-pos-meta">${ticker} · ${pos.totalShares.toLocaleString()} 股</span>
+            <span class="inv-pos-name">${Utils.esc(pos.name)}</span>
+            <span class="inv-pos-meta">${Utils.esc(ticker)} · ${pos.totalShares.toLocaleString()} 股</span>
           </div>
           <div class="inv-pos-right">
             <span class="inv-pos-value">${Utils.formatMoney(pos.marketValue)}</span>
@@ -234,7 +234,7 @@ Router.register('investments', (() => {
 
       return `<div class="inv-broker-section">
         <div class="inv-broker-header">
-          <span>📊 ${acct}</span>
+          <span>📊 ${Utils.esc(acct)}</span>
           <span class="inv-broker-mv">${Utils.formatMoney(acctMV)}</span>
         </div>
         ${rows}
@@ -286,8 +286,8 @@ Router.register('investments', (() => {
       <div class="detail-sheet-handle"></div>
       <div class="detail-sheet-header">
         <div>
-          <div class="detail-sheet-name">${pos.name}</div>
-          <div class="detail-sheet-sub">${ticker} · 📊 ${pos.account}</div>
+          <div class="detail-sheet-name">${Utils.esc(pos.name)}</div>
+          <div class="detail-sheet-sub">${Utils.esc(ticker)} · 📊 ${Utils.esc(pos.account)}</div>
         </div>
         <button class="detail-sheet-close" id="btn-sheet-close">✕</button>
       </div>
@@ -340,19 +340,19 @@ Router.register('investments', (() => {
     const modal = document.createElement('div');
     modal.className = 'modal-overlay';
     const roles    = PERSONAL_ROLES();
-    const roleOpts = roles.map(r => `<option value="${r}"${r === defaultRole ? ' selected' : ''}>${r}</option>`).join('');
+    const roleOpts = roles.map(r => `<option value="${Utils.esc(r)}"${r === defaultRole ? ' selected' : ''}>${Utils.esc(r)}</option>`).join('');
 
     function brokerOpts(role) {
       const list = Store.brokersForRole(role);
       if (!list.length) return `<option value="">（請先至設定新增證券帳戶）</option>`;
-      return list.map(b => `<option value="${b}"${prefill.account === b ? ' selected' : ''}>${b}</option>`).join('');
+      return list.map(b => `<option value="${Utils.esc(b)}"${prefill.account === b ? ' selected' : ''}>${Utils.esc(b)}</option>`).join('');
     }
 
     const tickerSection = prefill.ticker
       ? `<div class="form-row"><label>標的</label>
-          <div style="padding:8px 0;font-weight:600">${prefill.name}（${prefill.ticker.replace(/^TPE:/i,'')}）</div>
-          <input type="hidden" id="inp-inv-ticker" value="${prefill.ticker}">
-          <input type="hidden" id="inp-inv-name" value="${prefill.name}">
+          <div style="padding:8px 0;font-weight:600">${Utils.esc(prefill.name)}（${Utils.esc(prefill.ticker.replace(/^TPE:/i,''))}）</div>
+          <input type="hidden" id="inp-inv-ticker" value="${Utils.esc(prefill.ticker)}">
+          <input type="hidden" id="inp-inv-name" value="${Utils.esc(prefill.name)}">
         </div>`
       : `<div class="form-row inv-search-wrap">
           <label>搜尋標的</label>
@@ -406,10 +406,10 @@ Router.register('investments', (() => {
           const hits = searchStocks(q);
           if (!hits.length) { dd.classList.add('hidden'); return; }
           dd.innerHTML = hits.map(s =>
-            `<div class="inv-search-item" data-code="${s.code}" data-name="${s.name}">
-              <span class="inv-search-code">${s.code}</span>
-              <span class="inv-search-name">${s.name}</span>
-              <span class="inv-search-market">${s.market}</span>
+            `<div class="inv-search-item" data-code="${Utils.esc(s.code)}" data-name="${Utils.esc(s.name)}">
+              <span class="inv-search-code">${Utils.esc(s.code)}</span>
+              <span class="inv-search-name">${Utils.esc(s.name)}</span>
+              <span class="inv-search-market">${Utils.esc(s.market)}</span>
             </div>`).join('');
           dd.classList.remove('hidden');
           dd.querySelectorAll('.inv-search-item').forEach(item => {
@@ -451,7 +451,7 @@ Router.register('investments', (() => {
     const modal = document.createElement('div');
     modal.className = 'modal-overlay';
     modal.innerHTML = `<div class="modal-card">
-      <div class="modal-title">減倉 — ${pos.name}</div>
+      <div class="modal-title">減倉 — ${Utils.esc(pos.name)}</div>
       <div class="form-row">
         <label>持倉概況</label>
         <div style="padding:6px 0;color:var(--text-muted);font-size:.9rem">
@@ -591,10 +591,12 @@ Router.register('investments', (() => {
   async function saveLots() {
     const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID) || CFG.SHEET_ID;
     const rows = _lots.filter(l => !l._deleted).map(l => [l.role, l.account, l.ticker, l.name, l.shares, l.avgCost]);
+    // pad 空列覆蓋殘留：否則清倉後（列數變少）下方舊資料仍在，重新載入時持倉會復活
+    const padded = [...rows];
+    while (padded.length < 200) padded.push(['', '', '', '', '', '']);
     Utils.showLoading(true);
     try {
-      const lastRow = 1 + rows.length;
-      await API.updateRange(sid, `Investments!A2:F${lastRow}`, rows);
+      await API.updateRange(sid, `Investments!A2:F${1 + padded.length}`, padded);
       Store.invalidate();
       await Store.load(true);
       buildState();

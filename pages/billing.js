@@ -36,7 +36,7 @@ Router.register('billing', (() => {
     let html = `<div class="page-inner">`;
     let idx = 0;
     roles.forEach(role => {
-      html += `<div class="billing-role-header">${role}</div>`;
+      html += `<div class="billing-role-header">${Utils.esc(role)}</div>`;
       byRole[role].forEach(acct => { html += renderCard(acct, ledger, today, idx++); });
     });
     html += `<div style="height:16px"></div></div>`;
@@ -73,7 +73,7 @@ Router.register('billing', (() => {
     const items = txs.map(tx => `
       <div class="cc-tx-item">
         <span class="cc-tx-date">${tx.date.slice(5)}</span>
-        <span class="cc-tx-cat">${tx.category}${tx.memo ? ' · ' + tx.memo : ''}</span>
+        <span class="cc-tx-cat">${Utils.esc(tx.category)}${tx.memo ? ' · ' + Utils.esc(tx.memo) : ''}</span>
         <span class="cc-tx-amt">${Utils.formatMoney(tx.amount)}</span>
       </div>`).join('');
     return `<div id="${listId}" class="cc-tx-list hidden">${items}</div>`;
@@ -81,7 +81,7 @@ Router.register('billing', (() => {
 
   function renderCard(acct, ledger, today, baseIdx) {
     const { past, current } = Utils.billingWindows(today, acct.billingDate, acct.dueDate);
-    const safeName = acct.name.replace(/"/g, '&quot;');
+    const safeName = Utils.esc(acct.name);
 
     // 帳單引擎：金額/已繳/狀態單一來源（FIFO 沖最舊，不看繳費日期）
     const { bills, issuedUnpaid } = Utils.cardBills(acct.role, acct, ledger, today);
@@ -139,7 +139,7 @@ Router.register('billing', (() => {
             ${pastTxs.length ? `<button class="btn btn-outline btn-sm cc-expand-btn"
                 data-idx="${baseIdx * 2 + 1}" data-count="${pastTxs.length}">展開明細（${pastTxs.length}）</button>` : ''}
             <button class="btn btn-primary btn-sm cc-pay-btn"
-                data-role="${acct.role}" data-name="${safeName}" data-amount="${unpaidSum}">前往繳費 →</button>
+                data-role="${Utils.esc(acct.role)}" data-name="${safeName}" data-amount="${unpaidSum}">前往繳費 →</button>
           </div>
           ${txListHtml(pastTxs, pastListId)}
         </div>`;
@@ -173,12 +173,12 @@ Router.register('billing', (() => {
         </div>`).join('')}
         <div class="cc-actions">
           <button class="btn btn-primary btn-sm cc-pay-btn"
-              data-role="${acct.role}" data-name="${safeName}" data-amount="${unpaidSum}">一次繳清 ${Utils.formatMoney(unpaidSum)} →</button>
+              data-role="${Utils.esc(acct.role)}" data-name="${safeName}" data-amount="${unpaidSum}">一次繳清 ${Utils.formatMoney(unpaidSum)} →</button>
         </div>
       </div>` : '';
 
     return `<div class="card cc-card">
-      <div class="cc-card-name">💳 ${acct.name}</div>
+      <div class="cc-card-name">💳 ${Utils.esc(acct.name)}</div>
       ${curSection}
       ${pastSection}
       ${earlierSection}

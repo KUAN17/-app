@@ -68,8 +68,9 @@ window.Router = (() => {
       item.addEventListener('click', () => go(item.dataset.page));
     });
 
-    const hash = window.location.hash.replace('#', '') || 'dashboard';
-    go(hash);
+    // 未知 hash（亂碼/舊書籤）退回總覽，避免白畫面
+    const hash = window.location.hash.replace('#', '');
+    go(pages[hash] ? hash : 'dashboard');
   }
 
   function current_page() { return current; }

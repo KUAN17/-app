@@ -119,8 +119,8 @@ Router.register('settings', (() => {
     el.innerHTML = Store.roleNames().map(role => `
       <div class="card settings-card acct-role-card" style="margin-bottom:12px">
         <div class="acct-role-header">
-          <span class="balance-role-badge">${role}</span>
-          <button class="btn btn-outline btn-sm btn-add-acct" data-role="${role}">＋ 新增</button>
+          <span class="balance-role-badge">${Utils.esc(role)}</span>
+          <button class="btn btn-outline btn-sm btn-add-acct" data-role="${Utils.esc(role)}">＋ 新增</button>
         </div>
         <div id="acct-list-${role}">${renderRoleList(role)}</div>
       </div>
@@ -129,9 +129,10 @@ Router.register('settings', (() => {
      <button class="btn btn-outline btn-full" id="btn-reconcile" style="margin-top:8px">📋 對帳校正</button>
      <div style="height:8px"></div>`;
 
+    // CSS.escape：成員名含引號等特殊字元時 selector 不致失效
     Store.roleNames().forEach(role => {
-      Utils.el(`acct-mgmt-section`).querySelector(`.btn-add-acct[data-role="${role}"]`)
-        .addEventListener('click', () => showAddModal(role));
+      Utils.el(`acct-mgmt-section`).querySelector(`.btn-add-acct[data-role="${CSS.escape(role)}"]`)
+        ?.addEventListener('click', () => showAddModal(role));
     });
     Utils.el('btn-save-accounts').addEventListener('click', saveAccounts);
     Utils.el('btn-reconcile').addEventListener('click', showReconcileModal);
@@ -182,11 +183,11 @@ Router.register('settings', (() => {
       <div class="acct-item">
         <div class="acct-item-top">
           <span class="acct-type-badge type-${typeClass}">${typeLabel}</span>
-          <span class="acct-item-name">${a.name}</span>
-          ${a.purpose ? `<span class="acct-item-purpose">${a.purpose}</span>` : ''}
-          ${a.type === '信用卡' && a.paymentAccount ? `<span class="acct-item-purpose">扣款：${a.paymentAccount}</span>` : ''}
-          <button class="btn btn-outline btn-sm acct-edit-btn" data-role="${role}" data-i="${a._i}" style="margin-left:auto">編輯</button>
-          <button class="btn btn-danger btn-sm acct-del-btn" data-role="${role}" data-i="${a._i}">✕</button>
+          <span class="acct-item-name">${Utils.esc(a.name)}</span>
+          ${a.purpose ? `<span class="acct-item-purpose">${Utils.esc(a.purpose)}</span>` : ''}
+          ${a.type === '信用卡' && a.paymentAccount ? `<span class="acct-item-purpose">扣款：${Utils.esc(a.paymentAccount)}</span>` : ''}
+          <button class="btn btn-outline btn-sm acct-edit-btn" data-role="${Utils.esc(role)}" data-i="${a._i}" style="margin-left:auto">編輯</button>
+          <button class="btn btn-danger btn-sm acct-del-btn" data-role="${Utils.esc(role)}" data-i="${a._i}">✕</button>
         </div>
         ${curRow}
       </div>`;
@@ -239,11 +240,11 @@ Router.register('settings', (() => {
     </div>
     <div class="form-row">
       <label>帳戶名稱 *</label>
-      <input type="text" id="inp-acct-name" class="form-input" placeholder="例：永豐數位帳戶" value="${acct.name||''}">
+      <input type="text" id="inp-acct-name" class="form-input" placeholder="例：永豐數位帳戶" value="${Utils.esc(acct.name||'')}">
     </div>
     <div class="form-row">
       <label>主要用途</label>
-      <input type="text" id="inp-acct-purpose" class="form-input" placeholder="選填，例：日常消費" value="${acct.purpose||''}">
+      <input type="text" id="inp-acct-purpose" class="form-input" placeholder="選填，例：日常消費" value="${Utils.esc(acct.purpose||'')}">
     </div>
     ${isNew ? `
     <div class="form-row" id="acct-balance-row" style="display:${t==='信用卡'?'none':'block'}">
@@ -268,7 +269,7 @@ Router.register('settings', (() => {
         <label>扣款帳戶（選填）</label>
         <select id="inp-acct-payment" class="form-select">
           <option value="">不設定</option>
-          ${(_acctState[role]||[]).filter(a=>!a._deleted&&a.type!=='信用卡'&&a.type!=='證券帳戶').map(a=>`<option value="${a.name}"${acct.paymentAccount===a.name?' selected':''}>${a.name}</option>`).join('')}
+          ${(_acctState[role]||[]).filter(a=>!a._deleted&&a.type!=='信用卡'&&a.type!=='證券帳戶').map(a=>`<option value="${Utils.esc(a.name)}"${acct.paymentAccount===a.name?' selected':''}>${Utils.esc(a.name)}</option>`).join('')}
         </select>
       </div>
     </div>
@@ -303,6 +304,11 @@ Router.register('settings', (() => {
       const name = Utils.el('inp-acct-name').value.trim();
       if (!name) return Utils.toast('請輸入帳戶名稱', 'warn');
       const type = getType();
+      // 同名防呆：帳單引擎與餘額計算部分以帳戶名匹配，同名（尤其信用卡）會互相污染
+      const dup = Object.entries(_acctState).some(([r, list]) =>
+        (list || []).some(x => !x._deleted && x !== acct && x.name === name &&
+          (r === role || type === '信用卡' || x.type === '信用卡')));
+      if (dup) return Utils.toast('已有同名帳戶（信用卡名稱不可跨成員重複）', 'warn');
       onConfirm({
         name,
         purpose:     Utils.el('inp-acct-purpose').value.trim(),
@@ -342,6 +348,7 @@ Router.register('settings', (() => {
         // 改名連動：帳本歷史（轉出/轉入/代付）、信用卡扣款設定、專案預設帳戶一併改寫，
         // 否則舊名稱紀錄會脫鉤，餘額試算漏算歷史
         if (!acct._new && data.name !== oldName) {
+          await Store.load(true); // 取最新列位，避免多裝置並發下 _row 位移寫錯列
           const refs = Store.get().ledger.filter(tx =>
             (tx.roleOut === role && tx.accountOut === oldName) ||
             (tx.roleIn === role && tx.accountIn === oldName) ||
@@ -363,6 +370,12 @@ Router.register('settings', (() => {
               .filter(p => p.ownerRole === role && p.defaultAccount === oldName)
               .map(p => ({ range: `Projects!N${p._row}`, values: [[data.name]] }));
             if (projUpd.length) await API.batchUpdateValues(sid, projUpd);
+
+            // 投資表的證券帳戶引用（B 欄）
+            const invUpd = Store.get().investments
+              .filter(i => i.role === role && i.account === oldName)
+              .map(i => ({ range: `Investments!B${i._row}`, values: [[data.name]] }));
+            if (invUpd.length) await API.batchUpdateValues(sid, invUpd);
 
             // 同角色信用卡的扣款帳戶引用
             _acctState[role].forEach(a => { if (a.paymentAccount === oldName) a.paymentAccount = data.name; });
@@ -399,10 +412,10 @@ Router.register('settings', (() => {
 
     const rowsHtml = rows.map(a => {
       const curBal = Store.calcBalance(a.role, a.name);
-      return `<div class="reconcile-row" data-role="${a.role}" data-i="${a._i}" data-cur="${curBal}">
+      return `<div class="reconcile-row" data-role="${Utils.esc(a.role)}" data-i="${a._i}" data-cur="${curBal}">
         <div class="reconcile-name">
-          <span class="balance-role-badge">${a.role}</span>
-          <span>${a.name}</span>
+          <span class="balance-role-badge">${Utils.esc(a.role)}</span>
+          <span>${Utils.esc(a.name)}</span>
           <span class="reconcile-cur">app: ${Utils.formatMoney(curBal)}</span>
         </div>
         <div class="reconcile-inputs">
@@ -592,15 +605,15 @@ Router.register('settings', (() => {
     const rows = _projState.map((p, i) => {
       const statusClass = p.status === '進行中' ? 'type-bank' : 'type-cash';
       const roleOpts = Store.roleNames().map(r =>
-        `<option value="${r}"${p.ownerRole===r?' selected':''}>${r}</option>`
+        `<option value="${Utils.esc(r)}"${p.ownerRole===r?' selected':''}>${Utils.esc(r)}</option>`
       ).join('');
       const accts = p.ownerRole ? Store.accountsForRole(p.ownerRole) : [];
       const acctOpts = accts.map(a =>
-        `<option value="${a}"${p.defaultAccount===a?' selected':''}>${a}</option>`
+        `<option value="${Utils.esc(a)}"${p.defaultAccount===a?' selected':''}>${Utils.esc(a)}</option>`
       ).join('');
       return `<div class="proj-setting-row">
         <div class="proj-setting-name">
-          ${p.name}
+          ${Utils.esc(p.name)}
           <span class="acct-type-badge ${statusClass}" style="font-size:10px">${p.status}</span>
         </div>
         <div class="proj-setting-fields">
@@ -627,7 +640,7 @@ Router.register('settings', (() => {
         const accts = Store.accountsForRole(sel.value);
         const acctSel = el.querySelector(`.inp-proj-acct[data-i="${i}"]`);
         if (acctSel) acctSel.innerHTML = '<option value="">預設帳戶</option>' +
-          accts.map(a => `<option value="${a}">${a}</option>`).join('');
+          accts.map(a => `<option value="${Utils.esc(a)}">${Utils.esc(a)}</option>`).join('');
       });
     });
 
@@ -665,7 +678,7 @@ Router.register('settings', (() => {
     if (!wrap) return;
     const curId = Utils.identity();
     wrap.innerHTML = Store.members().map(m =>
-      `<button type="button" class="proj-type-btn${curId === m.name ? ' active' : ''}" data-identity="${m.name}">${m.type === 'shared' ? '🏠 ' + m.name + ' 視角' : m.name}</button>`
+      `<button type="button" class="proj-type-btn${curId === m.name ? ' active' : ''}" data-identity="${Utils.esc(m.name)}">${m.type === 'shared' ? '🏠 ' + Utils.esc(m.name) + ' 視角' : Utils.esc(m.name)}</button>`
     ).join('');
     wrap.querySelectorAll('[data-identity]').forEach(btn => {
       btn.addEventListener('click', async () => {
@@ -702,7 +715,7 @@ Router.register('settings', (() => {
       ${ms.map((m, i) => `
         <div class="member-row">
           <span class="acct-type-badge ${m.type === 'shared' ? 'type-cash' : 'type-bank'}">${m.type === 'shared' ? '共享' : '個人'}</span>
-          <span class="member-name">${m.type === 'shared' ? '🏠 ' : ''}${m.name}</span>
+          <span class="member-name">${m.type === 'shared' ? '🏠 ' : ''}${Utils.esc(m.name)}</span>
           <button class="btn btn-outline btn-sm member-rename" data-i="${i}" style="margin-left:auto">改名</button>
           ${ms.length > 1 ? `<button class="btn btn-danger btn-sm member-del" data-i="${i}">✕</button>` : ''}
         </div>`).join('')}
@@ -723,7 +736,7 @@ Router.register('settings', (() => {
       <div class="modal-title">${title}</div>
       <div class="form-row">
         <label>名稱</label>
-        <input type="text" id="inp-member-name" class="form-input" value="${name.replace(/"/g, '&quot;')}" placeholder="例如：爸爸、小孩" autocomplete="off">
+        <input type="text" id="inp-member-name" class="form-input" value="${Utils.esc(name)}" placeholder="例如：爸爸、小孩" autocomplete="off">
       </div>
       ${showType ? `<div class="form-row">
         <label>類型</label>
@@ -777,7 +790,8 @@ Router.register('settings', (() => {
     if (!newName || newName === oldName) return;
     if (ms.some(m => m.name === newName)) return Utils.toast('名稱與現有成員重複', 'warn');
 
-    const { ledger, projects } = Store.get();
+    await Store.load(true); // 取最新列位，避免多裝置並發下 _row 位移寫錯列
+    const { ledger, projects, investments } = Store.get();
     const refs = ledger.filter(tx => tx.roleOut === oldName || tx.roleIn === oldName || tx.payRole === oldName);
 
     const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID) || CFG.SHEET_ID;
@@ -795,6 +809,10 @@ Router.register('settings', (() => {
       const pu = projects.filter(p => p.ownerRole === oldName)
         .map(p => ({ range: `Projects!M${p._row}`, values: [[newName]] }));
       if (pu.length) await API.batchUpdateValues(sid, pu);
+      // 投資表的角色引用（A 欄）——漏掉會使該成員的投資部位從投資頁消失
+      const iu = investments.filter(v => v.role === oldName)
+        .map(v => ({ range: `Investments!A${v._row}`, values: [[newName]] }));
+      if (iu.length) await API.batchUpdateValues(sid, iu);
       // 帳戶設定：搬移 _acctState key 後整份重寫
       _acctState[newName] = _acctState[oldName] || [];
       delete _acctState[oldName];

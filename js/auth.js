@@ -13,18 +13,26 @@ window.Auth = (() => {
     return !!_token && Date.now() < _expiry - 60000;
   }
 
+  // token 存 sessionStorage（非 localStorage）：縮小 XSS 竊取窗口——關閉 app 即失效，
+  // 新開啟時由 boot 的 silentToken 靜默換發。email hint 非機密，留在 localStorage。
   function _persist(token, expiresIn) {
     _token  = token;
     _expiry = Date.now() + expiresIn * 1000;
-    localStorage.setItem(LS_TOKEN,  _token);
-    localStorage.setItem(LS_EXPIRY, String(_expiry));
+    sessionStorage.setItem(LS_TOKEN,  _token);
+    sessionStorage.setItem(LS_EXPIRY, String(_expiry));
+    // 清除舊版殘留在 localStorage 的 token
+    localStorage.removeItem(LS_TOKEN);
+    localStorage.removeItem(LS_EXPIRY);
   }
 
   function _restore() {
-    const t = localStorage.getItem(LS_TOKEN);
-    const e = parseInt(localStorage.getItem(LS_EXPIRY) || '0');
+    const t = sessionStorage.getItem(LS_TOKEN);
+    const e = parseInt(sessionStorage.getItem(LS_EXPIRY) || '0');
     _hint   = localStorage.getItem(LS_HINT) || '';
     if (t && Date.now() < e - 60000) { _token = t; _expiry = e; }
+    // 舊版 localStorage token 一律作廢清除
+    localStorage.removeItem(LS_TOKEN);
+    localStorage.removeItem(LS_EXPIRY);
   }
 
   function _fetchHint() {
@@ -90,6 +98,8 @@ window.Auth = (() => {
     if (_token) google.accounts.oauth2.revoke(_token);
     _token = null; _expiry = 0; _hint = '';
     localStorage.removeItem(CFG.LS_KEYS.AUTOLOGIN);
+    sessionStorage.removeItem(LS_TOKEN);
+    sessionStorage.removeItem(LS_EXPIRY);
     localStorage.removeItem(LS_TOKEN);
     localStorage.removeItem(LS_EXPIRY);
     localStorage.removeItem(LS_HINT);

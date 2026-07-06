@@ -124,7 +124,7 @@ Router.register('projects', (() => {
 
     return `<div class="card proj-detail-card">
       <div class="proj-card-name">
-        ${isLoan ? '🏠 ' : ''}${p.name}
+        ${isLoan ? '🏠 ' : ''}${Utils.esc(p.name)}
         <span class="status-badge ${active ? 'badge-active' : 'badge-closed'}">${p.status}</span>
       </div>
       ${active ? progressBar(p.spent, p.budget) : ''}
@@ -132,9 +132,9 @@ Router.register('projects', (() => {
       ${loanHtml}
       ${gapHtml}
       <div class="proj-card-actions">
-        <button class="btn btn-outline btn-sm btn-detail-proj" data-name="${p.name}">📄 明細</button>
-        <button class="btn btn-outline btn-sm btn-edit-proj" data-name="${p.name}" data-row="${sheetRow}">編輯</button>
-        ${active ? `<button class="btn btn-outline btn-sm btn-close-proj" data-name="${p.name}">結案</button>` : ''}
+        <button class="btn btn-outline btn-sm btn-detail-proj" data-name="${Utils.esc(p.name)}">📄 明細</button>
+        <button class="btn btn-outline btn-sm btn-edit-proj" data-name="${Utils.esc(p.name)}" data-row="${sheetRow}">編輯</button>
+        ${active ? `<button class="btn btn-outline btn-sm btn-close-proj" data-name="${Utils.esc(p.name)}">結案</button>` : ''}
       </div>
     </div>`;
   }
@@ -188,9 +188,9 @@ Router.register('projects', (() => {
       .sort((a, b) => b.date.localeCompare(a.date));
 
     const listHtml = items.length ? items.map(tx => {
-      const label = tx.memo || tx.category || '（未命名）';
+      const label = Utils.esc(tx.memo || tx.category || '（未命名）');
       const payTag = tx.payAccount
-        ? `<span class="proj-detail-paytag">${tx.payRole || ''}${tx.payRole ? '／' : ''}${tx.payAccount} 代付</span>`
+        ? `<span class="proj-detail-paytag">${Utils.esc(tx.payRole || '')}${tx.payRole ? '／' : ''}${Utils.esc(tx.payAccount)} 代付</span>`
         : '';
       return `<div class="proj-detail-item">
         <div class="proj-detail-item-main">
@@ -199,7 +199,7 @@ Router.register('projects', (() => {
         </div>
         <div class="proj-detail-item-sub">
           <span>${tx.date}</span>
-          ${tx.category && tx.memo ? `<span>· ${tx.category}</span>` : ''}
+          ${tx.category && tx.memo ? `<span>· ${Utils.esc(tx.category)}</span>` : ''}
           ${payTag}
         </div>
       </div>`;
@@ -208,7 +208,7 @@ Router.register('projects', (() => {
     const modal = document.createElement('div');
     modal.className = 'modal-overlay';
     modal.innerHTML = `<div class="modal-card" style="max-height:80vh;display:flex;flex-direction:column">
-      <div class="modal-title">${p.name}｜已花費明細</div>
+      <div class="modal-title">${Utils.esc(p.name)}｜已花費明細</div>
       <div class="proj-detail-summary">
         <div><span class="label-sm">目標預算</span><span>${Utils.formatMoney(p.budget)}</span></div>
         <div><span class="label-sm">已花費</span><span>${Utils.formatMoney(p.spent)}</span></div>
@@ -229,7 +229,7 @@ Router.register('projects', (() => {
   function showNewProjModal() {
     const modal = document.createElement('div');
     modal.className = 'modal-overlay';
-    const roleOpts = Store.roleNames().map(r => `<option value="${r}">${r}</option>`).join('');
+    const roleOpts = Store.roleNames().map(r => `<option value="${Utils.esc(r)}">${Utils.esc(r)}</option>`).join('');
     modal.innerHTML = `<div class="modal-card">
       <div class="modal-title">新增專案</div>
       <div class="form-row">
@@ -291,7 +291,7 @@ Router.register('projects', (() => {
       const accts = Store.accountsForRole(e.target.value);
       Utils.el('inp-proj-default-acct').innerHTML =
         '<option value="">（不指定）</option>' +
-        accts.map(a => `<option value="${a}">${a}</option>`).join('');
+        accts.map(a => `<option value="${Utils.esc(a)}">${Utils.esc(a)}</option>`).join('');
     });
 
     Utils.el('ptype-general').addEventListener('click', () => {
@@ -356,17 +356,17 @@ Router.register('projects', (() => {
     const modal = document.createElement('div');
     modal.className = 'modal-overlay';
     const roleOpts = Store.roleNames().map(r =>
-      `<option value="${r}"${p.ownerRole===r?' selected':''}>${r}</option>`
+      `<option value="${Utils.esc(r)}"${p.ownerRole===r?' selected':''}>${Utils.esc(r)}</option>`
     ).join('');
     const accts = p.ownerRole ? Store.accountsForRole(p.ownerRole) : [];
     const acctOpts = accts.map(a =>
-      `<option value="${a}"${p.defaultAccount===a?' selected':''}>${a}</option>`
+      `<option value="${Utils.esc(a)}"${p.defaultAccount===a?' selected':''}>${Utils.esc(a)}</option>`
     ).join('');
     modal.innerHTML = `<div class="modal-card">
       <div class="modal-title">編輯專案</div>
       <div class="form-row">
         <label>專案名稱</label>
-        <input type="text" id="inp-edit-proj-name" class="form-input" value="${p.name.replace(/"/g,'&quot;')}">
+        <input type="text" id="inp-edit-proj-name" class="form-input" value="${Utils.esc(p.name)}">
       </div>
       <div class="form-row">
         <label>${isLoan ? '貸款總額' : '目標預算'}</label>
@@ -415,7 +415,7 @@ Router.register('projects', (() => {
       const accts = Store.accountsForRole(e.target.value);
       Utils.el('inp-edit-default-acct').innerHTML =
         '<option value="">（不指定）</option>' +
-        accts.map(a => `<option value="${a}">${a}</option>`).join('');
+        accts.map(a => `<option value="${Utils.esc(a)}">${Utils.esc(a)}</option>`).join('');
     });
   }
 
@@ -430,6 +430,7 @@ Router.register('projects', (() => {
 
     // 改名連動：帳本 projectTag 一併改寫，否則已花費/已補代付/明細會因名稱脫鉤而歸零
     const renamed = newName !== oldProj.name;
+    if (renamed) await Store.load(true); // 取最新列位，避免多裝置並發下 _row 位移寫錯列
     const tagRefs = renamed
       ? Store.get().ledger.filter(tx => tx.projectTag === oldProj.name)
       : [];
