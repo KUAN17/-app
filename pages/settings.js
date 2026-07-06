@@ -122,7 +122,7 @@ Router.register('settings', (() => {
           <span class="balance-role-badge">${Utils.esc(role)}</span>
           <button class="btn btn-outline btn-sm btn-add-acct" data-role="${Utils.esc(role)}">＋ 新增</button>
         </div>
-        <div id="acct-list-${role}">${renderRoleList(role)}</div>
+        <div id="acct-list-${Utils.esc(role)}">${renderRoleList(role)}</div>
       </div>
     `).join('') +
     `<button class="btn btn-primary btn-full" id="btn-save-accounts">儲存帳戶設定</button>

@@ -249,7 +249,7 @@ Router.register('investments', (() => {
       <div class="card" style="padding:0;overflow:hidden;margin-bottom:10px">
         ${emptyMsg}${accountSections}
       </div>
-      <button class="btn btn-outline btn-add-inv" data-role="${role}" style="width:100%">＋ 新增標的</button>
+      <button class="btn btn-outline btn-add-inv" data-role="${Utils.esc(role)}" style="width:100%">＋ 新增標的</button>
     `;
 
     container.querySelectorAll('.inv-pos-row').forEach(row => {
