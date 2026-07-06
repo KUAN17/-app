@@ -110,7 +110,7 @@ window.Utils = {
     const bd = acct.billingDate || 15;
     const dd = acct.dueDate || 25;
     const name = acct.name;
-    const base = (acct.baseDate || '').replace(/-/g, '/');
+    // 信用卡不看基準日：期初已不參與，基準日過濾只會切出殘缺帳單（如漏掉月初大額）
     const fmt = d => `${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}`;
     // 月底夾擠：結帳/截止日超過當月天數時取月底
     const clampDay = (y, mIdx, day) => {
@@ -120,13 +120,12 @@ window.Utils = {
 
     const charges = ledger.filter(tx =>
       tx.type === '支出' && tx.amount > 0 &&
-      (tx.accountOut === name || tx.payAccount === name) &&
-      (!base || tx.date >= base)
+      (tx.accountOut === name || tx.payAccount === name)
     ).sort((a, b) => a.date.localeCompare(b.date));
 
     const paysTotal = ledger.filter(tx =>
       (tx.type === '轉帳' || tx.type === '公積金提撥') &&
-      tx.accountIn === name && (!base || tx.date >= base)
+      tx.accountIn === name
     ).reduce((s, t) => s + t.amount, 0);
 
     if (!charges.length) return { bills: [], unpaidTotal: 0, issuedUnpaid: [], credit: paysTotal };

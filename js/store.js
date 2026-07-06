@@ -219,7 +219,8 @@ window.Store = (() => {
     const normBase = baseDate ? baseDate.replace(/-/g, '/') : '';
     let balance = initial;
     _data.ledger.forEach(tx => {
-      if (normBase && tx.date < normBase) return;
+      // 信用卡用帳本全紀錄（期初與基準日皆不適用），其他帳戶自基準日起算
+      if (!isCC && normBase && tx.date < normBase) return;
       if (isCC) {
         // 信用卡＝未繳卡債：刷卡累加，轉帳入卡（繳費）扣減，繳清後歸零
         if (tx.type === '轉帳' || tx.type === '公積金提撥') {
@@ -265,7 +266,8 @@ window.Store = (() => {
     // kind: 'charge'=刷卡消費, 'in'=收入, 'tin'=轉帳轉入, 'out'=轉出
     function apply(role, name, date, amt, kind) {
       const e = map[`${role}||${name}`];
-      if (!e || (e.base && date < e.base)) return;
+      if (!e) return;
+      if (!e.isCC && e.base && date < e.base) return; // 信用卡不看基準日（同 calcBalance）
       if (e.isCC) {
         // 信用卡＝未繳卡債：刷卡累加，轉帳入卡（繳費）扣減，繳清後歸零
         if (kind === 'charge') e.bal += -amt; // amt 為負，轉成正的消費額

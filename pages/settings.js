@@ -253,7 +253,7 @@ Router.register('settings', (() => {
     <div class="form-row">
       <label>基準日期</label>
       <input type="date" id="inp-acct-date2" class="form-input" value="${acct.baseDate ? acct.baseDate.replace(/\//g,'-') : today}">
-      <p class="input-hint" id="acct-cc-hint" style="display:${t==='信用卡'?'block':'none'}">信用卡無需期初餘額，待繳由基準日起的刷卡與繳費自動試算。</p>
+      <p class="input-hint" id="acct-cc-hint" style="display:${t==='信用卡'?'block':'none'}">信用卡無需期初餘額與基準日，應繳由帳本的刷卡與繳費全紀錄自動試算。</p>
     </div>` : ''}
     <div id="cc-acct-fields" style="display:${t==='信用卡'?'block':'none'}">
       <div class="form-row">
