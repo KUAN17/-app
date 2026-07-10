@@ -355,7 +355,6 @@ html, body {
 .status-badge { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 99px; }
 .badge-active { background: var(--success-light); color: #059669; }
 .badge-closed { background: var(--bg); color: var(--text-muted); }
-.btn-close-proj { margin-top: 12px; width: 100%; }
 
 /* ── Ledger ─────────────────────────────────────────────── */
 .filter-bar { display: flex; gap: 8px; padding: 12px 16px; background: var(--card); border-bottom: 1px solid var(--border); overflow-x: auto; }
@@ -846,6 +845,7 @@ html, body {
 
 /* Project card actions row */
 .proj-card-actions { display: flex; gap: 8px; margin-top: 12px; }
+.proj-card-actions .btn { flex: 1; padding-left: 0; padding-right: 0; }
 
 /* Account picker list */
 .acct-pick-item {
@@ -1008,14 +1008,13 @@ html, body {
 .type-broker { background: #ECFDF5; color: #065F46; }
 
 /* ── Entry v2: 角色卡片＋分類滑頁＋bottom sheet (1.3.0) ── */
-.entry-id-row { display: flex; gap: 8px; margin: 12px 0; }
+.entry-id-row { display: flex; gap: 8px; margin: 12px 0; flex-wrap: wrap; }
 .entry-id-card {
-  flex: 1; padding: 16px 8px; border-radius: 14px; background: var(--card);
+  flex: 1 1 calc(33.333% - 6px); min-width: 88px; padding: 16px 8px; border-radius: 14px; background: var(--card);
   border: 2px solid transparent; font-size: 16px; font-weight: 700; color: var(--text);
   box-shadow: 0 1px 4px rgba(0,0,0,.07); position: relative; cursor: pointer;
 }
 .entry-id-card.active { border-color: var(--primary); color: var(--primary); background: var(--primary-light); }
-.entry-id-more { flex: 0 0 48px; font-size: 18px; color: var(--text-muted); }
 .entry-id-tag {
   position: absolute; top: 4px; right: 8px; font-size: 10px; font-weight: 600;
   color: var(--primary); background: var(--primary-light); padding: 1px 6px; border-radius: 8px;
@@ -1042,22 +1041,16 @@ html, body {
 .entry-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--border); transition: background .2s; }
 .entry-dot.active { background: var(--primary); }
 
-/* 主畫面大支出鈕 */
-.entry-main-btn {
-  width: 100%; border: none; border-radius: 14px; margin-top: 14px;
-  background: var(--primary); color: #fff;
-  font-size: 18px; font-weight: 700; padding: 18px 0; cursor: pointer;
-  box-shadow: 0 3px 10px rgba(67,97,238,.3);
+/* 主畫面：支出/收入/轉帳/專案 四鈕 2×2 等大排列 */
+.entry-kind-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px;
 }
-.entry-main-btn:active { opacity: .8; transform: scale(.99); }
-
-.entry-alt-row { display: flex; gap: 10px; margin-top: 14px; }
-.entry-alt-btn {
-  flex: 1; padding: 15px; border-radius: 14px; border: none;
-  font-size: 15px; font-weight: 700; cursor: pointer;
+.entry-kind-btn {
+  padding: 20px 0; border-radius: 14px; border: none; background: var(--card);
+  font-size: 16px; font-weight: 700; color: var(--text); cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0,0,0,.07);
 }
-.alt-income   { background: var(--success-light); color: #059669; }
-.alt-transfer { background: #EEF1F6; color: #475569; }
+.entry-kind-btn:active { opacity: .8; transform: scale(.99); }
 
 .entry-sheet-overlay {
   position: fixed; inset: 0; background: rgba(0,0,0,.4); z-index: 90;
@@ -1144,9 +1137,18 @@ html, body {
 .sheet-kind-tab.active { background: var(--card); color: var(--primary); box-shadow: 0 1px 3px rgba(0,0,0,.08); }
 
 /* 記帳表單內：角色切換列 */
-.sheet-role-row { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; margin: 0 0 6px; }
-.sheet-role-row::-webkit-scrollbar { display: none; }
-.sheet-role-chip { flex-shrink: 0; }
+/* 表單標題角色下拉：原生 select 隱藏預設樣式，改用自訂三角形 caret */
+.entry-sheet-title-txt { white-space: nowrap; }
+.sheet-role-select-wrap { position: relative; display: inline-flex; align-items: center; }
+.sheet-role-select {
+  appearance: none; -webkit-appearance: none; border: none; background: none;
+  font: inherit; font-weight: 700; color: var(--text); padding: 2px 18px 2px 0;
+  cursor: pointer; max-width: 40vw;
+}
+.sheet-role-caret {
+  position: absolute; right: 0; top: 50%; transform: translateY(-50%);
+  pointer-events: none; font-size: 11px; color: var(--text-muted);
+}
 
 /* 記帳表單內：分類橫向切換列 */
 .sheet-cat-scroll { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }

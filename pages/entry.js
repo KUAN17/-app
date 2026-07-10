@@ -12,7 +12,6 @@ Router.register('entry', (() => {
 
   let _el = null;
   let _role = '';
-  let _showAll = false;   // 角色列是否展開全部成員
   let _date = '';
   let _sh = null;         // bottom sheet 狀態
   let _sheetEl = null;
@@ -24,7 +23,6 @@ Router.register('entry', (() => {
     // 個人身份 → 自己＋共享角色；共享身份 → 僅共享角色
     return Store.isShared(id) ? [id] : [id, ...Store.sharedRoleNames()];
   }
-  function visibleRoles() { return _showAll ? [...Store.roleNames()] : primaryRoles(); }
 
   // ── 小工具 ────────────────────────────────────────────────────────────────
   function todayISO() { return new Date().toISOString().slice(0, 10); }
@@ -117,7 +115,6 @@ Router.register('entry', (() => {
 
   async function onMount() {
     _el = Utils.el('page-content');
-    _showAll = false;
     await Store.load();
 
     const pr = primaryRoles();
@@ -147,16 +144,14 @@ Router.register('entry', (() => {
   function renderMain() {
     const today = todayISO();
     const dateLabel = _date === today ? '今天' : _date.replace(/-/g, '/');
-    const roles = visibleRoles();
-    const hasMore = !_showAll && roles.length < Store.roleNames().length;
+    const roles = Store.roleNames(); // 全部角色，不再收合
     const id = Utils.identity();
 
     const roleCards = roles.map(r =>
       `<button type="button" class="entry-id-card${_role === r ? ' active' : ''}" data-action="role" data-val="${Utils.esc(r)}">
         ${Store.isShared(r) ? '🏠 ' : ''}${Utils.esc(r)}${id === r ? '<span class="entry-id-tag">我</span>' : ''}
       </button>`
-    ).join('') + (hasMore
-      ? `<button type="button" class="entry-id-card entry-id-more" data-action="more-roles">⋯</button>` : '');
+    ).join('');
 
     _el.innerHTML = `<div class="entry-wrapper">
       <label class="entry-date-standalone" style="cursor:pointer;-webkit-tap-highlight-color:transparent">
@@ -167,11 +162,11 @@ Router.register('entry', (() => {
                style="position:absolute;inset:0;opacity:0;width:100%;height:100%;cursor:pointer;border:none;background:none;font-size:16px">
       </label>
       <div class="entry-id-row">${roleCards}</div>
-      <button type="button" class="entry-main-btn" data-action="open-expense">💸 記支出</button>
-      <div class="entry-alt-row">
-        <button type="button" class="entry-alt-btn alt-income" data-action="open-income">💰 收入</button>
-        <button type="button" class="entry-alt-btn alt-transfer" data-action="open-transfer">⇄ 轉帳</button>
-        <button type="button" class="entry-alt-btn" data-action="open-proj">📁 專案</button>
+      <div class="entry-kind-grid">
+        <button type="button" class="entry-kind-btn" data-action="open-expense">💸 支出</button>
+        <button type="button" class="entry-kind-btn" data-action="open-income">💰 收入</button>
+        <button type="button" class="entry-kind-btn" data-action="open-transfer">⇄ 轉帳</button>
+        <button type="button" class="entry-kind-btn" data-action="open-proj">📁 專案</button>
       </div>
     </div>`;
 
@@ -182,9 +177,6 @@ Router.register('entry', (() => {
       if (action === 'role') {
         _role = val;
         localStorage.setItem(LS_LAST_ROLE, val);
-        renderMain();
-      } else if (action === 'more-roles') {
-        _showAll = true;
         renderMain();
       } else if (action === 'open-expense') {
         const savedCat = localStorage.getItem(LS_LAST_CAT);
@@ -377,13 +369,33 @@ Router.register('entry', (() => {
     _sheetEl = null; _sh = null;
   }
 
-  function sheetTitle() {
-    switch (_sh.kind) {
-      case 'cat':     return `${CAT_ICONS[_sh.category] || '📌'} ${Utils.esc(_sh.category)}｜${Utils.esc(_sh.role)}`;
-      case 'income':  return `💰 收入｜${Utils.esc(_sh.role)}`;
-      case 'proj':    return `📁 專案支出${_sh.locked ? `｜🔒 ${Utils.esc(_sh.role)}` : `｜${Utils.esc(_sh.role)}`}`;
-      case 'transfer':return `⇄ 轉帳`;
-    }
+  // 表單標題：可切角色時顯示下拉選單（三角形 icon）；轉帳無單一角色、專案鎖定歸屬時顯示靜態文字
+  function sheetHeaderTitle() {
+    if (_sh.kind === 'transfer') return `<span class="entry-sheet-title-txt">⇄ 轉帳</span>`;
+    if (_sh.kind === 'proj' && _sh.locked) return `<span class="entry-sheet-title-txt">📁 專案支出｜🔒 ${Utils.esc(_sh.role)}</span>`;
+    const prefix = _sh.kind === 'income' ? '💰 收入　' : _sh.kind === 'proj' ? '📁 專案　' : '';
+    return `${prefix}<span class="sheet-role-select-wrap">
+      <select id="sel-sheet-role-head" class="sheet-role-select">
+        ${Store.roleNames().map(r =>
+          `<option value="${Utils.esc(r)}"${_sh.role === r ? ' selected' : ''}>${Store.isShared(r) ? '🏠 ' : ''}${Utils.esc(r)}</option>`
+        ).join('')}
+      </select>
+      <span class="sheet-role-caret">▾</span>
+    </span>`;
+  }
+
+  // 切換記帳角色的共用邏輯（表單標題下拉呼叫）
+  function applyRoleChange(val) {
+    _role = val;
+    localStorage.setItem(LS_LAST_ROLE, val);
+    _sh.role = val;
+    _sh.account = _sh.kind === 'income' ? lastAcctNonCC(val) : lastAcct(val);
+    // 角色相依狀態重置：代付/自動補款/分期依新角色重新判斷
+    _sh.payRole = ''; _sh.payAccount = ''; _sh.payType = '';
+    _sh.autoTransfer = false; _sh.transferFrom = '';
+    if (_sh.installment && !canInstallment(_sh)) _sh.installment = 0;
+    renderMain(); // 背後主畫面的角色列同步
+    renderSheet();
   }
 
   function renderSheet(keepOpen = true) {
@@ -404,14 +416,8 @@ Router.register('entry', (() => {
         `<option value="${Utils.esc(r)}"${r === current ? ' selected' : ''}>${Utils.esc(r)}</option>`).join('')}</select>`;
     }
 
-    // 表單內切換記帳角色（含 🏠 共享），不用關表單；專案鎖定歸屬時不顯示
+    // 角色切換已移至表單標題下拉（見 sheetHeaderTitle），此處不再重複
     let body = '';
-    const showRoleChips = (_sh.kind === 'cat' || _sh.kind === 'income' || _sh.kind === 'proj') && !(_sh.kind === 'proj' && _sh.locked);
-    if (showRoleChips) {
-      body += `<div class="sheet-role-row">${visibleRoles().map(r =>
-        `<button type="button" class="sheet-chip sheet-role-chip${_sh.role === r ? ' active' : ''}" data-action="sheet-role" data-val="${Utils.esc(r)}">${Store.isShared(r) ? '🏠 ' : ''}${Utils.esc(r)}</button>`
-      ).join('')}</div>`;
-    }
     if (_sh.kind === 'cat' || _sh.kind === 'income') {
       if (_sh.kind === 'cat') {
         body += `<div class="sheet-cat-chips sheet-cat-scroll">${catOrder(_sh.role).map(c =>
@@ -477,7 +483,7 @@ Router.register('entry', (() => {
       <div class="entry-sheet-handle"></div>
       ${kindTabs}
       <div class="entry-sheet-head">
-        <span>${sheetTitle()}</span>
+        ${sheetHeaderTitle()}
         <label class="entry-sheet-date" style="cursor:pointer;position:relative;-webkit-tap-highlight-color:transparent">
           <span style="pointer-events:none">📅 ${dateLabel}</span>
           <input type="date" id="inp-sheet-date" value="${_date}"
@@ -574,18 +580,6 @@ Router.register('entry', (() => {
         else if (action === 'submit') submitSheet();
         else if (action === 'inc-cat') { _sh.category = val; renderSheet(); }
         else if (action === 'cat-switch') { _sh.category = val; renderSheet(); }
-        else if (action === 'sheet-role') {
-          _role = val;
-          localStorage.setItem(LS_LAST_ROLE, val);
-          _sh.role = val;
-          _sh.account = _sh.kind === 'income' ? lastAcctNonCC(val) : lastAcct(val);
-          // 角色相依狀態重置：代付/自動補款/分期依新角色重新判斷
-          _sh.payRole = ''; _sh.payAccount = ''; _sh.payType = '';
-          _sh.autoTransfer = false; _sh.transferFrom = '';
-          if (_sh.installment && !canInstallment(_sh)) _sh.installment = 0;
-          renderMain(); // 背後主畫面的角色列同步
-          renderSheet();
-        }
         else if (action === 'installment') {
           _sh.installment = parseInt(val) || 0;
           if (_sh.installment > 1 && _sh.payAccount) _sh.autoTransfer = false;
@@ -613,6 +607,7 @@ Router.register('entry', (() => {
       if (mainInp) mainInp.value = _date;
     });
     _sheetEl.querySelector('#inp-sheet-memo')?.addEventListener('input', e => { _sh.memo = e.target.value; });
+    _sheetEl.querySelector('#sel-sheet-role-head')?.addEventListener('change', e => applyRoleChange(e.target.value));
     _sheetEl.querySelector('#sel-sheet-acct')?.addEventListener('change', e => {
       _sh.account = e.target.value;
       if (!canInstallment(_sh)) _sh.installment = 0;
