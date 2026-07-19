@@ -1,6 +1,6 @@
 window.Store = (() => {
   // 本機快取資料結構版本：改動解析邏輯時 +1，自動讓舊快取失效並重抓
-  const SCHEMA_V = 4;
+  const SCHEMA_V = 5;
 
   // 統一日期格式為 YYYY/MM/DD，相容多種來源格式以避免字串比較失敗：
   //  - 試算表序列值（UNFORMATTED_VALUE 下日期欄可能回傳純數字，如 46000）
@@ -38,25 +38,29 @@ window.Store = (() => {
   let _sheetMeta = [];
   let _dirty = true;
 
+  // 文字欄位強制轉字串：Sheets（UNFORMATTED_VALUE）會把純數字內容回傳為 number，
+  // 例如備忘「799」→ 799，下游 .trim()/.replace() 會直接 TypeError
+  function txt(v) { return v === null || v === undefined ? '' : String(v); }
+
   // ── Ledger row → object ──────────────────────────────────────────────────
   function parseLedgerRow(row, idx) {
     return {
       _row: idx + 2, // 1-indexed, header is row 1
-      id: row[0] || '',
-      roleOut: row[1] || '',
-      dimension: row[2] || '',
-      projectTag: row[3] || '',
-      type: row[4] || '',
-      category: row[5] || '',
-      memo: row[6] || '',
+      id: txt(row[0]),
+      roleOut: txt(row[1]),
+      dimension: txt(row[2]),
+      projectTag: txt(row[3]),
+      type: txt(row[4]),
+      category: txt(row[5]),
+      memo: txt(row[6]),
       date: normDate(row[7]),
       amount: Utils.parseAmount(row[8]),
-      accountOut: row[9] || '',
-      roleIn: row[10] || '',
-      accountIn: row[11] || '',
-      payRole: row[12] || '',
-      payAccount: row[13] || '',
-      settleId: row[14] || '' // 代付補款轉帳結清的支出 ID（逐筆綁定）
+      accountOut: txt(row[9]),
+      roleIn: txt(row[10]),
+      accountIn: txt(row[11]),
+      payRole: txt(row[12]),
+      payAccount: txt(row[13]),
+      settleId: txt(row[14]) // 代付補款轉帳結清的支出 ID（逐筆綁定）
     };
   }
 
@@ -64,18 +68,18 @@ window.Store = (() => {
   function parseProjectRow(row, idx) {
     return {
       _row: idx + 2,
-      status: row[0] || '',
-      name:   row[1] || '',
+      status: txt(row[0]),
+      name:   txt(row[1]),
       budget: Utils.parseAmount(row[2]),
       spent: 0, remaining: 0, allocated: 0, gap: 0, // recalculated from ledger
       // Loan plan fields — columns I-L (indices 8-11)
       monthlyPayment: Utils.parseAmount(row[8]),
       annualRate:     parseFloat(row[9]) || 0,
-      loanStartDate:  row[10] || '',
+      loanStartDate:  txt(row[10]),
       totalPeriods:   parseInt(row[11]) || 0,
       // Project owner config — columns M-N (indices 12-13)
-      ownerRole:      row[12] || '',
-      defaultAccount: row[13] || ''
+      ownerRole:      txt(row[12]),
+      defaultAccount: txt(row[13])
     };
   }
 
@@ -90,10 +94,10 @@ window.Store = (() => {
     const unrealized  = marketValue - totalCost;
     return {
       _row:        idx + 2, // 1-indexed，第 1 列為表頭
-      role:        row[0] || '',
-      account:     row[1] || '',
-      ticker:      row[2] || '',
-      name:        row[3] || '',
+      role:        txt(row[0]),
+      account:     txt(row[1]),
+      ticker:      txt(row[2]),
+      name:        txt(row[3]),
       shares, avgCost, price, totalCost, marketValue, unrealized,
       returnRate:  totalCost > 0 ? unrealized / totalCost : 0
     };
@@ -104,17 +108,17 @@ window.Store = (() => {
     const map = {};
     rows.forEach(row => {
       if (!row[0] || !row[1]) return;
-      const role = row[0];
+      const role = txt(row[0]);
       if (!map[role]) map[role] = [];
       map[role].push({
-        name:        row[1],
+        name:        txt(row[1]),
         balance:     Utils.parseAmount(row[2]),
         baseDate:    normDate(row[3]),
-        purpose:     row[4] || '',
-        type:        row[5] || '',
+        purpose:     txt(row[4]),
+        type:        txt(row[5]),
         billingDate: parseInt(row[6]) || 0,
         dueDate:     parseInt(row[7]) || 0,
-        paymentAccount: row[8] || ''
+        paymentAccount: txt(row[8])
       });
     });
     return map;
