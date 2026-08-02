@@ -347,6 +347,13 @@ Router.register('investments', (() => {
       if (!list.length) return `<option value="">（請先至設定新增證券帳戶）</option>`;
       return list.map(b => `<option value="${Utils.esc(b)}"${prefill.account === b ? ' selected' : ''}>${Utils.esc(b)}</option>`).join('');
     }
+    // 扣款帳戶：買入金額同步記一筆支出，證券帳戶本身不能拿來扣款
+    const PAY_ICON = { '現金': '💵', '銀行': '🏦', '信用卡': '💳' };
+    function payAcctOpts(role) {
+      const list = Store.allAccountsFlat().filter(a => a.role === role && a.type !== '證券帳戶');
+      if (!list.length) return `<option value="">（無可扣款帳戶）</option>`;
+      return list.map(a => `<option value="${Utils.esc(a.name)}">${PAY_ICON[a.type] || '🏦'} ${Utils.esc(a.name)}</option>`).join('');
+    }
 
     const tickerSection = prefill.ticker
       ? `<div class="form-row"><label>標的</label>
@@ -378,6 +385,10 @@ Router.register('investments', (() => {
         <select id="inp-inv-account" class="form-select">${brokerOpts(defaultRole)}</select>
       </div>
       ${tickerSection}
+      <div class="form-row"><label>扣款帳戶</label>
+        <select id="inp-inv-pay-account" class="form-select">${payAcctOpts(defaultRole)}</select>
+      </div>
+      <p class="input-hint">買入金額將同步記一筆「投資儲蓄」支出</p>
       <div class="form-row"><label>買入股數</label>
         <input type="number" id="inp-inv-shares" class="form-input" placeholder="0" min="0" step="1">
       </div>
@@ -393,7 +404,9 @@ Router.register('investments', (() => {
     modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
     Utils.el('btn-inv-cancel').addEventListener('click', () => modal.remove());
     Utils.el('inp-inv-role').addEventListener('change', () => {
-      Utils.el('inp-inv-account').innerHTML = brokerOpts(Utils.el('inp-inv-role').value);
+      const role = Utils.el('inp-inv-role').value;
+      Utils.el('inp-inv-account').innerHTML = brokerOpts(role);
+      Utils.el('inp-inv-pay-account').innerHTML = payAcctOpts(role);
     });
 
     if (!prefill.ticker) {
@@ -428,20 +441,38 @@ Router.register('investments', (() => {
       });
     }
 
-    Utils.el('btn-inv-confirm').addEventListener('click', () => {
-      const role    = Utils.el('inp-inv-role').value;
-      const account = Utils.el('inp-inv-account').value;
-      const ticker  = Utils.el('inp-inv-ticker').value.trim();
-      const name    = Utils.el('inp-inv-name').value.trim();
-      const shares  = parseFloat(Utils.el('inp-inv-shares').value) || 0;
-      const avgCost = parseFloat(Utils.el('inp-inv-avgcost').value) || 0;
-      if (!account) return Utils.toast('請先至設定新增證券帳戶', 'warn');
-      if (!ticker)  return Utils.toast('請選擇標的或輸入代號', 'warn');
-      if (!name)    return Utils.toast('請輸入標的名稱', 'warn');
-      if (!shares)  return Utils.toast('請輸入買入股數', 'warn');
+    Utils.el('btn-inv-confirm').addEventListener('click', async () => {
+      const role       = Utils.el('inp-inv-role').value;
+      const account    = Utils.el('inp-inv-account').value;
+      const ticker     = Utils.el('inp-inv-ticker').value.trim();
+      const name       = Utils.el('inp-inv-name').value.trim();
+      const shares     = parseFloat(Utils.el('inp-inv-shares').value) || 0;
+      const avgCost    = parseFloat(Utils.el('inp-inv-avgcost').value) || 0;
+      const payAccount = Utils.el('inp-inv-pay-account')?.value || '';
+      if (!account)    return Utils.toast('請先至設定新增證券帳戶', 'warn');
+      if (!ticker)     return Utils.toast('請選擇標的或輸入代號', 'warn');
+      if (!name)       return Utils.toast('請輸入標的名稱', 'warn');
+      if (!shares)     return Utils.toast('請輸入買入股數', 'warn');
+      if (!payAccount) return Utils.toast('請選擇扣款帳戶', 'warn');
+
       _lots.push({ role, account, ticker, name, shares, avgCost,
         totalCost: 0, price: 0, marketValue: 0, unrealized: 0, returnRate: 0, _deleted: false });
       modal.remove();
+
+      // 買入金額同步記一筆「投資儲蓄」支出，從扣款帳戶扣款
+      const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID) || CFG.SHEET_ID;
+      const cost = Math.round(shares * avgCost);
+      const memo = Utils.sheetText(`${name}（${ticker.replace(/^TPE:/i, '')}）買入`);
+      const row = [Utils.uid(), role, '日常', '', '支出', '投資儲蓄', memo, Utils.todayStr(), cost,
+                   payAccount, '', '', '', '', ''];
+      Utils.showLoading(true);
+      try {
+        await API.append(sid, 'Ledger!A:O', row);
+      } catch (e) {
+        Utils.toast('記錄支出失敗：' + e.message, 'error');
+      } finally {
+        Utils.showLoading(false);
+      }
       saveLots();
     });
   }
