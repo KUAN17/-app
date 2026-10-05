@@ -1,6 +1,6 @@
 window.Store = (() => {
   // 本機快取資料結構版本：改動解析邏輯時 +1，自動讓舊快取失效並重抓
-  const SCHEMA_V = 5;
+  const SCHEMA_V = 6;
 
   // 統一日期格式為 YYYY/MM/DD，相容多種來源格式以避免字串比較失敗：
   //  - 試算表序列值（UNFORMATTED_VALUE 下日期欄可能回傳純數字，如 46000）
@@ -27,6 +27,7 @@ window.Store = (() => {
     investments: [],
     accounts: {},       // { '阿熊': [{name, balance, baseDate}], ... }
     members: [],        // [{ name, type: 'personal'|'shared' }]，空時退回 CFG.ROLES 預設
+    reminders: [],       // 定期付款提醒
     categories: {},     // overrides from Backend
     activeProjects: []  // names only
   };
@@ -103,7 +104,7 @@ window.Store = (() => {
     };
   }
 
-  // ── Account initial balances from Backend L:P ────────────────────────────
+  // ── Account initial balances from Backend L:U ────────────────────────────
   function parseAccountConfig(rows) {
     const map = {};
     rows.forEach(row => {
@@ -118,10 +119,28 @@ window.Store = (() => {
         type:        txt(row[5]),
         billingDate: parseInt(row[6]) || 0,
         dueDate:     parseInt(row[7]) || 0,
-        paymentAccount: txt(row[8])
+        paymentAccount: txt(row[8]),
+        isDefaultCC: row[9] === 'Y' // 該角色記帳時「信用卡」快速鍵自動帶入的卡（一角色限一張）
       });
     });
     return map;
+  }
+
+  // ── Reminders row → object（定期付款提醒） ───────────────────────────────
+  function parseReminderRow(row, idx) {
+    return {
+      _row: idx + 2,
+      id:            txt(row[0]) || Utils.uid(),
+      name:          txt(row[1]),
+      role:          txt(row[2]),
+      category:      txt(row[3]),
+      amount:        Utils.parseAmount(row[4]), // 預設金額，可為 0（表示每次手動輸入）
+      account:       txt(row[5]),
+      dueDay:        parseInt(row[6]) || 1,
+      lastPaidMonth: txt(row[7]), // 'YYYY-MM'，與目前月份比對決定是否已繳
+      active:        row[8] !== 'N',
+      memo:          txt(row[9])
+    };
   }
 
   async function load(force = false) {
@@ -150,7 +169,7 @@ window.Store = (() => {
         'Ledger!A2:O',
         'Projects!A2:N',
         'Investments!A2:K',
-        'Backend!L2:T',
+        'Backend!L2:U',
         'Backend!V2:W'
       ];
       const [ledgerRows, projRows, invRows, acctRows, memberRows] = await API.batchGet(sid, ranges);
@@ -164,6 +183,19 @@ window.Store = (() => {
         .map(r => ({ name: String(r[0]), type: r[1] === '共享' ? 'shared' : 'personal' }));
       if (!_data.members.length) _data.members = defaultMembers();
       _data.activeProjects = _data.projects.filter(p => p.status === '進行中').map(p => p.name);
+
+      // 定期提醒：獨立讀取（非主 batchGet），工作表不存在時自動建立，不中斷主要載入
+      try {
+        const remRows = await API.getRange(sid, 'Reminders!A2:J');
+        _data.reminders = remRows.filter(r => r[0]).map((row, idx) => parseReminderRow(row, idx));
+      } catch (e) {
+        if ((e.message || '').toLowerCase().includes('unable to parse range')) {
+          await ensureRemindersSheet(sid);
+          _data.reminders = [];
+        } else {
+          _data.reminders = _data.reminders || []; // 暫時性錯誤，保留舊值
+        }
+      }
 
       // Recalculate project financials from ledger — independent of Sheets formula columns
       _data.projects.forEach(proj => {
@@ -337,6 +369,16 @@ window.Store = (() => {
     return (_data.accounts[role] || []).filter(a => a.type === '證券帳戶').map(a => a.name);
   }
 
+  // 該角色記帳用「信用卡」快速鍵對應的帳戶名：優先設定頁勾選的預設卡，否則退回第一張信用卡
+  function defaultCCFor(role) {
+    const ccs = (_data.accounts[role] || []).filter(a => a.type === '信用卡');
+    return (ccs.find(a => a.isDefaultCC) || ccs[0] || {}).name || '';
+  }
+  // 該角色記帳用「現金」快速鍵對應的帳戶名：第一個現金類型帳戶
+  function defaultCashFor(role) {
+    return ((_data.accounts[role] || []).find(a => a.type === '現金') || {}).name || '';
+  }
+
   function allAccountsFlat() {
     const result = [];
     roleNames().forEach(role => {
@@ -367,6 +409,40 @@ window.Store = (() => {
     if (_sheetMeta.length) return;
     const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID) || CFG.SHEET_ID;
     if (sid) _sheetMeta = await API.getSheetMeta(sid);
+  }
+
+  // ── 定期付款提醒 ───────────────────────────────────────────────────────────
+  async function ensureRemindersSheet(sid) {
+    if (!_sheetMeta.length) _sheetMeta = await API.getSheetMeta(sid);
+    if (_sheetMeta.find(m => m.name === 'Reminders')) return;
+    await API.batchUpdate(sid, [{ addSheet: { properties: { title: 'Reminders' } } }]);
+    await API.updateRange(sid, 'Reminders!A1:J1',
+      [['ID', '名稱', '角色', '分類', '預設金額', '扣款帳戶', '提醒日', '最後完成月份', '啟用', '備忘']]);
+    _sheetMeta = await API.getSheetMeta(sid);
+  }
+
+  // 全量覆寫（與 saveMembers/saveAccounts 同模式），pad 空列蓋掉刪除的舊資料
+  async function saveReminders(list) {
+    if (list.length > 50) throw new Error('定期提醒上限為 50 筆');
+    const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID) || CFG.SHEET_ID;
+    await ensureRemindersSheet(sid);
+    const rows = list.map(r => [
+      r.id || Utils.uid(), r.name, r.role, r.category || '', r.amount || 0,
+      r.account, r.dueDay || 1, r.lastPaidMonth || '', r.active === false ? 'N' : 'Y', r.memo || ''
+    ]);
+    const padded = [...rows];
+    while (padded.length < 50) padded.push(['', '', '', '', '', '', '', '', '', '']);
+    await API.updateRange(sid, `Reminders!A2:J${1 + padded.length}`, padded);
+    _data.reminders = rows.map((row, idx) => parseReminderRow(row, idx));
+  }
+
+  // 記帳成功後標記該提醒本月已完成，避免月內重複提醒；下月份自動因月份不同而重新出現
+  async function markReminderPaid(reminderId, yyyymm) {
+    const r = _data.reminders.find(x => x.id === reminderId);
+    if (!r) return;
+    const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID) || CFG.SHEET_ID;
+    await API.updateRange(sid, `Reminders!H${r._row}`, [[yyyymm]]);
+    r.lastPaidMonth = yyyymm;
   }
 
   function get() { return _data; }
@@ -420,6 +496,6 @@ window.Store = (() => {
     return true;
   }
 
-  return { load, invalidate, calcBalance, calcAllBalances, accountsForRole, brokersForRole, allAccountsFlat, getSheetId, ensureSheetMeta, verifyLedgerRows, get, isDirty, loadIdentity, saveIdentity,
-           members, roleNames, personalRoleNames, sharedRoleNames, isShared, saveMembers };
+  return { load, invalidate, calcBalance, calcAllBalances, accountsForRole, brokersForRole, defaultCCFor, defaultCashFor, allAccountsFlat, getSheetId, ensureSheetMeta, verifyLedgerRows, get, isDirty, loadIdentity, saveIdentity,
+           members, roleNames, personalRoleNames, sharedRoleNames, isShared, saveMembers, saveReminders, markReminderPaid };
 })();

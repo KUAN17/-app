@@ -39,6 +39,18 @@ Router.register('settings', (() => {
         </div>
       </details>
 
+      <!-- ── 定期提醒 ──────────────────────────────── -->
+      <details class="settings-section">
+        <summary class="settings-section-hd">
+          <span>🔔 定期提醒</span>
+          <span class="settings-section-arrow">›</span>
+        </summary>
+        <div class="settings-section-body">
+          <p class="section-hint">房貸、保費等每月固定支出，到期時會在 Dashboard 提醒，點一下直接帶入記帳。</p>
+          <div id="reminder-settings-section"><div class="spinner"></div></div>
+        </div>
+      </details>
+
       <!-- ── 專案設定 ──────────────────────────────── -->
       <details class="settings-section">
         <summary class="settings-section-hd">
@@ -229,6 +241,14 @@ Router.register('settings', (() => {
     const t = acct.type || '銀行';
     modal.innerHTML = `<div class="modal-card">
     <div class="modal-title">${title}</div>
+    ${!isNew ? `
+    <div class="form-row">
+      <label>所屬角色</label>
+      <select id="inp-acct-role" class="form-select">
+        ${Store.roleNames().map(r => `<option value="${Utils.esc(r)}"${r===role?' selected':''}>${Utils.esc(r)}</option>`).join('')}
+      </select>
+      <p class="input-hint">改成其他角色＝把這個帳戶連同歷史帳本紀錄一併移轉過去</p>
+    </div>` : ''}
     <div class="form-row">
       <label>帳戶類型 *</label>
       <div class="acct-type-toggle">
@@ -257,6 +277,13 @@ Router.register('settings', (() => {
       <p class="input-hint" id="acct-cc-hint" style="display:${t==='信用卡'?'block':'none'}">信用卡無需期初餘額與基準日，應繳由帳本的刷卡與繳費全紀錄自動試算。</p>
     </div>` : ''}
     <div id="cc-acct-fields" style="display:${t==='信用卡'?'block':'none'}">
+      <div class="form-row">
+        <label class="sheet-auto-toggle" style="flex:1">
+          <input type="checkbox" id="inp-acct-default-cc"${acct.isDefaultCC ? ' checked' : ''}>
+          <span>設為此角色的「日常信用卡」快速鍵</span>
+        </label>
+        <p class="input-hint">記帳頁選「信用卡」時自動帶入這張，一個角色限一張</p>
+      </div>
       <div class="form-row">
         <label>帳單結帳日（每月幾號）</label>
         <input type="number" id="inp-acct-billing" class="form-input" placeholder="例：15" min="1" max="31" value="${acct.billingDate||''}">
@@ -318,6 +345,8 @@ Router.register('settings', (() => {
         billingDate: type === '信用卡' ? parseInt(Utils.el('inp-acct-billing').value) || 0 : 0,
         dueDate:     type === '信用卡' ? parseInt(Utils.el('inp-acct-dueday').value) || 0 : 0,
         paymentAccount: type === '信用卡' ? (Utils.el('inp-acct-payment')?.value || '') : '',
+        isDefaultCC: type === '信用卡' ? !!Utils.el('inp-acct-default-cc')?.checked : false,
+        targetRole:  !isNew ? (Utils.el('inp-acct-role')?.value || role) : role,
       });
       modal.remove();
     });
@@ -328,8 +357,11 @@ Router.register('settings', (() => {
       title: `新增帳戶（${role}）`,
       role,
       isNew: true,
-      acct: { name:'', purpose:'', balance:0, baseDate:'', type:'銀行', billingDate:0, dueDate:0, paymentAccount:'' },
+      acct: { name:'', purpose:'', balance:0, baseDate:'', type:'銀行', billingDate:0, dueDate:0, paymentAccount:'', isDefaultCC:false },
       onConfirm(data) {
+        if (data.isDefaultCC) {
+          _acctState[role].forEach(a => { if (a.type === '信用卡') a.isDefaultCC = false; });
+        }
         _acctState[role].push({ ...data, _deleted: false, _new: true });
         Utils.el(`acct-list-${role}`).innerHTML = renderRoleList(role);
         attachListListeners();
@@ -345,51 +377,87 @@ Router.register('settings', (() => {
       acct,
       async onConfirm(data) {
         const oldName = acct.name;
-        // 改名連動：帳本歷史（轉出/轉入/代付）、信用卡扣款設定、專案預設帳戶一併改寫，
+        const newName = data.name;
+        const targetRole = data.targetRole || role;
+        const nameChanged = !acct._new && newName !== oldName;
+        const roleChanged = !acct._new && targetRole !== role;
+
+        // 改名／移轉角色連動：帳本歷史（轉出/轉入/代付）、信用卡扣款設定、專案預設帳戶一併改寫，
         // 否則舊名稱紀錄會脫鉤，餘額試算漏算歷史
-        if (!acct._new && data.name !== oldName) {
+        if (nameChanged || roleChanged) {
           await Store.load(true); // 取最新列位，避免多裝置並發下 _row 位移寫錯列
           const refs = Store.get().ledger.filter(tx =>
             (tx.roleOut === role && tx.accountOut === oldName) ||
             (tx.roleIn === role && tx.accountIn === oldName) ||
             (tx.payAccount === oldName && (!tx.payRole || tx.payRole === role)));
-          if (!confirm(`帳戶改名「${oldName}」→「${data.name}」\n將同步更新帳本 ${refs.length} 筆紀錄與相關設定，並立即儲存。繼續？`)) return;
+          const descParts = [];
+          if (nameChanged) descParts.push(`改名「${oldName}」→「${newName}」`);
+          if (roleChanged) descParts.push(`角色「${role}」→「${targetRole}」`);
+          if (!confirm(`帳戶${descParts.join('、')}\n將同步更新帳本 ${refs.length} 筆紀錄與相關設定，並立即儲存。繼續？`)) return;
 
           const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID) || CFG.SHEET_ID;
           Utils.showLoading(true);
           try {
             const updates = [];
             refs.forEach(tx => {
-              if (tx.roleOut === role && tx.accountOut === oldName) updates.push({ range: `Ledger!J${tx._row}`, values: [[data.name]] });
-              if (tx.roleIn === role && tx.accountIn === oldName)   updates.push({ range: `Ledger!L${tx._row}`, values: [[data.name]] });
-              if (tx.payAccount === oldName && (!tx.payRole || tx.payRole === role)) updates.push({ range: `Ledger!N${tx._row}`, values: [[data.name]] });
+              if (tx.roleOut === role && tx.accountOut === oldName) {
+                if (nameChanged) updates.push({ range: `Ledger!J${tx._row}`, values: [[newName]] });
+                if (roleChanged) updates.push({ range: `Ledger!B${tx._row}`, values: [[targetRole]] });
+              }
+              if (tx.roleIn === role && tx.accountIn === oldName) {
+                if (nameChanged) updates.push({ range: `Ledger!L${tx._row}`, values: [[newName]] });
+                if (roleChanged) updates.push({ range: `Ledger!K${tx._row}`, values: [[targetRole]] });
+              }
+              if (tx.payAccount === oldName && (!tx.payRole || tx.payRole === role)) {
+                if (nameChanged) updates.push({ range: `Ledger!N${tx._row}`, values: [[newName]] });
+                if (roleChanged) updates.push({ range: `Ledger!M${tx._row}`, values: [[targetRole]] });
+              }
             });
             if (updates.length) await API.batchUpdateValues(sid, updates);
 
-            const projUpd = Store.get().projects
-              .filter(p => p.ownerRole === role && p.defaultAccount === oldName)
-              .map(p => ({ range: `Projects!N${p._row}`, values: [[data.name]] }));
-            if (projUpd.length) await API.batchUpdateValues(sid, projUpd);
+            if (nameChanged) {
+              const projUpd = Store.get().projects
+                .filter(p => p.ownerRole === role && p.defaultAccount === oldName)
+                .map(p => ({ range: `Projects!N${p._row}`, values: [[newName]] }));
+              if (projUpd.length) await API.batchUpdateValues(sid, projUpd);
 
-            // 投資表的證券帳戶引用（B 欄）
-            const invUpd = Store.get().investments
-              .filter(i => i.role === role && i.account === oldName)
-              .map(i => ({ range: `Investments!B${i._row}`, values: [[data.name]] }));
-            if (invUpd.length) await API.batchUpdateValues(sid, invUpd);
+              // 投資表的證券帳戶引用（B 欄）
+              const invUpd = Store.get().investments
+                .filter(i => i.role === role && i.account === oldName)
+                .map(i => ({ range: `Investments!B${i._row}`, values: [[newName]] }));
+              if (invUpd.length) await API.batchUpdateValues(sid, invUpd);
+            }
 
-            // 同角色信用卡的扣款帳戶引用
-            _acctState[role].forEach(a => { if (a.paymentAccount === oldName) a.paymentAccount = data.name; });
-            _acctState[role][idx] = { ...acct, ...data };
+            if (roleChanged) {
+              // 帳戶移轉角色：從原角色清單移除，併入目標角色清單
+              _acctState[role].splice(idx, 1);
+              _acctState[role].forEach(a => { if (a.paymentAccount === oldName) a.paymentAccount = newName; });
+              if (data.isDefaultCC) {
+                _acctState[targetRole].forEach(a => { if (a.type === '信用卡') a.isDefaultCC = false; });
+              }
+              _acctState[targetRole] = _acctState[targetRole] || [];
+              _acctState[targetRole].push({ ...acct, ...data, targetRole: undefined });
+            } else {
+              // 同角色信用卡的扣款帳戶引用
+              _acctState[role].forEach(a => { if (a.paymentAccount === oldName) a.paymentAccount = newName; });
+              if (data.isDefaultCC) {
+                _acctState[role].forEach((a, i) => { if (i !== idx && a.type === '信用卡') a.isDefaultCC = false; });
+              }
+              _acctState[role][idx] = { ...acct, ...data };
+            }
             await saveAccounts();
             await Store.load(true);
             renderAccountMgmt();
-            Utils.toast(`已改名並同步 ${updates.length} 筆帳本紀錄`, 'success');
+            Utils.toast(`已更新並同步 ${updates.length} 筆帳本紀錄`, 'success');
           } catch (e) {
-            Utils.toast('改名同步失敗：' + e.message, 'error');
+            Utils.toast('同步失敗：' + e.message, 'error');
           } finally {
             Utils.showLoading(false);
           }
           return;
+        }
+        if (data.isDefaultCC) {
+          _acctState[role].forEach((a, i) => { if (i !== idx && a.type === '信用卡') a.isDefaultCC = false; });
         }
         _acctState[role][idx] = { ...acct, ...data };
         Utils.el(`acct-list-${role}`).innerHTML = renderRoleList(role);
@@ -556,20 +624,20 @@ Router.register('settings', (() => {
     const rows = [];
     Store.roleNames().forEach(role => {
       (_acctState[role] || []).filter(a => !a._deleted).forEach(a => {
-        rows.push([role, a.name, a.balance||0, a.baseDate||'', a.purpose||'', a.type||'', a.billingDate||'', a.dueDate||'', a.paymentAccount||'']);
+        rows.push([role, a.name, a.balance||0, a.baseDate||'', a.purpose||'', a.type||'', a.billingDate||'', a.dueDate||'', a.paymentAccount||'', a.isDefaultCC ? 'Y' : '']);
       });
     });
 
     // Pad to 100 rows to overwrite any old data
     const padded = [...rows];
-    while (padded.length < 100) padded.push(['','','','','','','','','']);
+    while (padded.length < 100) padded.push(['','','','','','','','','','']);
 
     const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID) || CFG.SHEET_ID;
     Utils.showLoading(true);
     try {
-      await API.updateRange(sid, 'Backend!L1:T1',
-        [['角色','帳戶名稱','期初餘額','基準日期','主要用途','帳戶類型','帳單日','截止日','扣款帳戶']]);
-      await API.updateRange(sid, 'Backend!L2:T101', padded);
+      await API.updateRange(sid, 'Backend!L1:U1',
+        [['角色','帳戶名稱','期初餘額','基準日期','主要用途','帳戶類型','帳單日','截止日','扣款帳戶','預設信用卡']]);
+      await API.updateRange(sid, 'Backend!L2:U101', padded);
       Store.invalidate();
       Utils.toast('帳戶設定已儲存', 'success');
     } catch (e) {
@@ -666,6 +734,121 @@ Router.register('settings', (() => {
       Store.invalidate();
       Utils.toast('專案設定已儲存', 'success');
     } catch(e) {
+      Utils.toast('儲存失敗：' + e.message, 'error');
+    } finally {
+      Utils.showLoading(false);
+    }
+  }
+
+  // ── Reminder settings section ────────────────────────────────────────────
+  let _remState = [];
+
+  // 首次使用（雲端尚無任何提醒）時，自動帶入已知的三筆固定家用支出，省去手動輸入
+  const REMINDER_SEEDS = [
+    { name: '房貸',   role: '家用', category: '家用', amount: 12900, account: '土銀活存', dueDay: 15 },
+    { name: '新青安', role: '家用', category: '家用', amount: 15000, account: '土銀活存', dueDay: 15 },
+    { name: '壽險',   role: '家用', category: '醫療保險', amount: 3614,  account: '土銀活存', dueDay: 15 }
+  ];
+
+  async function loadReminderSection() {
+    const el = Utils.el('reminder-settings-section');
+    try {
+      await Store.load();
+      let reminders = Store.get().reminders;
+      if (!reminders.length) {
+        const seeded = REMINDER_SEEDS.map(s => ({
+          id: Utils.uid(), ...s, lastPaidMonth: '', active: true, memo: ''
+        }));
+        await Store.saveReminders(seeded);
+        reminders = Store.get().reminders;
+      }
+      _remState = reminders.map(r => ({ ...r }));
+      renderReminderSection();
+    } catch (e) {
+      el.innerHTML = `<p class="error-msg">${e.message}</p>`;
+    }
+  }
+
+  function renderReminderSection() {
+    const el = Utils.el('reminder-settings-section');
+    const curMonth = new Date().toISOString().slice(0, 7);
+
+    const rows = _remState.map((r, i) => {
+      const roleOpts = Store.roleNames().map(role =>
+        `<option value="${Utils.esc(role)}"${r.role === role ? ' selected' : ''}>${Utils.esc(role)}</option>`
+      ).join('');
+      const accts = r.role ? Store.accountsForRole(r.role) : [];
+      const acctOpts = accts.map(a =>
+        `<option value="${Utils.esc(a)}"${r.account === a ? ' selected' : ''}>${Utils.esc(a)}</option>`
+      ).join('');
+      const catOpts = CFG.CATEGORIES['支出'].map(c =>
+        `<option value="${Utils.esc(c)}"${r.category === c ? ' selected' : ''}>${Utils.esc(c)}</option>`
+      ).join('');
+      const paidThisMonth = r.lastPaidMonth === curMonth;
+      return `<div class="proj-setting-row" data-i="${i}">
+        <div class="proj-setting-name">
+          <input type="text" class="form-input inp-rem-name" data-i="${i}" value="${Utils.esc(r.name)}" placeholder="名稱（如：房貸）" style="font-size:14px;font-weight:600">
+          ${paidThisMonth ? `<span class="acct-type-badge type-bank" style="font-size:10px">本月已繳</span>` : ''}
+          <button type="button" class="btn btn-danger btn-sm rem-del" data-i="${i}" title="刪除" style="margin-left:auto">✕</button>
+        </div>
+        <div class="proj-setting-fields" style="flex-wrap:wrap">
+          <select class="form-select inp-rem-role" data-i="${i}" style="flex:1;min-width:80px;font-size:13px">${roleOpts}</select>
+          <select class="form-select inp-rem-cat" data-i="${i}" style="flex:1;min-width:80px;font-size:13px">
+            <option value="">分類</option>${catOpts}
+          </select>
+          <select class="form-select inp-rem-acct" data-i="${i}" style="flex:1;min-width:100px;font-size:13px">
+            <option value="">扣款帳戶</option>${acctOpts}
+          </select>
+        </div>
+        <div class="proj-setting-fields">
+          <input type="number" step="any" class="form-input inp-rem-amount" data-i="${i}" value="${r.amount || ''}" placeholder="預設金額（留空每次手動填）" style="flex:2;font-size:13px">
+          <input type="number" min="1" max="31" class="form-input inp-rem-day" data-i="${i}" value="${r.dueDay || 1}" placeholder="提醒日" style="flex:1;font-size:13px">
+          <label class="sheet-auto-toggle" style="flex:1;justify-content:center">
+            <input type="checkbox" class="inp-rem-active" data-i="${i}"${r.active !== false ? ' checked' : ''}>
+            <span>啟用</span>
+          </label>
+        </div>
+      </div>`;
+    }).join('');
+
+    el.innerHTML = `<div class="card settings-card">
+      ${rows || '<p class="empty-hint" style="padding:10px 0">尚無定期提醒</p>'}
+      <button class="btn btn-outline btn-full" id="btn-add-reminder" style="margin-top:12px">＋ 新增提醒</button>
+      <button class="btn btn-primary btn-full" id="btn-save-reminders" style="margin-top:8px">儲存定期提醒</button>
+    </div>`;
+
+    el.querySelectorAll('.inp-rem-name').forEach(inp => inp.addEventListener('input', () => { _remState[parseInt(inp.dataset.i)].name = inp.value; }));
+    el.querySelectorAll('.inp-rem-role').forEach(sel => sel.addEventListener('change', () => {
+      const i = parseInt(sel.dataset.i);
+      _remState[i].role = sel.value;
+      _remState[i].account = '';
+      renderReminderSection();
+    }));
+    el.querySelectorAll('.inp-rem-cat').forEach(sel => sel.addEventListener('change', () => { _remState[parseInt(sel.dataset.i)].category = sel.value; }));
+    el.querySelectorAll('.inp-rem-acct').forEach(sel => sel.addEventListener('change', () => { _remState[parseInt(sel.dataset.i)].account = sel.value; }));
+    el.querySelectorAll('.inp-rem-amount').forEach(inp => inp.addEventListener('input', () => { _remState[parseInt(inp.dataset.i)].amount = parseFloat(inp.value) || 0; }));
+    el.querySelectorAll('.inp-rem-day').forEach(inp => inp.addEventListener('input', () => { _remState[parseInt(inp.dataset.i)].dueDay = parseInt(inp.value) || 1; }));
+    el.querySelectorAll('.inp-rem-active').forEach(cb => cb.addEventListener('change', () => { _remState[parseInt(cb.dataset.i)].active = cb.checked; }));
+    el.querySelectorAll('.rem-del').forEach(btn => btn.addEventListener('click', () => {
+      _remState.splice(parseInt(btn.dataset.i), 1);
+      renderReminderSection();
+    }));
+
+    Utils.el('btn-add-reminder').addEventListener('click', () => {
+      _remState.push({ id: Utils.uid(), name: '', role: Store.roleNames()[0] || '', category: '', amount: 0, account: '', dueDay: 1, lastPaidMonth: '', active: true, memo: '' });
+      renderReminderSection();
+    });
+    Utils.el('btn-save-reminders').addEventListener('click', saveReminderSettings);
+  }
+
+  async function saveReminderSettings() {
+    const invalid = _remState.filter(r => !r.name.trim() || !r.role || !r.account);
+    if (invalid.length) return Utils.toast('每筆提醒需填寫名稱、角色與扣款帳戶', 'warn');
+    Utils.showLoading(true);
+    try {
+      await Store.saveReminders(_remState);
+      Utils.toast('定期提醒已儲存', 'success');
+    } catch (e) {
       Utils.toast('儲存失敗：' + e.message, 'error');
     } finally {
       Utils.showLoading(false);
@@ -1040,6 +1223,7 @@ Router.register('settings', (() => {
 
     loadMemberSection();
     loadAccountSection();
+    loadReminderSection();
     loadProjSection();
   }
 

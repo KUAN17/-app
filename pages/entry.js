@@ -32,6 +32,19 @@ Router.register('entry', (() => {
     const intFmt = Number(int || '0').toLocaleString();
     return dec !== undefined ? `${intFmt}.${dec}` : intFmt;
   }
+  // 金額加減：_sh.terms 存已輸入完成的項目，_sh.amount/_sh.curOp 是目前正在輸入的最後一項
+  function calcSheetTotal(sh) {
+    let total = 0;
+    (sh.terms || []).forEach(t => { total += (t.op === '-' ? -1 : 1) * (parseFloat(t.val) || 0); });
+    if (sh.amount !== '') total += ((sh.curOp || '+') === '-' ? -1 : 1) * (parseFloat(sh.amount) || 0);
+    return total;
+  }
+  function calcExprDisplay(sh) {
+    if (!sh.terms || !sh.terms.length) return fmtAmtDisplay(sh.amount);
+    let s = sh.terms.map((t, i) => (i === 0 ? '' : (t.op === '-' ? '−' : '+')) + fmtAmtDisplay(t.val)).join('');
+    s += (sh.curOp === '-' ? '−' : '+') + fmtAmtDisplay(sh.amount);
+    return s;
+  }
   function memosForContext(sh) {
     const { ledger } = Store.get();
     const seen = new Set();
@@ -53,6 +66,31 @@ Router.register('entry', (() => {
   }
   function acctsForRole(role) {
     return Store.allAccountsFlat().filter(a => a.role === role && a.type !== '證券帳戶');
+  }
+  // 現金／信用卡快速鍵：記帳不再需要指定信用卡別，僅代付時才需選銀行
+  function acctToggleSection(sh) {
+    const cashName = Store.defaultCashFor(sh.role);
+    const ccName = Store.defaultCCFor(sh.role);
+    const isOther = sh.account && sh.account !== cashName && sh.account !== ccName;
+    const btns = [];
+    if (cashName) btns.push(`<button type="button" class="sheet-chip${sh.account === cashName ? ' active' : ''}" data-action="acct-cash">💵 現金</button>`);
+    if (ccName) btns.push(`<button type="button" class="sheet-chip${sh.account === ccName ? ' active' : ''}" data-action="acct-cc">💳 信用卡</button>`);
+    let html = `<div class="sheet-row"><label>帳戶</label><div class="sheet-acct-toggle">${btns.join('')}</div></div>`;
+    if (isOther && !sh.showAcctSelect) {
+      html += `<div class="sheet-row"><label></label><span class="sheet-static">${acctIcon((acctsForRole(sh.role).find(a => a.name === sh.account) || {}).type)} ${Utils.esc(sh.account)}</span></div>`;
+    }
+    if (sh.showAcctSelect) {
+      html += `<div class="sheet-row"><label>帳戶</label>${acctSelectHtml('sel-sheet-acct', sh.role, sh.account)}</div>`;
+    } else {
+      html += `<div class="sheet-row"><label></label><a href="javascript:void(0)" class="sheet-other-acct-link" data-action="acct-other">其他帳戶…</a></div>`;
+    }
+    return html;
+  }
+  function acctSelectHtml(id, role, current) {
+    const opts = acctsForRole(role).map(a =>
+      `<option value="${Utils.esc(a.name)}"${a.name === current ? ' selected' : ''}>${acctIcon(a.type)} ${Utils.esc(a.name)}</option>`
+    ).join('');
+    return `<select id="${id}" class="form-select">${opts || '<option value="">無帳戶</option>'}</select>`;
   }
   function lastAcct(role) {
     const saved = localStorage.getItem(LS_LAST_ACCT(role));
@@ -132,6 +170,12 @@ Router.register('entry', (() => {
     renderMain();
     if (prefill?.type === '轉帳') {
       openSheet('transfer', prefill);
+    } else if (prefill?.type === '支出' && prefill.reminderId) {
+      if (prefill.role && Store.roleNames().includes(prefill.role)) {
+        _role = prefill.role;
+        localStorage.setItem(LS_LAST_ROLE, prefill.role);
+      }
+      openSheet('cat', { category: prefill.category, amount: prefill.amount, reminderId: prefill.reminderId, account: prefill.account });
     } else {
       // 三秒記帳：進頁直接開表單（上次分類），關閉表單即可回到分類磚牆
       const saved = localStorage.getItem(LS_LAST_CAT);
@@ -269,8 +313,9 @@ Router.register('entry', (() => {
       return `<button type="button" class="sheet-chip${sh.installment === n ? ' active' : ''}" data-action="installment" data-val="${n}">${label}</button>`;
     }).join('');
     let info = '';
-    if (sh.installment > 1 && sh.amount) {
-      const total = parseFloat(sh.amount) || 0;
+    const totalAmt = calcSheetTotal(sh);
+    if (sh.installment > 1 && totalAmt) {
+      const total = totalAmt;
       const n = sh.installment;
       const perPeriod = Math.floor(total / n);
       const last = total - perPeriod * (n - 1);
@@ -294,11 +339,15 @@ Router.register('entry', (() => {
   }
 
   function initSheetState(kind, opts = {}) {
-    _sh = { kind, amount: opts.amount ? String(opts.amount) : '', memo: '' };
+    _sh = { kind, amount: opts.amount ? String(opts.amount) : '', terms: [], curOp: '+', memo: '' };
 
     if (kind === 'cat') {
       _sh.category = opts.category;
-      _sh.role = _role; _sh.account = lastAcct(_role);
+      _sh.role = _role;
+      const acctNames = acctsForRole(_role).map(a => a.name);
+      _sh.account = (opts.account && acctNames.includes(opts.account)) ? opts.account : lastAcct(_role);
+      _sh.showAcctSelect = false;
+      _sh.reminderId = opts.reminderId || '';
       _sh.payRole = ''; _sh.payAccount = ''; _sh.payType = '';
       _sh.autoTransfer = false; _sh.transferFrom = '';
       _sh.installment = 0;
@@ -346,7 +395,7 @@ Router.register('entry', (() => {
   function switchKind(kind) {
     if (!_sh || _sh.kind === kind) return;
     const wasRepay = _sh.kind === 'transfer' && (_sh.repayBatch || _sh.settleId);
-    const keep = { amount: _sh.amount, memo: _sh.memo };
+    const keep = { amount: _sh.amount, terms: _sh.terms, curOp: _sh.curOp, memo: _sh.memo };
     if (kind === 'cat') {
       const saved = localStorage.getItem(LS_LAST_CAT);
       const cat = CFG.CATEGORIES['支出'].includes(saved) ? saved : catOrder(_role)[0];
@@ -355,6 +404,8 @@ Router.register('entry', (() => {
       initSheetState(kind);
     }
     _sh.amount = keep.amount;
+    _sh.terms = keep.terms;
+    _sh.curOp = keep.curOp;
     _sh.memo = keep.memo;
     if (wasRepay) Utils.toast('已離開補款模式；此筆不再結清代付，請回 Dashboard 重新點「記補款」', 'warn');
     renderSheet();
@@ -390,6 +441,7 @@ Router.register('entry', (() => {
     localStorage.setItem(LS_LAST_ROLE, val);
     _sh.role = val;
     _sh.account = _sh.kind === 'income' ? lastAcctNonCC(val) : lastAcct(val);
+    _sh.showAcctSelect = false;
     // 角色相依狀態重置：代付/自動補款/分期依新角色重新判斷
     _sh.payRole = ''; _sh.payAccount = ''; _sh.payType = '';
     _sh.autoTransfer = false; _sh.transferFrom = '';
@@ -429,10 +481,12 @@ Router.register('entry', (() => {
           `<button type="button" class="sheet-chip${_sh.category === c ? ' active' : ''}" data-action="inc-cat" data-val="${c}">${CAT_ICONS[c] || ''} ${c}</button>`
         ).join('')}</div>`;
       }
-      body += `<div class="sheet-row"><label>帳戶</label>${acctSelect('sel-sheet-acct', _sh.role, _sh.account, _sh.kind === 'income')}</div>`;
       if (_sh.kind === 'cat') {
+        body += acctToggleSection(_sh);
         body += buildPaySection(_sh);
         if (canInstallment(_sh)) body += buildInstallmentSection(_sh);
+      } else {
+        body += `<div class="sheet-row"><label>帳戶</label>${acctSelect('sel-sheet-acct', _sh.role, _sh.account, true)}</div>`;
       }
     } else if (_sh.kind === 'proj') {
       const projects = Store.get().projects.filter(p => p.status === '進行中');
@@ -472,8 +526,9 @@ Router.register('entry', (() => {
           `<button type="button" class="sheet-chip${_sh.memo === m ? ' active' : ''}" data-action="memo-chip" data-val="${Utils.esc(m)}">${Utils.esc(m)}</button>`
         ).join('')}</div>` : '';
 
-    const amtDisplay = fmtAmtDisplay(_sh.amount);
-    const submitLabel = _sh.amount ? `✓ 記帳 NT$ ${fmtAmtDisplay(_sh.amount)}` : '✓ 記帳';
+    const amtDisplay = calcExprDisplay(_sh);
+    const sheetTotal = calcSheetTotal(_sh);
+    const submitLabel = sheetTotal ? `✓ 記帳 NT$ ${sheetTotal.toLocaleString()}` : '✓ 記帳';
 
     const kindTabs = `<div class="sheet-kind-tabs">${[['cat','支出'],['income','收入'],['transfer','轉帳'],['proj','📁 專案']].map(([k, l]) =>
       `<button type="button" class="sheet-kind-tab${_sh.kind === k ? ' active' : ''}" data-action="kind" data-val="${k}">${l}</button>`
@@ -491,13 +546,17 @@ Router.register('entry', (() => {
         </label>
         <button type="button" class="entry-sheet-close" data-action="close">✕</button>
       </div>
-      <div class="entry-sheet-amt${_sh.amount ? '' : ' zero'}" id="sheet-amt">$ ${amtDisplay}</div>
+      <div class="entry-sheet-amt${(_sh.amount || (_sh.terms && _sh.terms.length)) ? '' : ' zero'}" id="sheet-amt">$ ${amtDisplay}</div>
       <div class="sheet-scroll">
         ${body}
         ${memoChips}
         <div class="sheet-row"><label>備忘</label>
           <input type="text" id="inp-sheet-memo" class="form-input" placeholder="選填" value="${Utils.esc(_sh.memo || '')}" autocomplete="off">
         </div>
+      </div>
+      <div class="sheet-calc-ops sheet-numpad${_sh.repayBatch ? ' disabled' : ''}">
+        <button type="button" class="sheet-calc-op" data-key="+">＋</button>
+        <button type="button" class="sheet-calc-op" data-key="-">－</button>
       </div>
       <div class="numpad-keys sheet-numpad${_sh.repayBatch ? ' disabled' : ''}">
         ${['1','2','3','4','5','6','7','8','9','.','0','⌫'].map(k =>
@@ -553,17 +612,33 @@ Router.register('entry', (() => {
           if (_sh.repayBatch) return; // 全額補款金額由各期帶入，不可手動修改
           const k = key.dataset.key;
           let cur = _sh.amount || '';
-          if (k === '⌫') cur = cur.slice(0, -1);
-          else if (k === '.') { if (!cur.includes('.')) cur = (cur || '0') + '.'; }
-          else cur = cur === '0' ? k : cur + k;
-          _sh.amount = cur;
+          if (k === '+' || k === '-') {
+            if (cur !== '') {
+              _sh.terms = _sh.terms || [];
+              _sh.terms.push({ op: _sh.curOp || '+', val: cur });
+              _sh.amount = '';
+            }
+            _sh.curOp = k;
+          } else {
+            if (k === '⌫') {
+              if (cur) cur = cur.slice(0, -1);
+              else if (_sh.terms && _sh.terms.length) {
+                const last = _sh.terms.pop();
+                cur = last.val;
+                _sh.curOp = last.op;
+              }
+            }
+            else if (k === '.') { if (!cur.includes('.')) cur = (cur || '0') + '.'; }
+            else cur = cur === '0' ? k : cur + k;
+            _sh.amount = cur;
+          }
           const disp = _sheetEl.querySelector('#sheet-amt');
-          if (disp) { disp.textContent = `$ ${fmtAmtDisplay(cur)}`; disp.classList.toggle('zero', !cur); }
+          if (disp) { disp.textContent = `$ ${calcExprDisplay(_sh)}`; disp.classList.toggle('zero', !(_sh.amount || (_sh.terms && _sh.terms.length))); }
+          const total = calcSheetTotal(_sh);
           const btn = _sheetEl.querySelector('#btn-sheet-submit');
-          if (btn) btn.textContent = cur ? `✓ 記帳 NT$ ${fmtAmtDisplay(cur)}` : '✓ 記帳';
+          if (btn) btn.textContent = total ? `✓ 記帳 NT$ ${total.toLocaleString()}` : '✓ 記帳';
           const infoEl = _sheetEl.querySelector('.sheet-installment-info');
           if (infoEl && _sh.installment > 1) {
-            const total = parseFloat(cur) || 0;
             const n = _sh.installment;
             const pp = Math.floor(total / n);
             const last = total - pp * (n - 1);
@@ -580,6 +655,16 @@ Router.register('entry', (() => {
         else if (action === 'submit') submitSheet();
         else if (action === 'inc-cat') { _sh.category = val; renderSheet(); }
         else if (action === 'cat-switch') { _sh.category = val; renderSheet(); }
+        else if (action === 'acct-cash') {
+          _sh.account = Store.defaultCashFor(_sh.role); _sh.showAcctSelect = false;
+          if (!canInstallment(_sh)) _sh.installment = 0;
+          renderSheet();
+        }
+        else if (action === 'acct-cc') {
+          _sh.account = Store.defaultCCFor(_sh.role); _sh.showAcctSelect = false;
+          renderSheet();
+        }
+        else if (action === 'acct-other') { _sh.showAcctSelect = true; renderSheet(); }
         else if (action === 'installment') {
           _sh.installment = parseInt(val) || 0;
           if (_sh.installment > 1 && _sh.payAccount) _sh.autoTransfer = false;
@@ -684,7 +769,7 @@ Router.register('entry', (() => {
 
   // ── Submit ────────────────────────────────────────────────────────────────
   async function submitSheet() {
-    const amount = parseFloat(_sh.amount);
+    const amount = calcSheetTotal(_sh);
     if (!amount || amount <= 0) return Utils.toast('請輸入有效金額', 'warn');
     const memo = (_sh.memo || '').trim();
     const memoCell = Utils.sheetText(memo); // 寫入試算表用，保留前導零
@@ -747,6 +832,9 @@ Router.register('entry', (() => {
       Store.invalidate();
       if (usedRole && usedAcct) localStorage.setItem(LS_LAST_ACCT(usedRole), usedAcct);
       if (_sh.kind === 'cat' && _sh.category) localStorage.setItem(LS_LAST_CAT, _sh.category);
+      if (_sh.kind === 'cat' && _sh.reminderId) {
+        try { await Store.markReminderPaid(_sh.reminderId, date.replace(/\//g, '-').slice(0, 7)); } catch {}
+      }
       Utils.toast('記帳成功！', 'success');
       closeSheet();
       _date = todayISO();

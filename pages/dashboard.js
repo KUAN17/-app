@@ -490,6 +490,24 @@ Router.register('dashboard', (() => {
       </div>`);
     });
 
+    // 定期提醒：本月尚未完成且已啟用者，依提醒日排序，逾期者標註 ⚠
+    const curMonth = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}`;
+    Store.get().reminders
+      .filter(r => r.active && r.lastPaidMonth !== curMonth)
+      .sort((a, b) => a.dueDay - b.dueDay)
+      .forEach(r => {
+        const overdue = today.getDate() > r.dueDay;
+        const sub = overdue ? `⚠ 已逾期（提醒日 ${r.dueDay} 號）` : `${r.dueDay} 號提醒`;
+        rows.push(`<div class="dash-todo-row">
+          <span class="dash-todo-icon">🔔</span>
+          <span class="dash-todo-txt">${Utils.esc(r.name)}<small>${sub}</small></span>
+          <span class="dash-todo-amt">${r.amount ? Utils.formatMoney(r.amount) : ''}</span>
+          <button class="dash-todo-btn" data-act="todo-reminder"
+            data-id="${Utils.esc(r.id)}" data-role="${Utils.esc(r.role)}" data-category="${Utils.esc(r.category)}"
+            data-account="${Utils.esc(r.account)}" data-amount="${r.amount || ''}">記帳</button>
+        </div>`);
+      });
+
     const pays = computePayables(ledger);
     if (pays.length) {
       const sum = pays.reduce((s, x) => s + x.remaining, 0);
@@ -628,6 +646,14 @@ Router.register('dashboard', (() => {
         if (act === 'todo-pay') {
           localStorage.setItem('ff_entry_prefill', JSON.stringify({
             type: '轉帳', roleIn: btn.dataset.role, accountIn: btn.dataset.name, amount: btn.dataset.amount
+          }));
+          Router.go('entry');
+          return;
+        }
+        if (act === 'todo-reminder') {
+          localStorage.setItem('ff_entry_prefill', JSON.stringify({
+            type: '支出', reminderId: btn.dataset.id, role: btn.dataset.role,
+            category: btn.dataset.category, account: btn.dataset.account, amount: btn.dataset.amount
           }));
           Router.go('entry');
           return;
