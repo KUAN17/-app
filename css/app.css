@@ -239,9 +239,17 @@ html, body {
 .dash-pay-check { flex-shrink: 0; width: 18px; height: 18px; accent-color: var(--primary); cursor: pointer; }
 .dash-pay-batch-bar {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
-  margin-top: 8px; padding: 10px 14px; border-radius: 12px;
+  margin: 8px 14px 10px; padding: 10px 14px; border-radius: 12px;
   background: var(--card); border: 1px solid var(--primary); font-size: 13px; color: var(--text);
 }
+
+/* 代付往來：依補款對象帳戶分組，組內可單選或全選 */
+.dash-pay-group { background: var(--card); border-radius: 14px; margin-bottom: 10px; overflow: hidden; }
+.dash-pay-group .dash-acct-row { padding: 11px 14px; }
+.dash-pay-group-head { display: flex; align-items: center; justify-content: space-between; padding: 11px 14px 0; }
+.dash-pay-group-all { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.dash-pay-group-sum { font-size: 14px; font-weight: 700; color: var(--text); }
+.dash-pay-group-sub { font-size: 11px; color: var(--text-muted); padding: 2px 14px 8px; }
 
 /* dash top row（角色 chips + 版型切換） */
 .dash-top-row { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 4px; }

@@ -444,37 +444,74 @@ Router.register('dashboard', (() => {
     for (const k of _payChecked.keys()) if (!validSettleIds.has(k)) _payChecked.delete(k);
 
     const id = Utils.identity();
-    const rows = items.map(({ id: expId, creditor, debtor, date, amount, remaining, memo, payAccount, _gid }) => {
-      const isMyDebt = debtor === id;
-      const isMyRecv = creditor === id;
-      const label = isMyDebt ? `我欠 ${Utils.esc(creditor)}` : isMyRecv ? `${Utils.esc(debtor)} 欠我` : `${Utils.esc(debtor)} 欠 ${Utils.esc(creditor)}`;
-      const partial = remaining < amount ? `（剩 ${Utils.formatMoney(remaining)}）` : '';
-      const tgt = payAccount ? repayTarget(creditor, payAccount) : { role: creditor, account: '' };
-      const acctInfo = payAccount ? `${Utils.esc(creditor)}／${Utils.esc(payAccount)} → 補${Utils.esc(tgt.account)}` : '';
-      const sub = `${date.slice(5)}${acctInfo ? ' · ' + acctInfo : ''}${memo ? ' · ' + Utils.esc(memo) : ''}${partial}`;
-      const repayMemo = `補款／${date.slice(5)}${memo ? ' ' + memo : ''}`;
-      const grouped = _gid !== undefined && _payGroups[_gid].members.length > 1;
-      const payBtn = `<button type="button" class="dash-repay-btn"
-        data-creditor="${Utils.esc(creditor)}"
-        data-debtor="${Utils.esc(debtor)}"
-        data-amount="${remaining}"
-        data-settle="${Utils.esc(expId || '')}"
-        data-group="${grouped ? _gid : ''}"
-        data-memo="${Utils.esc(repayMemo)}">記補款 →</button>`;
-      // 多選補款：同一組＝債權人＋債務人＋實際補款對象帳戶一致，才能一起勾選合併成一筆
-      const groupKey = `${creditor}||${debtor}||${tgt.role}||${tgt.account}`;
-      const checked = _payChecked.has(expId) ? ' checked' : '';
-      return `<div class="dash-acct-row dash-pay-row">
-        <input type="checkbox" class="dash-pay-check" data-settle="${Utils.esc(expId || '')}"
-          data-group-key="${Utils.esc(groupKey)}" data-amount="${remaining}" data-memo="${Utils.esc(repayMemo)}"
-          data-date="${Utils.esc(date)}" data-creditor="${Utils.esc(creditor)}" data-debtor="${Utils.esc(debtor)}"
-          data-tgt-role="${Utils.esc(tgt.role)}" data-tgt-acct="${Utils.esc(tgt.account)}"${checked}>
-        <div class="dash-pay-info">
-          <span class="dash-acct-name">${label}</span>
-          <span class="dash-pay-sub">${sub}</span>
+
+    // 依「實際補款帳戶」分類：債權人＋債務人＋補款對象角色/帳戶都相同才算同一組，
+    // 組內可單選或全選，一次送出合併成一筆轉帳
+    const groups = []; // [{ key, creditor, debtor, tgtRole, tgtAcct, items: [...] }]
+    const gidxByKey = {};
+    items.forEach(e => {
+      const tgt = e.payAccount ? repayTarget(e.creditor, e.payAccount) : { role: e.creditor, account: '' };
+      const key = `${e.creditor}||${e.debtor}||${tgt.role}||${tgt.account}`;
+      if (!(key in gidxByKey)) {
+        gidxByKey[key] = groups.length;
+        groups.push({ key, creditor: e.creditor, debtor: e.debtor, tgtRole: tgt.role, tgtAcct: tgt.account, items: [] });
+      }
+      groups[gidxByKey[key]].items.push({ ...e, tgt });
+    });
+
+    const groupsHtml = groups.map(g => {
+      const isMyDebt = g.debtor === id;
+      const isMyRecv = g.creditor === id;
+      const label = isMyDebt ? `我欠 ${Utils.esc(g.creditor)}` : isMyRecv ? `${Utils.esc(g.debtor)} 欠我` : `${Utils.esc(g.debtor)} 欠 ${Utils.esc(g.creditor)}`;
+      const acctSub = g.tgtAcct ? `補到 ${Utils.esc(g.tgtRole)}／${Utils.esc(g.tgtAcct)}` : '補款對象帳戶未設定';
+      const groupSum = g.items.reduce((s, e) => s + e.remaining, 0);
+      const checkedInGroup = g.items.filter(e => _payChecked.has(e.id));
+      const allChecked = checkedInGroup.length === g.items.length;
+
+      const rows = g.items.map(e => {
+        const partial = e.remaining < e.amount ? `（剩 ${Utils.formatMoney(e.remaining)}）` : '';
+        const sub = `${e.date.slice(5)}${e.memo ? ' · ' + Utils.esc(e.memo) : ''}${partial}`;
+        const repayMemo = `補款／${e.date.slice(5)}${e.memo ? ' ' + e.memo : ''}`;
+        const grouped = e._gid !== undefined && _payGroups[e._gid].members.length > 1;
+        const payBtn = `<button type="button" class="dash-repay-btn"
+          data-creditor="${Utils.esc(e.creditor)}"
+          data-debtor="${Utils.esc(e.debtor)}"
+          data-amount="${e.remaining}"
+          data-settle="${Utils.esc(e.id || '')}"
+          data-group="${grouped ? e._gid : ''}"
+          data-memo="${Utils.esc(repayMemo)}">記補款 →</button>`;
+        const checked = _payChecked.has(e.id) ? ' checked' : '';
+        return `<div class="dash-acct-row dash-pay-row">
+          <input type="checkbox" class="dash-pay-check" data-settle="${Utils.esc(e.id || '')}"
+            data-group-key="${Utils.esc(g.key)}" data-amount="${e.remaining}" data-memo="${Utils.esc(repayMemo)}"
+            data-date="${Utils.esc(e.date)}" data-creditor="${Utils.esc(e.creditor)}" data-debtor="${Utils.esc(e.debtor)}"
+            data-tgt-role="${Utils.esc(g.tgtRole)}" data-tgt-acct="${Utils.esc(g.tgtAcct)}"${checked}>
+          <div class="dash-pay-info">
+            <span class="dash-acct-name">${label}</span>
+            <span class="dash-pay-sub">${sub}</span>
+          </div>
+          <span class="dash-acct-bal ${isMyDebt ? 'amount-out' : isMyRecv ? 'amount-in' : ''}">${Utils.formatMoney(e.remaining)}</span>
+          ${payBtn}
+        </div>`;
+      }).join('');
+
+      const groupBar = checkedInGroup.length > 0
+        ? `<div class="dash-pay-batch-bar">
+            <span>已選 ${checkedInGroup.length} 筆・共 ${Utils.formatMoney(checkedInGroup.reduce((s, e) => s + e.remaining, 0))}</span>
+            <button type="button" class="btn btn-primary btn-sm dash-pay-group-btn" data-group-key="${Utils.esc(g.key)}">建立補款 →</button>
+          </div>` : '';
+
+      return `<div class="dash-pay-group">
+        <div class="dash-pay-group-head">
+          <label class="dash-pay-group-all">
+            <input type="checkbox" class="dash-pay-check-all" data-group-key="${Utils.esc(g.key)}"${g.items.length > 1 ? (allChecked ? ' checked' : '') : ' style="display:none"'}>
+            <span class="dash-acct-name">${label}</span>
+          </label>
+          <span class="dash-pay-group-sum">${Utils.formatMoney(groupSum)}</span>
         </div>
-        <span class="dash-acct-bal ${isMyDebt ? 'amount-out' : isMyRecv ? 'amount-in' : ''}">${Utils.formatMoney(remaining)}</span>
-        ${payBtn}
+        <div class="dash-pay-group-sub">${acctSub}</div>
+        ${rows}
+        ${groupBar}
       </div>`;
     }).join('');
 
@@ -487,17 +524,9 @@ Router.register('dashboard', (() => {
     }
     const badge = parts.length ? parts.join('・') : `${items.length} 筆`;
 
-    const checkedCount = _payChecked.size;
-    const checkedSum = [..._payChecked.values()].reduce((s, m) => s + m.amount, 0);
-    const batchBar = checkedCount > 0
-      ? `<div class="dash-pay-batch-bar">
-          <span>已選 ${checkedCount} 筆・共 ${Utils.formatMoney(checkedSum)}</span>
-          <button type="button" class="btn btn-primary btn-sm" id="dash-pay-batch-btn">建立補款 →</button>
-        </div>` : '';
-
     return `<details class="dash-collapse" id="dash-col-pay" ${_openPay ? 'open' : ''}>
       <summary>代付往來<span class="dash-collapse-badge">${badge}</span></summary>
-      <div class="dash-collapse-body"><div class="card dash-acct-card">${rows}</div>${batchBar}</div>
+      <div class="dash-collapse-body">${groupsHtml}</div>
     </details>`;
   }
 
@@ -726,13 +755,6 @@ Router.register('dashboard', (() => {
       chk.addEventListener('change', () => {
         const { settle, groupKey, amount, memo, date, creditor, debtor, tgtRole, tgtAcct } = chk.dataset;
         if (chk.checked) {
-          // 只能跟目前已勾選的項目同一組（債權人＋債務人＋補款對象帳戶）一起選
-          const firstKey = _payChecked.size ? [..._payChecked.values()][0].groupKey : null;
-          if (firstKey && firstKey !== groupKey) {
-            chk.checked = false;
-            Utils.toast('只能多選同一個補款對象帳戶的項目', 'warn');
-            return;
-          }
           _payChecked.set(settle, { groupKey, amount: Number(amount), memo, date, creditor, debtor, tgtRole, tgtAcct });
         } else {
           _payChecked.delete(settle);
@@ -740,9 +762,26 @@ Router.register('dashboard', (() => {
         renderAll();
       });
     });
-    Utils.el('dash-pay-batch-btn')?.addEventListener('click', () => {
-      prefillMultiRepay([..._payChecked.entries()].map(([settleId, m]) => ({ settleId, ...m })));
-      _payChecked.clear();
+    el.querySelectorAll('.dash-pay-check-all').forEach(chk => {
+      chk.addEventListener('change', () => {
+        const gkey = chk.dataset.groupKey;
+        el.querySelectorAll(`.dash-pay-check[data-group-key="${CSS.escape(gkey)}"]`).forEach(row => {
+          const { settle, amount, memo, date, creditor, debtor, tgtRole, tgtAcct } = row.dataset;
+          if (chk.checked) _payChecked.set(settle, { groupKey: gkey, amount: Number(amount), memo, date, creditor, debtor, tgtRole, tgtAcct });
+          else _payChecked.delete(settle);
+        });
+        renderAll();
+      });
+    });
+    el.querySelectorAll('.dash-pay-group-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const gkey = btn.dataset.groupKey;
+        const items = [..._payChecked.entries()]
+          .filter(([, m]) => m.groupKey === gkey)
+          .map(([settleId, m]) => ({ settleId, ...m }));
+        _payChecked.clear();
+        prefillMultiRepay(items);
+      });
     });
     el.querySelectorAll('[data-cat]').forEach(row => {
       row.addEventListener('click', () => showCatDetail(row.dataset.cat));
