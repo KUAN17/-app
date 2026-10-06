@@ -179,12 +179,8 @@ Router.register('entry', (() => {
         localStorage.setItem(LS_LAST_ROLE, prefill.role);
       }
       openSheet('cat', { category: prefill.category, amount: prefill.amount, reminderId: prefill.reminderId, account: prefill.account });
-    } else {
-      // 三秒記帳：進頁直接開表單（上次分類），關閉表單即可回到分類磚牆
-      const saved = localStorage.getItem(LS_LAST_CAT);
-      const cat = CFG.CATEGORIES['支出'].includes(saved) ? saved : catOrder(_role)[0];
-      if (cat) openSheet('cat', { category: cat });
     }
+    // 其餘情況：先停在主畫面，由使用者自己點「支出／收入／轉帳／專案」進入表單
   }
 
   // ── 主畫面 ────────────────────────────────────────────────────────────────
@@ -249,36 +245,40 @@ Router.register('entry', (() => {
   }
 
   // ── Bottom sheet helpers ──────────────────────────────────────────────────
+  // 代付：先選「誰幫忙付」，再選「用哪個帳戶」，兩步點選取代原本的編碼下拉選單；
+  // 補款轉帳預設自動同步（不再需要額外勾選），僅在無法判斷轉入對象時關閉
   function buildPaySection(sh) {
-    const nonCCAccts = acctsForRole(sh.role).filter(a => a.type !== '信用卡');
-    const payOpts = Store.allAccountsFlat()
-      .filter(a => a.type !== '證券帳戶' && a.name !== sh.account)
-      .sort((a, b) => (a.type === '信用卡' ? -1 : 0) - (b.type === '信用卡' ? -1 : 0))
-      .map(a => {
-        const v = `${a.role}||${a.name}||${a.type}`;
-        const cur = sh.payRole === a.role && sh.payAccount === a.name && sh.payType === a.type;
-        return `<option value="${Utils.esc(v)}"${cur ? ' selected' : ''}>${acctIcon(a.type)} ${Utils.esc(a.role)}／${Utils.esc(a.name)}</option>`;
-      }).join('');
-    const payInfo = sh.payAccount ? getPaymentInfo(sh.payRole, sh.payAccount, sh.payType) : null;
-    const canAuto = !!payInfo && sh.role !== sh.payRole && nonCCAccts.length > 0 && !(sh.installment > 1);
-    const tfOpts = nonCCAccts
-      .map(a => `<option value="${Utils.esc(a.name)}"${sh.transferFrom === a.name ? ' selected' : ''}>${Utils.esc(a.name)}</option>`).join('');
-    return `<details class="sheet-adv"${sh.payAccount ? ' open' : ''}>
-      <summary>進階：代付${sh.payAccount ? `（${Utils.esc(sh.payRole)}／${Utils.esc(sh.payAccount)}）` : ''}</summary>
-      <div class="sheet-row"><label>代付</label>
-        <select id="sel-sheet-pay" class="form-select">
-          <option value="">不使用代付</option>${payOpts}
-        </select></div>
-      ${canAuto ? `
-        <label class="sheet-auto-toggle">
-          <input type="checkbox" id="chk-sheet-auto"${sh.autoTransfer ? ' checked' : ''}>
-          <span>同步補款轉帳</span>
-        </label>
-        ${sh.autoTransfer ? `
-          <div class="sheet-row"><label>轉出</label><select id="sel-sheet-tf" class="form-select">${tfOpts}</select></div>
-          <div class="sheet-row"><label>轉入</label><span class="sheet-static">${Utils.esc(payInfo.role)}／${Utils.esc(payInfo.account)}</span></div>` : ''}
-      ` : ''}
-    </details>`;
+    const otherRoles = Store.roleNames().filter(r => r !== sh.role);
+    const roleChips = ['', ...otherRoles].map(r => {
+      const active = sh.payRole === r;
+      return `<button type="button" class="sheet-chip${active ? ' active' : ''}" data-action="pay-role" data-val="${Utils.esc(r)}">${r === '' ? '不用代付' : Utils.esc(r)}</button>`;
+    }).join('');
+    let html = `<div class="sheet-row"><label>代付</label></div>
+      <div class="sheet-cat-chips" style="margin-top:-4px">${roleChips}</div>`;
+
+    if (!sh.payRole) return html;
+
+    const payAccts = Store.allAccountsFlat().filter(a => a.role === sh.payRole && a.type !== '證券帳戶');
+    const acctChips = payAccts.map(a => {
+      const active = sh.payAccount === a.name && sh.payType === a.type;
+      return `<button type="button" class="sheet-chip${active ? ' active' : ''}" data-action="pay-acct" data-val="${Utils.esc(a.role)}||${Utils.esc(a.name)}||${Utils.esc(a.type)}">${acctIcon(a.type)} ${Utils.esc(a.name)}</button>`;
+    }).join('');
+    html += `<div class="sheet-cat-chips">${acctChips || '<span class="input-hint">該角色無可用帳戶</span>'}</div>`;
+
+    if (sh.payAccount && sh.autoTransfer) {
+      const payInfo = getPaymentInfo(sh.payRole, sh.payAccount, sh.payType);
+      const nonCCAccts = acctsForRole(sh.role).filter(a => a.type !== '信用卡');
+      if (payInfo) {
+        html += `<div class="sheet-row"><label></label><span class="sheet-static" style="flex:1">✓ 補款將自動從「${Utils.esc(sh.transferFrom)}」轉給 ${Utils.esc(payInfo.role)}</span></div>`;
+        if (sh.showTfSelect) {
+          const tfOpts = nonCCAccts.map(a => `<option value="${Utils.esc(a.name)}"${sh.transferFrom === a.name ? ' selected' : ''}>${Utils.esc(a.name)}</option>`).join('');
+          html += `<div class="sheet-row"><label>轉出</label><select id="sel-sheet-tf" class="form-select">${tfOpts}</select></div>`;
+        } else if (nonCCAccts.length > 1) {
+          html += `<div class="sheet-row"><label></label><a href="javascript:void(0)" class="sheet-other-acct-link" data-action="pay-tf-other">改用其他帳戶轉出…</a></div>`;
+        }
+      }
+    }
+    return html;
   }
 
   function shiftMonth(dateStr, months) {
@@ -352,7 +352,7 @@ Router.register('entry', (() => {
       _sh.showAcctSelect = false;
       _sh.reminderId = opts.reminderId || '';
       _sh.payRole = ''; _sh.payAccount = ''; _sh.payType = '';
-      _sh.autoTransfer = false; _sh.transferFrom = '';
+      _sh.autoTransfer = false; _sh.transferFrom = ''; _sh.showTfSelect = false;
       _sh.installment = 0;
     } else if (kind === 'income') {
       _sh.category = '';
@@ -361,7 +361,7 @@ Router.register('entry', (() => {
       _sh.role = _role; _sh.account = lastAcct(_role);
       _sh.project = ''; _sh.projCat = ''; _sh.locked = false;
       _sh.payRole = ''; _sh.payAccount = ''; _sh.payType = '';
-      _sh.autoTransfer = false; _sh.transferFrom = '';
+      _sh.autoTransfer = false; _sh.transferFrom = ''; _sh.showTfSelect = false;
       _sh.installment = 0;
     } else if (kind === 'transfer') {
       const prefillRoleOut = opts.roleOut && Store.roleNames().includes(opts.roleOut) ? opts.roleOut : _role;
@@ -447,7 +447,7 @@ Router.register('entry', (() => {
     _sh.showAcctSelect = false;
     // 角色相依狀態重置：代付/自動補款/分期依新角色重新判斷
     _sh.payRole = ''; _sh.payAccount = ''; _sh.payType = '';
-    _sh.autoTransfer = false; _sh.transferFrom = '';
+    _sh.autoTransfer = false; _sh.transferFrom = ''; _sh.showTfSelect = false;
     if (_sh.installment && !canInstallment(_sh)) _sh.installment = 0;
     renderMain(); // 背後主畫面的角色列同步
     renderSheet();
@@ -668,6 +668,26 @@ Router.register('entry', (() => {
           renderSheet();
         }
         else if (action === 'acct-other') { _sh.showAcctSelect = true; renderSheet(); }
+        else if (action === 'pay-role') {
+          _sh.payRole = val;
+          _sh.payAccount = ''; _sh.payType = '';
+          _sh.autoTransfer = false; _sh.transferFrom = ''; _sh.showTfSelect = false;
+          renderSheet();
+        }
+        else if (action === 'pay-acct') {
+          const [r, n, t] = val.split('||');
+          _sh.payRole = r; _sh.payAccount = n; _sh.payType = t;
+          const pi = getPaymentInfo(r, n, t);
+          if (pi && _sh.role !== r && !(_sh.installment > 1)) {
+            _sh.autoTransfer = true;
+            _sh.transferFrom = (acctsForRole(_sh.role).filter(a => a.type !== '信用卡')[0] || {}).name || '';
+          } else {
+            _sh.autoTransfer = false; _sh.transferFrom = '';
+          }
+          if (!canInstallment(_sh)) _sh.installment = 0;
+          renderSheet();
+        }
+        else if (action === 'pay-tf-other') { _sh.showTfSelect = true; renderSheet(); }
         else if (action === 'installment') {
           _sh.installment = parseInt(val) || 0;
           if (_sh.installment > 1 && _sh.payAccount) _sh.autoTransfer = false;
@@ -717,32 +737,6 @@ Router.register('entry', (() => {
       renderSheet();
     });
 
-    _sheetEl.querySelector('#sel-sheet-pay')?.addEventListener('change', e => {
-      const val = e.target.value;
-      if (!val) {
-        _sh.payRole = ''; _sh.payAccount = ''; _sh.payType = '';
-        _sh.autoTransfer = false; _sh.transferFrom = '';
-      } else {
-        const [r, n, t] = val.split('||');
-        _sh.payRole = r; _sh.payAccount = n; _sh.payType = t;
-        const pi = getPaymentInfo(r, n, t);
-        if (pi && _sh.role !== r && !(_sh.installment > 1)) {
-          _sh.autoTransfer = true;
-          _sh.transferFrom = (acctsForRole(_sh.role).filter(a => a.type !== '信用卡')[0] || {}).name || '';
-        } else {
-          _sh.autoTransfer = false; _sh.transferFrom = '';
-        }
-        if (!canInstallment(_sh)) _sh.installment = 0;
-      }
-      renderSheet();
-    });
-    _sheetEl.querySelector('#chk-sheet-auto')?.addEventListener('change', e => {
-      _sh.autoTransfer = e.target.checked;
-      if (_sh.autoTransfer && !_sh.transferFrom) {
-        _sh.transferFrom = (acctsForRole(_sh.role).filter(a => a.type !== '信用卡')[0] || {}).name || '';
-      }
-      renderSheet();
-    });
     _sheetEl.querySelector('#sel-sheet-tf')?.addEventListener('change', e => { _sh.transferFrom = e.target.value; });
 
     _sheetEl.querySelector('#sel-out-role')?.addEventListener('change', e => {

@@ -1077,7 +1077,10 @@ html, body {
   margin: -6px auto 4px; touch-action: none; cursor: grab;
 }
 .entry-sheet-head { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 15px; margin-bottom: 4px; touch-action: none; }
-.entry-sheet-date { margin-left: auto; font-size: 12px; color: var(--text-muted); font-weight: 500; }
+.entry-sheet-date {
+  margin-left: auto; font-size: 12px; color: var(--text); font-weight: 600;
+  background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 5px 10px;
+}
 .entry-sheet-close {
   flex: 0 0 auto; width: 28px; height: 28px; border: none; border-radius: 50%;
   background: #E8EAEF; color: var(--text-muted); font-size: 14px; line-height: 1;
@@ -1108,8 +1111,6 @@ html, body {
   color: var(--primary); border: none; cursor: pointer; -webkit-tap-highlight-color: transparent;
 }
 .sheet-calc-op:active { background: var(--bg); }
-.sheet-adv { margin: 8px 0; border-top: 1px dashed var(--border); padding-top: 8px; }
-.sheet-adv summary { font-size: 13px; color: var(--text-muted); cursor: pointer; }
 .sheet-auto-toggle { display: flex; align-items: center; gap: 8px; font-size: 13px; margin: 8px 0; }
 .sheet-installment { margin: 8px 0; border-top: 1px dashed var(--border); padding-top: 8px; }
 .sheet-installment-chips { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -1148,14 +1149,17 @@ html, body {
 /* 記帳表單內：角色切換列 */
 /* 表單標題角色下拉：原生 select 隱藏預設樣式，改用自訂三角形 caret */
 .entry-sheet-title-txt { white-space: nowrap; }
-.sheet-role-select-wrap { position: relative; display: inline-flex; align-items: center; }
+.sheet-role-select-wrap {
+  position: relative; display: inline-flex; align-items: center;
+  background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 5px 18px 5px 10px;
+}
 .sheet-role-select {
   appearance: none; -webkit-appearance: none; border: none; background: none;
-  font: inherit; font-weight: 700; color: var(--text); padding: 2px 18px 2px 0;
-  cursor: pointer; max-width: 40vw;
+  font: inherit; font-weight: 700; color: var(--text); padding: 0; margin: 0;
+  cursor: pointer; max-width: 36vw;
 }
 .sheet-role-caret {
-  position: absolute; right: 0; top: 50%; transform: translateY(-50%);
+  position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
   pointer-events: none; font-size: 11px; color: var(--text-muted);
 }
 
