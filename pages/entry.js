@@ -605,35 +605,56 @@ Router.register('entry', (() => {
     </div>`;
 
     wireSheet();
-    addSwipeToClose();
+    addSheetGestures();
   }
 
-  function addSwipeToClose() {
+  // 下滑關閉表單（垂直）／左右滑切換 Step 1↔2（水平）共用同一組 pointer 事件，
+  // 以起始移動的角度判斷是哪種手勢，避免互相誤觸
+  function addSheetGestures() {
     const sheet = _sheetEl?.querySelector('.entry-sheet');
     if (!sheet) return;
 
-    let startY = 0, curY = 0, dragging = false;
+    let startX = 0, startY = 0, curX = 0, curY = 0, dragging = false, axis = null;
 
     sheet.addEventListener('pointerdown', e => {
       // 互動元件（輸入框、選單、按鈕、數字鍵盤）上不啟動拖曳
       if (e.target.closest('input, select, button, details, .entry-memo-chips, .sheet-scroll')) return;
-      dragging = true; startY = e.clientY; curY = 0;
+      dragging = true; startX = e.clientX; startY = e.clientY; curX = 0; curY = 0; axis = null;
       try { sheet.setPointerCapture(e.pointerId); } catch {}
       sheet.style.transition = 'none';
     });
     sheet.addEventListener('pointermove', e => {
       if (!dragging) return;
-      const y = e.clientY - startY;
-      if (y > 0) { curY = y; sheet.style.transform = `translateY(${y}px)`; }
-      else { curY = 0; sheet.style.transform = ''; }
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+      if (!axis && (Math.abs(dx) > 12 || Math.abs(dy) > 12)) {
+        // 角度夠平（水平位移明顯大於垂直）才算切頁手勢，否則都算下滑關閉
+        axis = Math.abs(dx) > Math.abs(dy) * 1.5 ? 'h' : 'v';
+      }
+      if (axis === 'v') {
+        if (dy > 0) { curY = dy; sheet.style.transform = `translateY(${dy}px)`; }
+        else { curY = 0; sheet.style.transform = ''; }
+      } else if (axis === 'h') {
+        // Step 1 只能左滑進 Step 2；Step 2 只能右滑退回 Step 1
+        const allowed = (_sh.step === 1 && dx < 0) || (_sh.step === 2 && dx > 0);
+        curX = allowed ? dx : 0;
+        sheet.style.transform = curX ? `translateX(${curX}px)` : '';
+      }
     });
     const end = () => {
       if (!dragging) return;
       dragging = false;
       sheet.style.transition = '';
-      if (curY > 70) closeSheet();
-      else sheet.style.transform = '';
-      curY = 0;
+      if (axis === 'h' && Math.abs(curX) > 70) {
+        sheet.style.transform = '';
+        if (_sh.step === 1 && curX < 0) { _sh.step = 2; renderSheet(); }
+        else if (_sh.step === 2 && curX > 0) { _sh.step = 1; renderSheet(); }
+      } else if (axis === 'v' && curY > 70) {
+        closeSheet(); return;
+      } else {
+        sheet.style.transform = '';
+      }
+      curX = 0; curY = 0; axis = null;
     };
     sheet.addEventListener('pointerup', end);
     sheet.addEventListener('pointercancel', end);
