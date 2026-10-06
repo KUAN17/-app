@@ -514,14 +514,15 @@ Router.register('entry', (() => {
     const submitLabel = sheetTotal ? `✓ 記帳 NT$ ${sheetTotal.toLocaleString()}` : '✓ 記帳';
 
     return `
-      ${catChips}
-      ${acctToggleSection(sh)}
-      ${memoChips}
-      <div class="sheet-row"><label>備註</label>
-        <input type="text" id="inp-sheet-memo" class="form-input" placeholder="選填" value="${Utils.esc(sh.memo || '')}" autocomplete="off">
+      <div class="sheet-scroll">
+        ${catChips}
+        ${acctToggleSection(sh)}
+        ${memoChips}
+        <div class="sheet-row"><label>備註</label>
+          <input type="text" id="inp-sheet-memo" class="form-input" placeholder="選填" value="${Utils.esc(sh.memo || '')}" autocomplete="off">
+        </div>
+        ${buildPayInstallRow(sh)}
       </div>
-      ${buildPayInstallRow(sh)}
-      <div style="flex:1"></div>
       <div class="sheet-calc-ops sheet-numpad">
         <button type="button" class="sheet-calc-op" data-key="+">＋</button>
         <button type="button" class="sheet-calc-op" data-key="-">－</button>
