@@ -102,11 +102,16 @@ Router.register('entry', (() => {
     }
     return html;
   }
-  function acctSelectHtml(id, role, current) {
-    const opts = acctsForRole(role).map(a =>
-      `<option value="${Utils.esc(a.name)}"${a.name === current ? ' selected' : ''}>${acctIcon(a.type)} ${Utils.esc(a.name)}</option>`
-    ).join('');
+  function acctSelectHtml(id, role, current, excludeCC = false) {
+    const opts = acctsForRole(role)
+      .filter(a => !excludeCC || a.type !== '信用卡')
+      .map(a => `<option value="${Utils.esc(a.name)}"${a.name === current ? ' selected' : ''}>${acctIcon(a.type)} ${Utils.esc(a.name)}</option>`)
+      .join('');
     return `<select id="${id}" class="form-select">${opts || '<option value="">無帳戶</option>'}</select>`;
+  }
+  function roleSelectHtml(id, current) {
+    return `<select id="${id}" class="form-select" style="flex:0 0 92px">${Store.roleNames().map(r =>
+      `<option value="${Utils.esc(r)}"${r === current ? ' selected' : ''}>${Utils.esc(r)}</option>`).join('')}</select>`;
   }
   function lastAcct(role) {
     const saved = localStorage.getItem(LS_LAST_ACCT(role));
@@ -262,38 +267,6 @@ Router.register('entry', (() => {
   }
 
   // ── Bottom sheet helpers ──────────────────────────────────────────────────
-  function buildPaySection(sh) {
-    const nonCCAccts = acctsForRole(sh.role).filter(a => a.type !== '信用卡');
-    const payOpts = Store.allAccountsFlat()
-      .filter(a => a.type !== '證券帳戶' && a.name !== sh.account)
-      .sort((a, b) => (a.type === '信用卡' ? -1 : 0) - (b.type === '信用卡' ? -1 : 0))
-      .map(a => {
-        const v = `${a.role}||${a.name}||${a.type}`;
-        const cur = sh.payRole === a.role && sh.payAccount === a.name && sh.payType === a.type;
-        return `<option value="${Utils.esc(v)}"${cur ? ' selected' : ''}>${acctIcon(a.type)} ${Utils.esc(a.role)}／${Utils.esc(a.name)}</option>`;
-      }).join('');
-    const payInfo = sh.payAccount ? getPaymentInfo(sh.payRole, sh.payAccount, sh.payType) : null;
-    const canAuto = !!payInfo && sh.role !== sh.payRole && nonCCAccts.length > 0 && !(sh.installment > 1);
-    const tfOpts = nonCCAccts
-      .map(a => `<option value="${Utils.esc(a.name)}"${sh.transferFrom === a.name ? ' selected' : ''}>${Utils.esc(a.name)}</option>`).join('');
-    return `<details class="sheet-adv"${sh.payAccount ? ' open' : ''}>
-      <summary>進階：代付${sh.payAccount ? `（${Utils.esc(sh.payRole)}／${Utils.esc(sh.payAccount)}）` : ''}</summary>
-      <div class="sheet-row"><label>代付</label>
-        <select id="sel-sheet-pay" class="form-select">
-          <option value="">不使用代付</option>${payOpts}
-        </select></div>
-      ${canAuto ? `
-        <label class="sheet-auto-toggle">
-          <input type="checkbox" id="chk-sheet-auto"${sh.autoTransfer ? ' checked' : ''}>
-          <span>同步補款轉帳</span>
-        </label>
-        ${sh.autoTransfer ? `
-          <div class="sheet-row"><label>轉出</label><select id="sel-sheet-tf" class="form-select">${tfOpts}</select></div>
-          <div class="sheet-row"><label>轉入</label><span class="sheet-static">${Utils.esc(payInfo.role)}／${Utils.esc(payInfo.account)}</span></div>` : ''}
-      ` : ''}
-    </details>`;
-  }
-
   function shiftMonth(dateStr, months) {
     const [y, m, d] = dateStr.split('/').map(Number);
     // 先定位目標月，再把日期夾在該月最後一天內，避免月底購買跳月（1/31+1月 → 2/28 而非 3/3）
@@ -356,10 +329,9 @@ Router.register('entry', (() => {
 
   function initSheetState(kind, opts = {}) {
     _sh = { kind, amount: opts.amount ? String(opts.amount) : '', terms: [], curOp: '+', memo: '' };
-    // 支出（cat）：單頁記完（金額/分類/帳戶/備註同頁），step 只用於「代付」子頁（1=主頁，2=代付頁），
-    // 不受金額是否預填影響，一律從主頁開始。
-    // 收入／轉帳／專案：沿用「先填金額→填明細」兩步驟；金額已預填（提醒/繳費/補款帶入）時直接進明細頁。
-    _sh.step = (kind !== 'cat' && kind !== 'income' && (opts.amount || (Array.isArray(opts.repayBatch) && opts.repayBatch.length))) ? 2 : 1;
+    // 四種類型都是單頁記完（金額/分類或專案/帳戶/備註同頁），step 只用於支出／專案的「代付」子頁
+    // （1=主頁，2=代付頁），一律從主頁開始，不受金額是否預填影響
+    _sh.step = 1;
 
     if (kind === 'cat') {
       _sh.category = opts.category;
@@ -378,6 +350,8 @@ Router.register('entry', (() => {
     } else if (kind === 'proj') {
       _sh.role = _role; _sh.account = lastAcct(_role);
       _sh.project = ''; _sh.projCat = ''; _sh.locked = false;
+      _sh.showAcctSelect = false;
+      _sh.showInstallmentPicker = false;
       _sh.payRole = ''; _sh.payAccount = ''; _sh.payType = '';
       _sh.autoTransfer = false; _sh.transferFrom = '';
       _sh.installment = 0;
@@ -416,8 +390,7 @@ Router.register('entry', (() => {
   function switchKind(kind) {
     if (!_sh || _sh.kind === kind) return;
     const wasRepay = _sh.kind === 'transfer' && (_sh.repayBatch || _sh.settleId);
-    // 切換類型時，各類型的 step 語意不同（支出的 step 2 是代付子頁，收入/轉帳/專案的 step 2 是明細頁），
-    // 不互相沿用，一律從各自的第一頁開始
+    // 切換類型一律重新從主頁開始（支出／專案的 step 2 是代付子頁，不隨切換類型沿用）
     const keep = { amount: _sh.amount, terms: _sh.terms, curOp: _sh.curOp, memo: _sh.memo };
     if (kind === 'cat') {
       const saved = localStorage.getItem(LS_LAST_CAT);
@@ -458,15 +431,6 @@ Router.register('entry', (() => {
     </span>`;
   }
 
-  function stepIndicatorHtml(sh) {
-    const s1 = sh.step === 1;
-    return `<div class="sheet-step-row">
-      <div class="sheet-step${s1 ? ' active' : ' done'}"><span class="sheet-step-dot">${s1 ? '1' : '✓'}</span>填金額</div>
-      <div class="sheet-step-line${s1 ? '' : ' active'}"></div>
-      <div class="sheet-step${s1 ? '' : ' active'}"><span class="sheet-step-dot">2</span>填明細</div>
-    </div>`;
-  }
-
   // 切換記帳角色的共用邏輯（表單標題下拉呼叫）
   function applyRoleChange(val) {
     _role = val;
@@ -505,13 +469,26 @@ Router.register('entry', (() => {
   }
 
   // 支出主頁：分類 → 金額＋帳戶切換（同排）→ 備註 → 分期／代付 → 加減鍵＋數字鍵盤 → 送出
+  // 數字鍵盤＋送出鍵：四種記帳類型的主頁共用，釘在畫面底部不捲動
+  function buildNumpadFooter(sh, disabled = false) {
+    const sheetTotal = calcSheetTotal(sh);
+    const submitLabel = sheetTotal ? `✓ 記帳 NT$ ${sheetTotal.toLocaleString()}` : '✓ 記帳';
+    return `
+      <div class="sheet-calc-ops sheet-numpad${disabled ? ' disabled' : ''}">
+        <button type="button" class="sheet-calc-op" data-key="+">＋</button>
+        <button type="button" class="sheet-calc-op" data-key="-">－</button>
+      </div>
+      <div class="numpad-keys sheet-numpad${disabled ? ' disabled' : ''}">
+        ${['1','2','3','4','5','6','7','8','9','.','0','⌫'].map(k =>
+          `<button type="button" class="numpad-key${k === '⌫' ? ' numpad-del' : ''}" data-key="${k}">${k}</button>`).join('')}
+      </div>
+      <button type="button" class="numpad-done sheet-submit" id="btn-sheet-submit" data-action="submit">${submitLabel}</button>`;
+  }
+
   function buildCatMainPage(sh, memoChips) {
     const catChips = `<div class="sheet-cat-chips sheet-cat-scroll">${catOrder(sh.role).map(c =>
       `<button type="button" class="sheet-chip${sh.category === c ? ' active' : ''}" data-action="cat-switch" data-val="${c}">${CAT_ICONS[c] || ''} ${c}</button>`
     ).join('')}</div>`;
-
-    const sheetTotal = calcSheetTotal(sh);
-    const submitLabel = sheetTotal ? `✓ 記帳 NT$ ${sheetTotal.toLocaleString()}` : '✓ 記帳';
 
     return `
       <div class="sheet-scroll">
@@ -523,15 +500,84 @@ Router.register('entry', (() => {
         </div>
         ${buildPayInstallRow(sh)}
       </div>
-      <div class="sheet-calc-ops sheet-numpad">
-        <button type="button" class="sheet-calc-op" data-key="+">＋</button>
-        <button type="button" class="sheet-calc-op" data-key="-">－</button>
+      ${buildNumpadFooter(sh)}`;
+  }
+
+  // 收入主頁：分類 → 金額 → 帳戶（不含信用卡）→ 備註，無代付/分期
+  function buildIncomeMainPage(sh, memoChips) {
+    const catChips = `<div class="sheet-cat-chips">${CFG.CATEGORIES['收入'].map(c =>
+      `<button type="button" class="sheet-chip${sh.category === c ? ' active' : ''}" data-action="inc-cat" data-val="${c}">${CAT_ICONS[c] || ''} ${c}</button>`
+    ).join('')}</div>`;
+    const amtDisp = calcExprDisplay(sh);
+    const amtZero = (sh.amount || (sh.terms && sh.terms.length)) ? '' : ' zero';
+
+    return `
+      <div class="sheet-scroll">
+        ${catChips}
+        <div class="entry-sheet-amt${amtZero}" id="sheet-amt">$ ${amtDisp}</div>
+        <div class="sheet-row"><label>帳戶</label>${acctSelectHtml('sel-sheet-acct', sh.role, sh.account, true)}</div>
+        ${memoChips}
+        <div class="sheet-row"><label>備註</label>
+          <input type="text" id="inp-sheet-memo" class="form-input" placeholder="選填" value="${Utils.esc(sh.memo || '')}" autocomplete="off">
+        </div>
       </div>
-      <div class="numpad-keys sheet-numpad">
-        ${['1','2','3','4','5','6','7','8','9','.','0','⌫'].map(k =>
-          `<button type="button" class="numpad-key${k === '⌫' ? ' numpad-del' : ''}" data-key="${k}">${k}</button>`).join('')}
+      ${buildNumpadFooter(sh)}`;
+  }
+
+  // 專案支出主頁：專案 → 金額＋帳戶切換（同排，沿用現金/信用卡快速鍵）→ 備註 → 分期／代付
+  function buildProjMainPage(sh, memoChips) {
+    const projects = Store.get().projects.filter(p => p.status === '進行中');
+    const projSelect = `<div class="sheet-row"><label>專案</label>
+      <select id="sel-sheet-proj" class="form-select">
+        <option value="">選擇專案 *</option>
+        ${projects.map(p => `<option value="${Utils.esc(p.name)}"${sh.project === p.name ? ' selected' : ''}>${Utils.esc(p.name)}</option>`).join('')}
+      </select></div>`;
+
+    return `
+      <div class="sheet-scroll">
+        ${projSelect}
+        ${acctToggleSection(sh)}
+        ${memoChips}
+        <div class="sheet-row"><label>備註</label>
+          <input type="text" id="inp-sheet-memo" class="form-input" placeholder="選填" value="${Utils.esc(sh.memo || '')}" autocomplete="off">
+        </div>
+        ${buildPayInstallRow(sh)}
       </div>
-      <button type="button" class="numpad-done sheet-submit" id="btn-sheet-submit" data-action="submit">${submitLabel}</button>`;
+      ${buildNumpadFooter(sh)}`;
+  }
+
+  // 轉帳主頁：金額 → 轉出／轉入（雙邊角色＋帳戶）→ 專案標籤（選填）→ 備註；全額補款時金額鎖定不可改
+  function buildTransferMainPage(sh, memoChips) {
+    const projects = Store.get().projects.filter(p => p.status === '進行中');
+    const projLocked = !!sh.project && (() => {
+      const p = Store.get().projects.find(x => x.name === sh.project);
+      return !!(p?.ownerRole && Store.roleNames().includes(p.ownerRole));
+    })();
+    const amtDisp = calcExprDisplay(sh);
+    const amtZero = (sh.amount || (sh.terms && sh.terms.length)) ? '' : ' zero';
+
+    return `
+      <div class="sheet-scroll">
+        <div class="entry-sheet-amt${amtZero}" id="sheet-amt">$ ${amtDisp}</div>
+        <div class="sheet-row"><label>轉出</label>${roleSelectHtml('sel-out-role', sh.roleOut)}${acctSelectHtml('sel-out-acct', sh.roleOut, sh.accountOut, true)}</div>
+        <div class="entry-transfer-arrow" style="margin:2px 0">↓</div>
+        <div class="sheet-row"><label>轉入</label>
+          ${projLocked
+            ? `<span class="sheet-static">🔒 ${Utils.esc(sh.roleIn)}／${Utils.esc(sh.accountIn)}</span>`
+            : roleSelectHtml('sel-in-role', sh.roleIn) + acctSelectHtml('sel-in-acct', sh.roleIn, sh.accountIn)}
+        </div>
+        ${projects.length && !sh.repayBatch ? `<div class="sheet-row"><label>專案</label>
+          <select id="sel-tr-proj" class="form-select">
+            <option value="">無（一般轉帳）</option>
+            ${projects.map(p => `<option value="${Utils.esc(p.name)}"${sh.project === p.name ? ' selected' : ''}>📁 ${Utils.esc(p.name)}</option>`).join('')}
+          </select></div>` : ''}
+        ${sh.repayBatch ? `<div class="sheet-batch-hint">全額補款 ${sh.repayBatch.length} 期：將分別建立 ${sh.repayBatch.length} 筆補款轉帳（總額 ${Utils.formatMoney(sh.repayBatch.reduce((s,m)=>s+Number(m.amount||0),0))}）</div>` : ''}
+        ${memoChips}
+        <div class="sheet-row"><label>備註</label>
+          <input type="text" id="inp-sheet-memo" class="form-input" placeholder="選填" value="${Utils.esc(sh.memo || '')}" autocomplete="off">
+        </div>
+      </div>
+      ${buildNumpadFooter(sh, !!sh.repayBatch)}`;
   }
 
   // 代付子頁內容：三個步驟，依序展開（誰幫忙付 → 用哪個帳戶代付 → 怎麼補）
@@ -579,6 +625,9 @@ Router.register('entry', (() => {
   // 代付子頁整體：返回主頁的標題列＋釘住的金額（不可改）＋三步驟＋確認送出
   function renderPayPageSheet() {
     const sheetTotal = calcSheetTotal(_sh);
+    const subLabel = _sh.kind === 'proj'
+      ? `📁 ${Utils.esc(_sh.project)}・${Utils.esc(_sh.role)}`
+      : `${CAT_ICONS[_sh.category] || ''} ${Utils.esc(_sh.category)}・${Utils.esc(_sh.role)}`;
     _sheetEl.innerHTML = `<div class="entry-sheet open">
       <div class="entry-sheet-handle"></div>
       <div class="entry-sheet-head">
@@ -588,7 +637,7 @@ Router.register('entry', (() => {
       </div>
       <div class="sheet-pay-pinned">
         <span class="sheet-pay-pinned-amt">$ ${sheetTotal.toLocaleString()}</span>
-        <span class="sheet-pay-pinned-sub">${CAT_ICONS[_sh.category] || ''} ${Utils.esc(_sh.category)}・${Utils.esc(_sh.role)}</span>
+        <span class="sheet-pay-pinned-sub">${subLabel}</span>
       </div>
       <div class="sheet-scroll">
         ${buildPayPageSteps(_sh)}
@@ -601,108 +650,23 @@ Router.register('entry', (() => {
 
   function renderSheet(keepOpen = true) {
     if (!_sheetEl || !_sh) return;
-    if (_sh.kind === 'cat' && _sh.step === 2) { renderPayPageSheet(); return; }
+    if ((_sh.kind === 'cat' || _sh.kind === 'proj') && _sh.step === 2) { renderPayPageSheet(); return; }
     const dateLabel = _date === todayISO() ? '今天' : _date.replace(/-/g, '/');
     const recentMemos = memosForContext(_sh);
-
-    function acctSelect(id, role, current, excludeCC = false) {
-      const opts = acctsForRole(role)
-        .filter(a => !excludeCC || a.type !== '信用卡')
-        .map(a =>
-          `<option value="${Utils.esc(a.name)}"${a.name === current ? ' selected' : ''}>${acctIcon(a.type)} ${Utils.esc(a.name)}</option>`
-        ).join('');
-      return `<select id="${id}" class="form-select">${opts || '<option value="">無帳戶</option>'}</select>`;
-    }
-    function roleSelect(id, current) {
-      return `<select id="${id}" class="form-select" style="flex:0 0 92px">${Store.roleNames().map(r =>
-        `<option value="${Utils.esc(r)}"${r === current ? ' selected' : ''}>${Utils.esc(r)}</option>`).join('')}</select>`;
-    }
-
-    // 角色切換已移至表單標題下拉（見 sheetHeaderTitle），此處不再重複
-    // 支出（cat）已改為獨立的單頁版型（見 buildCatMainPage），不再走這裡的 body 組裝
-    let body = '';
-    if (_sh.kind === 'income') {
-      body += `<div class="sheet-cat-chips">${CFG.CATEGORIES['收入'].map(c =>
-        `<button type="button" class="sheet-chip${_sh.category === c ? ' active' : ''}" data-action="inc-cat" data-val="${c}">${CAT_ICONS[c] || ''} ${c}</button>`
-      ).join('')}</div>`;
-      body += `<div class="sheet-row"><label>帳戶</label>${acctSelect('sel-sheet-acct', _sh.role, _sh.account, true)}</div>`;
-    } else if (_sh.kind === 'proj') {
-      const projects = Store.get().projects.filter(p => p.status === '進行中');
-      body += `<div class="sheet-row"><label>專案</label>
-        <select id="sel-sheet-proj" class="form-select">
-          <option value="">選擇專案 *</option>
-          ${projects.map(p => `<option value="${Utils.esc(p.name)}"${_sh.project === p.name ? ' selected' : ''}>${Utils.esc(p.name)}</option>`).join('')}
-        </select></div>`;
-      body += `<div class="sheet-row"><label>帳戶</label>${acctSelect('sel-sheet-acct', _sh.role, _sh.account)}</div>`;
-
-      body += buildPaySection(_sh);
-      if (canInstallment(_sh)) body += buildInstallmentSection(_sh);
-    } else if (_sh.kind === 'transfer') {
-      const projects = Store.get().projects.filter(p => p.status === '進行中');
-      const projLocked = !!_sh.project && (() => {
-        const p = Store.get().projects.find(x => x.name === _sh.project);
-        return !!(p?.ownerRole && Store.roleNames().includes(p.ownerRole));
-      })();
-      body += `
-        <div class="sheet-row"><label>轉出</label>${roleSelect('sel-out-role', _sh.roleOut)}${acctSelect('sel-out-acct', _sh.roleOut, _sh.accountOut, true)}</div>
-        <div class="entry-transfer-arrow" style="margin:2px 0">↓</div>
-        <div class="sheet-row"><label>轉入</label>
-          ${projLocked
-            ? `<span class="sheet-static">🔒 ${Utils.esc(_sh.roleIn)}／${Utils.esc(_sh.accountIn)}</span>`
-            : roleSelect('sel-in-role', _sh.roleIn) + acctSelect('sel-in-acct', _sh.roleIn, _sh.accountIn)}
-        </div>
-        ${projects.length && !_sh.repayBatch ? `<div class="sheet-row"><label>專案</label>
-          <select id="sel-tr-proj" class="form-select">
-            <option value="">無（一般轉帳）</option>
-            ${projects.map(p => `<option value="${Utils.esc(p.name)}"${_sh.project === p.name ? ' selected' : ''}>📁 ${Utils.esc(p.name)}</option>`).join('')}
-          </select></div>` : ''}
-        ${_sh.repayBatch ? `<div class="sheet-batch-hint">全額補款 ${_sh.repayBatch.length} 期：將分別建立 ${_sh.repayBatch.length} 筆補款轉帳（總額 ${Utils.formatMoney(_sh.repayBatch.reduce((s,m)=>s+Number(m.amount||0),0))}）</div>` : ''}`;
-    }
-
     const memoChips = recentMemos.length
       ? `<div class="entry-memo-chips">${recentMemos.map(m =>
           `<button type="button" class="sheet-chip${_sh.memo === m ? ' active' : ''}" data-action="memo-chip" data-val="${Utils.esc(m)}">${Utils.esc(m)}</button>`
         ).join('')}</div>` : '';
 
-    const amtDisplay = calcExprDisplay(_sh);
-    const sheetTotal = calcSheetTotal(_sh);
-    const submitLabel = sheetTotal ? `✓ 記帳 NT$ ${sheetTotal.toLocaleString()}` : '✓ 記帳';
-
     const kindTabs = `<div class="sheet-kind-tabs">${[['cat','支出'],['income','收入'],['transfer','轉帳'],['proj','📁 專案']].map(([k, l]) =>
       `<button type="button" class="sheet-kind-tab${_sh.kind === k ? ' active' : ''}" data-action="kind" data-val="${k}">${l}</button>`
     ).join('')}</div>`;
 
-    // Step 1：只填金額（大顯示＋加減鍵＋數字鍵盤）；Step 2：金額收成釘住的膠囊，其餘明細欄位展開
-    const step1Html = `
-      <div class="entry-sheet-amt${(_sh.amount || (_sh.terms && _sh.terms.length)) ? '' : ' zero'}" id="sheet-amt">$ ${amtDisplay}</div>
-      <div class="sheet-calc-ops sheet-numpad${_sh.repayBatch ? ' disabled' : ''}">
-        <button type="button" class="sheet-calc-op" data-key="+">＋</button>
-        <button type="button" class="sheet-calc-op" data-key="-">－</button>
-      </div>
-      <div class="numpad-keys sheet-numpad${_sh.repayBatch ? ' disabled' : ''}">
-        ${['1','2','3','4','5','6','7','8','9','.','0','⌫'].map(k =>
-          `<button type="button" class="numpad-key${k === '⌫' ? ' numpad-del' : ''}" data-key="${k}">${k}</button>`).join('')}
-      </div>
-      <button type="button" class="numpad-done" data-action="next-step">下一步：填明細 →</button>`;
-
-    const pillHtml = _sh.repayBatch
-      ? `<div class="sheet-amt-pill static">$ ${sheetTotal.toLocaleString()}</div>`
-      : `<button type="button" class="sheet-amt-pill" data-action="prev-step">$ ${sheetTotal.toLocaleString()}<span class="sheet-amt-pill-edit">✎ 編輯金額</span></button>`;
-
-    const step2Html = `
-      ${pillHtml}
-      <div class="sheet-scroll">
-        ${body}
-        ${memoChips}
-        <div class="sheet-row"><label>備忘</label>
-          <input type="text" id="inp-sheet-memo" class="form-input" placeholder="選填" value="${Utils.esc(_sh.memo || '')}" autocomplete="off">
-        </div>
-      </div>
-      <button type="button" class="numpad-done sheet-submit" id="btn-sheet-submit" data-action="submit">${submitLabel}</button>`;
-
-    const mainContent = _sh.kind === 'cat'
-      ? buildCatMainPage(_sh, memoChips)
-      : `${stepIndicatorHtml(_sh)}${_sh.step === 1 ? step1Html : step2Html}`;
+    const mainContent =
+      _sh.kind === 'cat'      ? buildCatMainPage(_sh, memoChips) :
+      _sh.kind === 'income'   ? buildIncomeMainPage(_sh, memoChips) :
+      _sh.kind === 'proj'     ? buildProjMainPage(_sh, memoChips) :
+      buildTransferMainPage(_sh, memoChips);
 
     _sheetEl.innerHTML = `<div class="entry-sheet${keepOpen ? ' open' : ''}">
       <div class="entry-sheet-handle"></div>
@@ -743,8 +707,10 @@ Router.register('entry', (() => {
       const dx = e.clientX - startX;
       const dy = e.clientY - startY;
       if (!axis && (Math.abs(dx) > 12 || Math.abs(dy) > 12)) {
-        // 角度夠平（水平位移明顯大於垂直）才算切頁手勢，否則都算下滑關閉
-        axis = Math.abs(dx) > Math.abs(dy) * 1.5 ? 'h' : 'v';
+        // 角度夠平（水平位移明顯大於垂直）才算切頁手勢，否則都算下滑關閉；
+        // 只有支出／專案有代付子頁可切，收入／轉帳一律當下滑關閉處理
+        const canStep = _sh.kind === 'cat' || _sh.kind === 'proj';
+        axis = (canStep && Math.abs(dx) > Math.abs(dy) * 1.5) ? 'h' : 'v';
       }
       if (axis === 'v') {
         if (dy > 0) { curY = dy; sheet.style.transform = `translateY(${dy}px)`; }
@@ -827,8 +793,6 @@ Router.register('entry', (() => {
         const { action, val } = act.dataset;
         if (action === 'kind') { switchKind(val); return; }
         if (action === 'close') closeSheet();
-        else if (action === 'next-step') { _sh.step = 2; renderSheet(); }
-        else if (action === 'prev-step') { _sh.step = 1; renderSheet(); }
         else if (action === 'submit') submitSheet();
         else if (action === 'inc-cat') { _sh.category = val; renderSheet(); }
         else if (action === 'cat-switch') { _sh.category = val; renderSheet(); }
@@ -919,34 +883,6 @@ Router.register('entry', (() => {
       }
       renderSheet();
     });
-
-    _sheetEl.querySelector('#sel-sheet-pay')?.addEventListener('change', e => {
-      const val = e.target.value;
-      if (!val) {
-        _sh.payRole = ''; _sh.payAccount = ''; _sh.payType = '';
-        _sh.autoTransfer = false; _sh.transferFrom = '';
-      } else {
-        const [r, n, t] = val.split('||');
-        _sh.payRole = r; _sh.payAccount = n; _sh.payType = t;
-        const pi = getPaymentInfo(r, n, t);
-        if (pi && _sh.role !== r && !(_sh.installment > 1)) {
-          _sh.autoTransfer = true;
-          _sh.transferFrom = (acctsForRole(_sh.role).filter(a => a.type !== '信用卡')[0] || {}).name || '';
-        } else {
-          _sh.autoTransfer = false; _sh.transferFrom = '';
-        }
-        if (!canInstallment(_sh)) _sh.installment = 0;
-      }
-      renderSheet();
-    });
-    _sheetEl.querySelector('#chk-sheet-auto')?.addEventListener('change', e => {
-      _sh.autoTransfer = e.target.checked;
-      if (_sh.autoTransfer && !_sh.transferFrom) {
-        _sh.transferFrom = (acctsForRole(_sh.role).filter(a => a.type !== '信用卡')[0] || {}).name || '';
-      }
-      renderSheet();
-    });
-    _sheetEl.querySelector('#sel-sheet-tf')?.addEventListener('change', e => { _sh.transferFrom = e.target.value; });
 
     _sheetEl.querySelector('#sel-out-role')?.addEventListener('change', e => {
       _sh.roleOut = e.target.value;

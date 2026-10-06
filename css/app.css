@@ -1100,30 +1100,6 @@ html, body {
 .entry-sheet-amt { text-align: center; font-size: 38px; font-weight: 800; padding: 8px 0; color: var(--text); touch-action: none; }
 .entry-sheet-amt.zero { color: var(--text-muted); opacity: .5; }
 
-/* 兩步驟記帳：Step 1/2 進度指示 */
-.sheet-step-row { display: flex; align-items: center; gap: 8px; padding: 10px 16px 0; }
-.sheet-step { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--text-muted); white-space: nowrap; }
-.sheet-step.active { color: var(--primary); font-weight: 700; }
-.sheet-step-dot {
-  width: 18px; height: 18px; border-radius: 50%; background: var(--border); color: var(--text-muted);
-  display: flex; align-items: center; justify-content: center; font-size: 10px; flex-shrink: 0;
-}
-.sheet-step.active .sheet-step-dot { background: var(--primary); color: #fff; }
-.sheet-step.done .sheet-step-dot { background: var(--border); color: var(--text); }
-.sheet-step-line { flex: 1; height: 2px; background: var(--border); border-radius: 1px; }
-.sheet-step-line.active { background: var(--primary); }
-
-/* Step 2 頂部釘住的金額膠囊：點擊滑回 Step 1 編輯金額 */
-.sheet-amt-pill {
-  display: flex; align-items: center; justify-content: center; gap: 8px;
-  width: calc(100% - 32px); margin: 12px 16px 4px; padding: 11px 0;
-  border-radius: 14px; background: var(--card);
-  border: 1px solid var(--primary); font-size: 20px; font-weight: 800; color: var(--primary);
-  cursor: pointer; -webkit-tap-highlight-color: transparent;
-}
-.sheet-amt-pill.static { cursor: default; }
-.sheet-amt-pill-edit { font-size: 12px; font-weight: 600; }
-
 .sheet-row { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
 .sheet-row label { font-size: 12px; color: var(--text-muted); flex: 0 0 40px; }
 .sheet-row .form-select, .sheet-row .form-input { flex: 1; min-width: 0; }
@@ -1185,8 +1161,6 @@ html, body {
   color: var(--primary); border: none; cursor: pointer; -webkit-tap-highlight-color: transparent;
 }
 .sheet-calc-op:active { background: var(--bg); }
-.sheet-adv { margin: 8px 0; border-top: 1px dashed var(--border); padding-top: 8px; }
-.sheet-adv summary { font-size: 13px; color: var(--text-muted); cursor: pointer; }
 .sheet-auto-toggle { display: flex; align-items: center; gap: 8px; font-size: 13px; margin: 8px 0; }
 .sheet-installment { margin: 8px 0; border-top: 1px dashed var(--border); padding-top: 8px; }
 .sheet-installment-chips { display: flex; gap: 6px; flex-wrap: wrap; }
