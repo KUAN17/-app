@@ -71,10 +71,13 @@ Router.register('entry', (() => {
   function acctToggleSection(sh) {
     const cashName = Store.defaultCashFor(sh.role);
     const ccName = Store.defaultCCFor(sh.role);
-    const isOther = sh.account && sh.account !== cashName && sh.account !== ccName;
+    const curIsCC = isAcctCreditCard(sh.role, sh.account);
+    // 只要目前帳戶是信用卡（不論哪一張），就視為對應「信用卡」鍵，不顯示具體卡名；
+    // 真正的「其他帳戶」只保留給非現金、非信用卡的銀行帳戶等特殊情況
+    const isOther = sh.account && !curIsCC && sh.account !== cashName;
     const btns = [];
     if (cashName) btns.push(`<button type="button" class="sheet-chip${sh.account === cashName ? ' active' : ''}" data-action="acct-cash">💵 現金</button>`);
-    if (ccName) btns.push(`<button type="button" class="sheet-chip${sh.account === ccName ? ' active' : ''}" data-action="acct-cc">💳 信用卡</button>`);
+    if (ccName) btns.push(`<button type="button" class="sheet-chip${curIsCC ? ' active' : ''}" data-action="acct-cc">💳 信用卡</button>`);
     let html = `<div class="sheet-row"><label>帳戶</label><div class="sheet-acct-toggle">${btns.join('')}</div></div>`;
     if (isOther && !sh.showAcctSelect) {
       html += `<div class="sheet-row"><label></label><span class="sheet-static">${acctIcon((acctsForRole(sh.role).find(a => a.name === sh.account) || {}).type)} ${Utils.esc(sh.account)}</span></div>`;
