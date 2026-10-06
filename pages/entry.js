@@ -75,10 +75,20 @@ Router.register('entry', (() => {
     // 只要目前帳戶是信用卡（不論哪一張），就視為對應「信用卡」鍵，不顯示具體卡名；
     // 真正的「其他帳戶」只保留給非現金、非信用卡的銀行帳戶等特殊情況
     const isOther = sh.account && !curIsCC && sh.account !== cashName;
-    const btns = [];
-    if (cashName) btns.push(`<button type="button" class="sheet-chip${sh.account === cashName ? ' active' : ''}" data-action="acct-cash">💵 現金</button>`);
-    if (ccName) btns.push(`<button type="button" class="sheet-chip${curIsCC ? ' active' : ''}" data-action="acct-cc">💳 信用卡</button>`);
-    let html = `<div class="sheet-row"><label>帳戶</label><div class="sheet-acct-toggle">${btns.join('')}</div></div>`;
+    let html;
+    if (cashName && ccName) {
+      // 現金／信用卡合併成同一顆按鈕，點一下直接切到另一種（像記帳城市那樣）
+      const label = curIsCC ? '💳 信用卡' : '💵 現金';
+      html = `<div class="sheet-row"><label>帳戶</label>
+        <button type="button" class="sheet-acct-switch" data-action="acct-toggle">${label}<span class="sheet-acct-switch-arrow">⇄</span></button>
+      </div>`;
+    } else {
+      // 角色只設定了現金或信用卡其中一種時，退回單顆選取鈕
+      const btns = [];
+      if (cashName) btns.push(`<button type="button" class="sheet-chip${sh.account === cashName ? ' active' : ''}" data-action="acct-cash">💵 現金</button>`);
+      if (ccName) btns.push(`<button type="button" class="sheet-chip${curIsCC ? ' active' : ''}" data-action="acct-cc">💳 信用卡</button>`);
+      html = `<div class="sheet-row"><label>帳戶</label><div class="sheet-acct-toggle">${btns.join('')}</div></div>`;
+    }
     if (isOther && !sh.showAcctSelect) {
       html += `<div class="sheet-row"><label></label><span class="sheet-static">${acctIcon((acctsForRole(sh.role).find(a => a.name === sh.account) || {}).type)} ${Utils.esc(sh.account)}</span></div>`;
     }
@@ -668,6 +678,13 @@ Router.register('entry', (() => {
           renderSheet();
         }
         else if (action === 'acct-other') { _sh.showAcctSelect = true; renderSheet(); }
+        else if (action === 'acct-toggle') {
+          const curIsCC = isAcctCreditCard(_sh.role, _sh.account);
+          _sh.account = curIsCC ? Store.defaultCashFor(_sh.role) : Store.defaultCCFor(_sh.role);
+          _sh.showAcctSelect = false;
+          if (!canInstallment(_sh)) _sh.installment = 0;
+          renderSheet();
+        }
         else if (action === 'installment') {
           _sh.installment = parseInt(val) || 0;
           if (_sh.installment > 1 && _sh.payAccount) _sh.autoTransfer = false;

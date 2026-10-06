@@ -1101,6 +1101,14 @@ html, body {
 .sheet-chip.active { background: var(--primary); color: #fff; border-color: var(--primary); }
 .sheet-acct-toggle { display: flex; gap: 8px; flex: 1; }
 .sheet-acct-toggle .sheet-chip { flex: 1; text-align: center; padding: 10px 0; font-size: 14px; }
+.sheet-acct-switch {
+  flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 10px 0; font-size: 14px; font-weight: 600; color: var(--text);
+  background: var(--primary-soft, var(--card)); border: 1px solid var(--primary); border-radius: 20px;
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.sheet-acct-switch:active { background: var(--bg); }
+.sheet-acct-switch-arrow { font-size: 13px; color: var(--text-muted); }
 .sheet-other-acct-link { flex: 1; font-size: 12px; color: var(--text-muted); text-decoration: underline; }
 .sheet-calc-ops { display: flex; gap: 1px; background: var(--border); }
 .sheet-calc-op {
