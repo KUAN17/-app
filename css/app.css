@@ -236,6 +236,12 @@ html, body {
 .dash-pay-row { gap: 8px; }
 .dash-pay-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
 .dash-pay-sub { font-size: 11px; color: var(--text-muted, #999); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dash-pay-check { flex-shrink: 0; width: 18px; height: 18px; accent-color: var(--primary); cursor: pointer; }
+.dash-pay-batch-bar {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  margin-top: 8px; padding: 10px 14px; border-radius: 12px;
+  background: var(--card); border: 1px solid var(--primary); font-size: 13px; color: var(--text);
+}
 
 /* dash top row（角色 chips + 版型切換） */
 .dash-top-row { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 4px; }
