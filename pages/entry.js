@@ -353,6 +353,9 @@ Router.register('entry', (() => {
 
   function initSheetState(kind, opts = {}) {
     _sh = { kind, amount: opts.amount ? String(opts.amount) : '', terms: [], curOp: '+', memo: '' };
+    // 兩步驟記帳：先填金額（Step 1）再填明細（Step 2）；若金額已預填（提醒/繳費/補款帶入）
+    // 就直接進 Step 2，省去多一次確認金額的步驟
+    _sh.step = (opts.amount || (Array.isArray(opts.repayBatch) && opts.repayBatch.length)) ? 2 : 1;
 
     if (kind === 'cat') {
       _sh.category = opts.category;
@@ -408,7 +411,7 @@ Router.register('entry', (() => {
   function switchKind(kind) {
     if (!_sh || _sh.kind === kind) return;
     const wasRepay = _sh.kind === 'transfer' && (_sh.repayBatch || _sh.settleId);
-    const keep = { amount: _sh.amount, terms: _sh.terms, curOp: _sh.curOp, memo: _sh.memo };
+    const keep = { amount: _sh.amount, terms: _sh.terms, curOp: _sh.curOp, memo: _sh.memo, step: _sh.step };
     if (kind === 'cat') {
       const saved = localStorage.getItem(LS_LAST_CAT);
       const cat = CFG.CATEGORIES['支出'].includes(saved) ? saved : catOrder(_role)[0];
@@ -420,6 +423,7 @@ Router.register('entry', (() => {
     _sh.terms = keep.terms;
     _sh.curOp = keep.curOp;
     _sh.memo = keep.memo;
+    _sh.step = keep.step;
     if (wasRepay) Utils.toast('已離開補款模式；此筆不再結清代付，請回 Dashboard 重新點「記補款」', 'warn');
     renderSheet();
   }
@@ -446,6 +450,15 @@ Router.register('entry', (() => {
       </select>
       <span class="sheet-role-caret">▾</span>
     </span>`;
+  }
+
+  function stepIndicatorHtml(sh) {
+    const s1 = sh.step === 1;
+    return `<div class="sheet-step-row">
+      <div class="sheet-step${s1 ? ' active' : ' done'}"><span class="sheet-step-dot">${s1 ? '1' : '✓'}</span>填金額</div>
+      <div class="sheet-step-line${s1 ? '' : ' active'}"></div>
+      <div class="sheet-step${s1 ? '' : ' active'}"><span class="sheet-step-dot">2</span>填明細</div>
+    </div>`;
   }
 
   // 切換記帳角色的共用邏輯（表單標題下拉呼叫）
@@ -547,6 +560,34 @@ Router.register('entry', (() => {
       `<button type="button" class="sheet-kind-tab${_sh.kind === k ? ' active' : ''}" data-action="kind" data-val="${k}">${l}</button>`
     ).join('')}</div>`;
 
+    // Step 1：只填金額（大顯示＋加減鍵＋數字鍵盤）；Step 2：金額收成釘住的膠囊，其餘明細欄位展開
+    const step1Html = `
+      <div class="entry-sheet-amt${(_sh.amount || (_sh.terms && _sh.terms.length)) ? '' : ' zero'}" id="sheet-amt">$ ${amtDisplay}</div>
+      <div class="sheet-calc-ops sheet-numpad${_sh.repayBatch ? ' disabled' : ''}">
+        <button type="button" class="sheet-calc-op" data-key="+">＋</button>
+        <button type="button" class="sheet-calc-op" data-key="-">－</button>
+      </div>
+      <div class="numpad-keys sheet-numpad${_sh.repayBatch ? ' disabled' : ''}">
+        ${['1','2','3','4','5','6','7','8','9','.','0','⌫'].map(k =>
+          `<button type="button" class="numpad-key${k === '⌫' ? ' numpad-del' : ''}" data-key="${k}">${k}</button>`).join('')}
+      </div>
+      <button type="button" class="numpad-done" data-action="next-step">下一步：填明細 →</button>`;
+
+    const pillHtml = _sh.repayBatch
+      ? `<div class="sheet-amt-pill static">$ ${sheetTotal.toLocaleString()}</div>`
+      : `<button type="button" class="sheet-amt-pill" data-action="prev-step">$ ${sheetTotal.toLocaleString()}<span class="sheet-amt-pill-edit">✎ 編輯金額</span></button>`;
+
+    const step2Html = `
+      ${pillHtml}
+      <div class="sheet-scroll">
+        ${body}
+        ${memoChips}
+        <div class="sheet-row"><label>備忘</label>
+          <input type="text" id="inp-sheet-memo" class="form-input" placeholder="選填" value="${Utils.esc(_sh.memo || '')}" autocomplete="off">
+        </div>
+      </div>
+      <button type="button" class="numpad-done sheet-submit" id="btn-sheet-submit" data-action="submit">${submitLabel}</button>`;
+
     _sheetEl.innerHTML = `<div class="entry-sheet${keepOpen ? ' open' : ''}">
       <div class="entry-sheet-handle"></div>
       ${kindTabs}
@@ -559,23 +600,8 @@ Router.register('entry', (() => {
         </label>
         <button type="button" class="entry-sheet-close" data-action="close">✕</button>
       </div>
-      <div class="entry-sheet-amt${(_sh.amount || (_sh.terms && _sh.terms.length)) ? '' : ' zero'}" id="sheet-amt">$ ${amtDisplay}</div>
-      <div class="sheet-scroll">
-        ${body}
-        ${memoChips}
-        <div class="sheet-row"><label>備忘</label>
-          <input type="text" id="inp-sheet-memo" class="form-input" placeholder="選填" value="${Utils.esc(_sh.memo || '')}" autocomplete="off">
-        </div>
-      </div>
-      <div class="sheet-calc-ops sheet-numpad${_sh.repayBatch ? ' disabled' : ''}">
-        <button type="button" class="sheet-calc-op" data-key="+">＋</button>
-        <button type="button" class="sheet-calc-op" data-key="-">－</button>
-      </div>
-      <div class="numpad-keys sheet-numpad${_sh.repayBatch ? ' disabled' : ''}">
-        ${['1','2','3','4','5','6','7','8','9','.','0','⌫'].map(k =>
-          `<button type="button" class="numpad-key${k === '⌫' ? ' numpad-del' : ''}" data-key="${k}">${k}</button>`).join('')}
-      </div>
-      <button type="button" class="numpad-done sheet-submit" id="btn-sheet-submit" data-action="submit">${submitLabel}</button>
+      ${stepIndicatorHtml(_sh)}
+      ${_sh.step === 1 ? step1Html : step2Html}
     </div>`;
 
     wireSheet();
@@ -665,6 +691,8 @@ Router.register('entry', (() => {
         const { action, val } = act.dataset;
         if (action === 'kind') { switchKind(val); return; }
         if (action === 'close') closeSheet();
+        else if (action === 'next-step') { _sh.step = 2; renderSheet(); }
+        else if (action === 'prev-step') { _sh.step = 1; renderSheet(); }
         else if (action === 'submit') submitSheet();
         else if (action === 'inc-cat') { _sh.category = val; renderSheet(); }
         else if (action === 'cat-switch') { _sh.category = val; renderSheet(); }
