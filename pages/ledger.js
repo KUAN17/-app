@@ -1,5 +1,5 @@
 Router.register('ledger', (() => {
-  let _filter = { role: '', type: '', month: Utils.monthLabel() };
+  let _filter = { role: '', type: '', category: '', month: Utils.monthLabel() };
   let _limit = 50;          // 一次最多渲染筆數，按「載入更多」遞增
   const PAGE_SIZE = 50;
 
@@ -12,6 +12,7 @@ Router.register('ledger', (() => {
     if (_filter.month) rows = rows.filter(tx => tx.date.startsWith(_filter.month));
     if (_filter.role) rows = rows.filter(tx => tx.roleOut === _filter.role);
     if (_filter.type) rows = rows.filter(tx => tx.type === _filter.type);
+    if (_filter.category) rows = rows.filter(tx => tx.category === _filter.category);
 
     if (rows.length === 0) {
       // 完全沒有記帳 → 引導 CTA；有資料但篩選無結果 → 一般提示
@@ -55,6 +56,13 @@ Router.register('ledger', (() => {
     (hasMore ? `<button class="btn btn-outline btn-full" id="btn-load-more" style="margin:8px 0">載入更多</button>` : '');
   }
 
+  // 分類選項來自帳本實際出現過的分類（含支出/收入/代付補款/調帳等），依使用頻率排序
+  function categoryOptions() {
+    const counts = {};
+    Store.get().ledger.forEach(tx => { if (tx.category) counts[tx.category] = (counts[tx.category] || 0) + 1; });
+    return Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
+  }
+
   function render(el) {
     const now = Utils.monthLabel();
     const months = [];
@@ -76,6 +84,10 @@ Router.register('ledger', (() => {
         <select id="fil-type" class="filter-sel">
           <option value="">全部類型</option>
           ${CFG.TX_TYPES.map(t => `<option value="${t}" ${t === _filter.type ? 'selected' : ''}>${t}</option>`).join('')}
+        </select>
+        <select id="fil-cat" class="filter-sel">
+          <option value="">全部分類</option>
+          ${categoryOptions().map(c => `<option value="${Utils.esc(c)}" ${c === _filter.category ? 'selected' : ''}>${Utils.esc(c)}</option>`).join('')}
         </select>
       </div>
       <div id="ledger-list"><div class="spinner"></div></div>
@@ -393,9 +405,9 @@ Router.register('ledger', (() => {
     await Store.load();
     refreshList();
 
-    ['fil-month', 'fil-role', 'fil-type'].forEach(id => {
+    ['fil-month', 'fil-role', 'fil-type', 'fil-cat'].forEach(id => {
       Utils.el(id)?.addEventListener('change', e => {
-        const key = { 'fil-month': 'month', 'fil-role': 'role', 'fil-type': 'type' }[id];
+        const key = { 'fil-month': 'month', 'fil-role': 'role', 'fil-type': 'type', 'fil-cat': 'category' }[id];
         _filter[key] = e.target.value;
         _limit = PAGE_SIZE; // 換篩選條件時回到第一頁
         refreshList();
