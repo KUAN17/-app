@@ -950,6 +950,7 @@ html, body {
 .drawer-item.active { color: var(--primary); background: var(--primary-light); }
 .drawer-icon { font-size: 20px; width: 24px; text-align: center; }
 .drawer-divider { height: 1px; background: var(--border); margin: 6px 16px; }
+.drawer-badge { width: 8px; height: 8px; border-radius: 50%; background: var(--danger, #e55); margin-left: auto; flex-shrink: 0; }
 
 /* ── Credit Card Billing Page ────────────────────────────── */
 .cc-card { padding: 16px; margin-bottom: 12px; }

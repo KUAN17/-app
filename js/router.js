@@ -3,11 +3,11 @@ window.Router = (() => {
   let current = null;
   let _titleEl, _contentEl, _navItems;
 
-  const DRAWER_PAGES = new Set(['billing', 'projects', 'investments', 'settings']);
+  const DRAWER_PAGES = new Set(['billing', 'repay', 'projects', 'investments', 'settings']);
 
   const PAGE_TITLES = {
     dashboard: '總覽', entry: '記帳', ledger: '帳本',
-    billing: '信用卡帳單', projects: '專案', investments: '投資', settings: '設定'
+    billing: '信用卡帳單', repay: '代付補款', projects: '專案', investments: '投資', settings: '設定'
   };
 
   function register(name, mod) { pages[name] = mod; }
@@ -15,6 +15,14 @@ window.Router = (() => {
   function _closeDrawer() {
     document.getElementById('side-drawer')?.classList.remove('open');
     document.getElementById('drawer-overlay')?.classList.remove('show');
+  }
+
+  // 抽屜選單紅點：有未結代付就顯示，切頁時同步（資料變動後下次切頁就會反映）
+  function _updateBadges() {
+    const has = typeof Store !== 'undefined' && Store.hasPendingRepay && Store.hasPendingRepay();
+    document.querySelectorAll('.drawer-item[data-page="repay"] .drawer-badge').forEach(b => {
+      b.style.display = has ? '' : 'none';
+    });
   }
 
   function go(name, params = {}) {
@@ -38,7 +46,9 @@ window.Router = (() => {
     _closeDrawer();
     _contentEl.innerHTML = '';
     pages[name].render(_contentEl, params);
-    if (pages[name].onMount) pages[name].onMount();
+    const mounted = pages[name].onMount ? pages[name].onMount() : null;
+    _updateBadges();
+    if (mounted && mounted.then) mounted.then(_updateBadges);
     window.location.hash = name;
   }
 

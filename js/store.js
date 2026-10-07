@@ -496,6 +496,72 @@ window.Store = (() => {
     return true;
   }
 
+  // ── 代付往來 ──────────────────────────────────────────────────────────────
+  // 補款實際要轉入的對象：代付帳戶是信用卡 → 轉進該卡綁定的扣款帳戶（持卡人才還得了卡費）；
+  // 現金/活存等 → 直接轉回代付帳戶本身。dashboard/repay 頁共用同一套判斷
+  function repayTarget(creditorRole, payAccountName) {
+    const all = allAccountsFlat();
+    const acct = all.find(a => a.role === creditorRole && a.name === payAccountName);
+    if (!acct) return { role: creditorRole, account: payAccountName };
+    if (acct.type === '信用卡' && acct.paymentAccount) {
+      const owner = all.find(a => a.name === acct.paymentAccount);
+      return { role: owner?.role || creditorRole, account: acct.paymentAccount };
+    }
+    return { role: creditorRole, account: payAccountName };
+  }
+
+  // 未結清代付清單：逐筆列出，代付補款轉帳依「債務人→債權人」FIFO（先借先還）沖銷
+  function computePayables(ledger) {
+    const expById = {};    // 支出 ID → 該筆代付支出
+    const expByPair = {};  // `creditor||debtor` → [代付支出…]
+    const linkedRepay = {}; // 支出 ID → 已綁定補款總額（精準逐筆）
+    const poolByPair = {};  // `creditor||debtor` → 未綁定補款總額（FIFO 後備）
+    ledger.forEach(tx => {
+      if (tx.type === '支出' && tx.payRole && tx.payRole !== tx.roleOut && tx.amount > 0) {
+        const e = {
+          id: tx.id, creditor: tx.payRole, debtor: tx.roleOut, payAccount: tx.payAccount || '',
+          date: tx.date, amount: tx.amount, memo: tx.memo || tx.category || '', remaining: tx.amount
+        };
+        expById[tx.id] = e;
+        const k = `${tx.payRole}||${tx.roleOut}`;
+        (expByPair[k] = expByPair[k] || []).push(e);
+      }
+      if (tx.type === '轉帳' && tx.category === CFG.CAT_REPAYMENT && tx.amount > 0) {
+        if (tx.settleId) {
+          linkedRepay[tx.settleId] = (linkedRepay[tx.settleId] || 0) + tx.amount;
+        } else {
+          const k = `${tx.roleIn}||${tx.roleOut}`;
+          poolByPair[k] = (poolByPair[k] || 0) + tx.amount;
+        }
+      }
+    });
+
+    // 1. 先扣有綁定的補款（點「記補款」記入的，精準對應該筆支出）
+    Object.entries(linkedRepay).forEach(([id, paid]) => {
+      if (expById[id]) expById[id].remaining = Math.max(0, expById[id].remaining - paid);
+    });
+    // 2. 未綁定的補款（舊資料／手動轉帳）→ 同組 FIFO 沖最舊
+    Object.entries(expByPair).forEach(([k, exps]) => {
+      let pool = poolByPair[k] || 0;
+      if (!pool) return;
+      exps.sort((a, b) => a.date.localeCompare(b.date));
+      exps.forEach(e => {
+        const cut = Math.min(pool, e.remaining);
+        e.remaining -= cut; pool -= cut;
+      });
+    });
+
+    const items = Object.values(expById).filter(e => e.remaining >= 1);
+    items.sort((a, b) => a.date.localeCompare(b.date));
+    return items;
+  }
+
+  // 抽屜選單紅點：有沒有任何未結代付（不需要完整分組，只看有沒有）
+  function hasPendingRepay() {
+    return computePayables(_data.ledger).length > 0;
+  }
+
   return { load, invalidate, calcBalance, calcAllBalances, accountsForRole, brokersForRole, defaultCCFor, defaultCashFor, allAccountsFlat, getSheetId, ensureSheetMeta, verifyLedgerRows, get, isDirty, loadIdentity, saveIdentity,
-           members, roleNames, personalRoleNames, sharedRoleNames, isShared, saveMembers, saveReminders, markReminderPaid };
+           members, roleNames, personalRoleNames, sharedRoleNames, isShared, saveMembers, saveReminders, markReminderPaid,
+           computePayables, repayTarget, hasPendingRepay };
 })();

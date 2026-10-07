@@ -6,16 +6,6 @@ Router.register('dashboard', (() => {
   let _ver    = localStorage.getItem('ff_dash_ver') || 'v1'; // v1=分析版 v2=卡片版
   let _openAcct = false;
   let _openProj = true;
-  let _openPay  = true;
-  let _payGroups = [];   // 分期代付分組，供「記補款」全額補款使用
-  let _payChecked = new Map(); // 多選補款：settleId → 勾選項資料，限同一組（債權人＋債務人＋補款對象帳戶）
-
-  // 解析分期備忘：「商品名 分期3/6」→ { base, idx, total }
-  function parseInstallment(memo) {
-    const m = (memo || '').match(/^(.*?)\s*分期(\d+)\/(\d+)$/);
-    if (!m) return null;
-    return { base: m[1].trim(), idx: parseInt(m[2]), total: parseInt(m[3]) };
-  }
 
   const COLORS = ['#5B8DEF', '#FF8A65', '#34C99A', '#FFC757', '#A78BFA', '#F472B6', '#94A3B8'];
 
@@ -357,179 +347,6 @@ Router.register('dashboard', (() => {
     </details>`;
   }
 
-  // ── 代付往來 ──────────────────────────────────────────────────────────────
-  // 補款實際要轉入的對象：代付帳戶是信用卡 → 轉進該卡綁定的扣款帳戶（持卡人才還得了卡費）；
-  // 現金/活存等 → 直接轉回代付帳戶本身。與 entry.js 的 getPaymentInfo 邏輯一致
-  function repayTarget(creditorRole, payAccountName) {
-    const all = Store.allAccountsFlat();
-    const acct = all.find(a => a.role === creditorRole && a.name === payAccountName);
-    if (!acct) return { role: creditorRole, account: payAccountName };
-    if (acct.type === '信用卡' && acct.paymentAccount) {
-      const owner = all.find(a => a.name === acct.paymentAccount);
-      return { role: owner?.role || creditorRole, account: acct.paymentAccount };
-    }
-    return { role: creditorRole, account: payAccountName };
-  }
-
-  // 未結清代付清單（payablesCollapse 與待辦卡共用）
-  function computePayables(ledger) {
-    // 逐筆列出未結清的代付支出；代付補款轉帳依「債務人→債權人」FIFO（先借先還）沖銷
-    const expById = {};    // 支出 ID → 該筆代付支出
-    const expByPair = {};  // `creditor||debtor` → [代付支出…]
-    const linkedRepay = {}; // 支出 ID → 已綁定補款總額（精準逐筆）
-    const poolByPair = {};  // `creditor||debtor` → 未綁定補款總額（FIFO 後備）
-    ledger.forEach(tx => {
-      if (tx.type === '支出' && tx.payRole && tx.payRole !== tx.roleOut && tx.amount > 0) {
-        const e = {
-          id: tx.id, creditor: tx.payRole, debtor: tx.roleOut, payAccount: tx.payAccount || '',
-          date: tx.date, amount: tx.amount, memo: tx.memo || tx.category || '', remaining: tx.amount
-        };
-        expById[tx.id] = e;
-        const k = `${tx.payRole}||${tx.roleOut}`;
-        (expByPair[k] = expByPair[k] || []).push(e);
-      }
-      if (tx.type === '轉帳' && tx.category === CFG.CAT_REPAYMENT && tx.amount > 0) {
-        if (tx.settleId) {
-          linkedRepay[tx.settleId] = (linkedRepay[tx.settleId] || 0) + tx.amount;
-        } else {
-          const k = `${tx.roleIn}||${tx.roleOut}`;
-          poolByPair[k] = (poolByPair[k] || 0) + tx.amount;
-        }
-      }
-    });
-
-    // 1. 先扣有綁定的補款（點「記補款」記入的，精準對應該筆支出）
-    Object.entries(linkedRepay).forEach(([id, paid]) => {
-      if (expById[id]) expById[id].remaining = Math.max(0, expById[id].remaining - paid);
-    });
-    // 2. 未綁定的補款（舊資料／手動轉帳）→ 同組 FIFO 沖最舊
-    Object.entries(expByPair).forEach(([k, exps]) => {
-      let pool = poolByPair[k] || 0;
-      if (!pool) return;
-      exps.sort((a, b) => a.date.localeCompare(b.date));
-      exps.forEach(e => {
-        const cut = Math.min(pool, e.remaining);
-        e.remaining -= cut; pool -= cut;
-      });
-    });
-
-    const items = Object.values(expById).filter(e => e.remaining >= 1);
-    items.sort((a, b) => a.date.localeCompare(b.date));
-    return items;
-  }
-
-  function payablesCollapse(ledger) {
-    const items = computePayables(ledger);
-    if (!items.length) return '';
-
-    // 分期分組：同 base＋總期數＋債權人＋債務人視為同一組，供全額補款
-    _payGroups = [];
-    const gidByKey = {};
-    items.forEach(e => {
-      const pi = parseInstallment(e.memo);
-      if (!pi) return;
-      // 新資料以 ID 前綴（gid-i期數）精準分組，舊資料退回備忘＋雙方比對
-      const gm = (e.id || '').match(/^(.+)-i\d+$/);
-      const gk = gm ? `id:${gm[1]}` : `${pi.base}||${pi.total}||${e.creditor}||${e.debtor}`;
-      if (!(gk in gidByKey)) {
-        gidByKey[gk] = _payGroups.length;
-        _payGroups.push({ creditor: e.creditor, debtor: e.debtor, members: [] });
-      }
-      e._gid = gidByKey[gk];
-      _payGroups[e._gid].members.push({ settleId: e.id, amount: e.remaining, date: e.date, memo: e.memo });
-    });
-
-    // 清掉已經結清、不再存在的勾選項（避免補款送出後殘留舊的多選狀態）
-    const validSettleIds = new Set(items.map(x => x.id));
-    for (const k of _payChecked.keys()) if (!validSettleIds.has(k)) _payChecked.delete(k);
-
-    const id = Utils.identity();
-
-    // 依「實際補款帳戶」分類：債權人＋債務人＋補款對象角色/帳戶都相同才算同一組，
-    // 組內可單選或全選，一次送出合併成一筆轉帳
-    const groups = []; // [{ key, creditor, debtor, tgtRole, tgtAcct, items: [...] }]
-    const gidxByKey = {};
-    items.forEach(e => {
-      const tgt = e.payAccount ? repayTarget(e.creditor, e.payAccount) : { role: e.creditor, account: '' };
-      const key = `${e.creditor}||${e.debtor}||${tgt.role}||${tgt.account}`;
-      if (!(key in gidxByKey)) {
-        gidxByKey[key] = groups.length;
-        groups.push({ key, creditor: e.creditor, debtor: e.debtor, tgtRole: tgt.role, tgtAcct: tgt.account, items: [] });
-      }
-      groups[gidxByKey[key]].items.push({ ...e, tgt });
-    });
-
-    const groupsHtml = groups.map(g => {
-      const isMyDebt = g.debtor === id;
-      const isMyRecv = g.creditor === id;
-      const label = isMyDebt ? `我欠 ${Utils.esc(g.creditor)}` : isMyRecv ? `${Utils.esc(g.debtor)} 欠我` : `${Utils.esc(g.debtor)} 欠 ${Utils.esc(g.creditor)}`;
-      const acctSub = g.tgtAcct ? `補到 ${Utils.esc(g.tgtRole)}／${Utils.esc(g.tgtAcct)}` : '補款對象帳戶未設定';
-      const groupSum = g.items.reduce((s, e) => s + e.remaining, 0);
-      const checkedInGroup = g.items.filter(e => _payChecked.has(e.id));
-      const allChecked = checkedInGroup.length === g.items.length;
-
-      const rows = g.items.map(e => {
-        const partial = e.remaining < e.amount ? `（剩 ${Utils.formatMoney(e.remaining)}）` : '';
-        const sub = `${e.date.slice(5)}${e.memo ? ' · ' + Utils.esc(e.memo) : ''}${partial}`;
-        const repayMemo = `補款／${e.date.slice(5)}${e.memo ? ' ' + e.memo : ''}`;
-        const grouped = e._gid !== undefined && _payGroups[e._gid].members.length > 1;
-        const payBtn = `<button type="button" class="dash-repay-btn"
-          data-creditor="${Utils.esc(e.creditor)}"
-          data-debtor="${Utils.esc(e.debtor)}"
-          data-amount="${e.remaining}"
-          data-settle="${Utils.esc(e.id || '')}"
-          data-group="${grouped ? e._gid : ''}"
-          data-memo="${Utils.esc(repayMemo)}">記補款 →</button>`;
-        const checked = _payChecked.has(e.id) ? ' checked' : '';
-        return `<div class="dash-acct-row dash-pay-row">
-          <input type="checkbox" class="dash-pay-check" data-settle="${Utils.esc(e.id || '')}"
-            data-group-key="${Utils.esc(g.key)}" data-amount="${e.remaining}" data-memo="${Utils.esc(repayMemo)}"
-            data-date="${Utils.esc(e.date)}" data-creditor="${Utils.esc(e.creditor)}" data-debtor="${Utils.esc(e.debtor)}"
-            data-tgt-role="${Utils.esc(g.tgtRole)}" data-tgt-acct="${Utils.esc(g.tgtAcct)}"${checked}>
-          <div class="dash-pay-info">
-            <span class="dash-acct-name">${label}</span>
-            <span class="dash-pay-sub">${sub}</span>
-          </div>
-          <span class="dash-acct-bal ${isMyDebt ? 'amount-out' : isMyRecv ? 'amount-in' : ''}">${Utils.formatMoney(e.remaining)}</span>
-          ${payBtn}
-        </div>`;
-      }).join('');
-
-      const groupBar = checkedInGroup.length > 0
-        ? `<div class="dash-pay-batch-bar">
-            <span>已選 ${checkedInGroup.length} 筆・共 ${Utils.formatMoney(checkedInGroup.reduce((s, e) => s + e.remaining, 0))}</span>
-            <button type="button" class="btn btn-primary btn-sm dash-pay-group-btn" data-group-key="${Utils.esc(g.key)}">建立補款 →</button>
-          </div>` : '';
-
-      return `<div class="dash-pay-group">
-        <div class="dash-pay-group-head">
-          <label class="dash-pay-group-all">
-            <input type="checkbox" class="dash-pay-check-all" data-group-key="${Utils.esc(g.key)}"${g.items.length > 1 ? (allChecked ? ' checked' : '') : ' style="display:none"'}>
-            <span class="dash-acct-name">${label}</span>
-          </label>
-          <span class="dash-pay-group-sum">${Utils.formatMoney(groupSum)}</span>
-        </div>
-        <div class="dash-pay-group-sub">${acctSub}</div>
-        ${rows}
-        ${groupBar}
-      </div>`;
-    }).join('');
-
-    const totalIn  = items.filter(x => x.creditor === id).reduce((s, x) => s + x.remaining, 0);
-    const totalOut = items.filter(x => x.debtor   === id).reduce((s, x) => s + x.remaining, 0);
-    const parts = [];
-    if (id) {
-      if (totalIn  > 0) parts.push(`收 ${Utils.formatMoney(totalIn)}`);
-      if (totalOut > 0) parts.push(`付 ${Utils.formatMoney(totalOut)}`);
-    }
-    const badge = parts.length ? parts.join('・') : `${items.length} 筆`;
-
-    return `<details class="dash-collapse" id="dash-col-pay" ${_openPay ? 'open' : ''}>
-      <summary>代付往來<span class="dash-collapse-badge">${badge}</span></summary>
-      <div class="dash-collapse-body">${groupsHtml}</div>
-    </details>`;
-  }
-
   // ── 待辦卡：信用卡未繳＋未結代付，最需要行動的資訊放最上面 ──────────────────
   function todoCard(ledger) {
     const rows = [];
@@ -572,7 +389,7 @@ Router.register('dashboard', (() => {
         </div>`);
       });
 
-    const pays = computePayables(ledger);
+    const pays = Store.computePayables(ledger);
     if (pays.length) {
       const sum = pays.reduce((s, x) => s + x.remaining, 0);
       rows.push(`<div class="dash-todo-row">
@@ -698,7 +515,6 @@ Router.register('dashboard', (() => {
       ${todoCard(ledger)}
       ${emptyCta || main}
       ${acctCollapse(accounts, balances, warnings)}
-      ${payablesCollapse(ledger)}
       ${projCollapse(projects)}
       <div style="height:16px"></div>
     </div>`;
@@ -723,9 +539,7 @@ Router.register('dashboard', (() => {
           return;
         }
         if (act === 'todo-payables') {
-          _openPay = true;
-          renderAll();
-          document.getElementById('dash-col-pay')?.scrollIntoView({ behavior: 'smooth' });
+          Router.go('repay');
           return;
         }
         if (act === 'role')   _scope  = val;
@@ -741,128 +555,14 @@ Router.register('dashboard', (() => {
         renderAll();
       });
     });
-    el.querySelectorAll('.dash-repay-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const gid = btn.dataset.group;
-        if (gid !== '' && gid !== undefined && _payGroups[parseInt(gid)]?.members.length > 1) {
-          showRepayChooser(btn, _payGroups[parseInt(gid)]);
-        } else {
-          prefillSingleRepay(btn);
-        }
-      });
-    });
-    el.querySelectorAll('.dash-pay-check').forEach(chk => {
-      chk.addEventListener('change', () => {
-        const { settle, groupKey, amount, memo, date, creditor, debtor, tgtRole, tgtAcct } = chk.dataset;
-        if (chk.checked) {
-          _payChecked.set(settle, { groupKey, amount: Number(amount), memo, date, creditor, debtor, tgtRole, tgtAcct });
-        } else {
-          _payChecked.delete(settle);
-        }
-        renderAll();
-      });
-    });
-    el.querySelectorAll('.dash-pay-check-all').forEach(chk => {
-      chk.addEventListener('change', () => {
-        const gkey = chk.dataset.groupKey;
-        el.querySelectorAll(`.dash-pay-check[data-group-key="${CSS.escape(gkey)}"]`).forEach(row => {
-          const { settle, amount, memo, date, creditor, debtor, tgtRole, tgtAcct } = row.dataset;
-          if (chk.checked) _payChecked.set(settle, { groupKey: gkey, amount: Number(amount), memo, date, creditor, debtor, tgtRole, tgtAcct });
-          else _payChecked.delete(settle);
-        });
-        renderAll();
-      });
-    });
-    el.querySelectorAll('.dash-pay-group-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const gkey = btn.dataset.groupKey;
-        const items = [..._payChecked.entries()]
-          .filter(([, m]) => m.groupKey === gkey)
-          .map(([settleId, m]) => ({ settleId, ...m }));
-        _payChecked.clear();
-        prefillMultiRepay(items);
-      });
-    });
     el.querySelectorAll('[data-cat]').forEach(row => {
       row.addEventListener('click', () => showCatDetail(row.dataset.cat));
     });
     document.getElementById('dash-col-acct')?.addEventListener('toggle', e => { _openAcct = e.target.open; });
-    document.getElementById('dash-col-pay')?.addEventListener('toggle',  e => { _openPay  = e.target.open; });
     document.getElementById('dash-col-proj')?.addEventListener('toggle', e => { _openProj = e.target.open; });
     el.querySelectorAll('.proj-card').forEach(c =>
       c.addEventListener('click', () => Router.go('projects'))
     );
-  }
-
-  function prefillSingleRepay(btn) {
-    localStorage.setItem('ff_entry_prefill', JSON.stringify({
-      type: '轉帳',
-      roleOut: btn.dataset.debtor,
-      roleIn: btn.dataset.creditor,
-      amount: btn.dataset.amount,
-      category: CFG.CAT_REPAYMENT,
-      settleId: btn.dataset.settle || '',
-      memo: btn.dataset.memo || ''
-    }));
-    Router.go('entry');
-  }
-
-  // 自由多選補款：使用者在「代付往來」清單勾選的任意幾筆（同一債權人＋債務人＋補款對象帳戶），
-  // 一次合併成一筆轉帳（多期分帳於 repayBatch），帶入正確的補款對象帳戶（而非預設帳戶）
-  function prefillMultiRepay(items) {
-    if (!items.length) return;
-    const first = items[0];
-    const total = items.reduce((s, m) => s + m.amount, 0);
-    localStorage.setItem('ff_entry_prefill', JSON.stringify({
-      type: '轉帳',
-      roleOut: first.debtor,
-      roleIn: first.tgtRole,
-      accountIn: first.tgtAcct,
-      category: CFG.CAT_REPAYMENT,
-      amount: total,
-      repayBatch: items.map(m => ({ settleId: m.settleId, amount: m.amount, memo: m.memo }))
-    }));
-    Router.go('entry');
-  }
-
-  function prefillBatchRepay(g) {
-    const total = g.members.reduce((s, m) => s + m.amount, 0);
-    localStorage.setItem('ff_entry_prefill', JSON.stringify({
-      type: '轉帳',
-      roleOut: g.debtor,
-      roleIn: g.creditor,
-      category: CFG.CAT_REPAYMENT,
-      amount: total,
-      repayBatch: g.members.map(m => ({
-        settleId: m.settleId,
-        amount: m.amount,
-        memo: `補款／${m.date.slice(5)} ${m.memo}`
-      }))
-    }));
-    Router.go('entry');
-  }
-
-  // 分期代付的補款方式選擇：補這期 vs 補全部剩餘
-  function showRepayChooser(btn, g) {
-    const single = Number(btn.dataset.amount) || 0;
-    const total = g.members.reduce((s, m) => s + m.amount, 0);
-    const n = g.members.length;
-    const modal = document.createElement('div');
-    modal.className = 'modal-overlay';
-    modal.innerHTML = `<div class="modal-card">
-      <div class="modal-title">補款方式</div>
-      <p class="section-hint">這筆是分期代付，共有 ${n} 期未補。</p>
-      <div class="modal-actions" style="flex-direction:column;align-items:stretch;gap:8px">
-        <button class="btn btn-outline" id="repay-one">補這期　${Utils.formatMoney(single)}</button>
-        <button class="btn btn-primary" id="repay-all">補全部剩餘 ${n} 期　${Utils.formatMoney(total)}</button>
-        <button class="btn btn-outline btn-sm" id="repay-cancel">取消</button>
-      </div>
-    </div>`;
-    document.body.appendChild(modal);
-    modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
-    document.getElementById('repay-cancel').addEventListener('click', () => modal.remove());
-    document.getElementById('repay-one').addEventListener('click', () => { modal.remove(); prefillSingleRepay(btn); });
-    document.getElementById('repay-all').addEventListener('click', () => { modal.remove(); prefillBatchRepay(g); });
   }
 
   return { render, onMount };
