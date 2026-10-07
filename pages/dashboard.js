@@ -90,16 +90,15 @@ Router.register('dashboard', (() => {
     return { entries, total };
   }
 
-  function assetInfo(accounts, investments, balances, ledger) {
+  function assetInfo(accounts, investments, balances) {
     const roles = scopeRoles();
     const set = new Set(roles);
-    const today = new Date();
     let acctSum = 0, ccDebt = 0;
     roles.forEach(role => {
       (accounts[role] || []).forEach(a => {
         if (a.type === '信用卡') {
-          // 信用卡應繳＝帳單引擎所有未繳清帳單剩餘總和（含未出帳與未來分期）
-          ccDebt += Utils.cardBills(role, a, ledger, today).unpaidTotal;
+          // 信用卡應繳＝帳本逐筆試算的卡債餘額（跟設定頁帳戶管理同一套，溢繳不計入負債）
+          ccDebt += Math.max(0, (balances[role] || {})[a.name] || 0);
           return;
         }
         if (a.type === '證券帳戶') return;
@@ -351,25 +350,6 @@ Router.register('dashboard', (() => {
   function todoCard(ledger) {
     const rows = [];
     const today = new Date();
-    const fmt = d => `${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}`;
-
-    // 帳單引擎：只提醒「已出帳且未繳清」的帳單；去繳費帶該卡全部未繳合計（一次繳清）
-    Store.allAccountsFlat().filter(a => a.type === '信用卡').forEach(a => {
-      const { issuedUnpaid } = Utils.cardBills(a.role, a, ledger, today);
-      if (!issuedUnpaid.length) return;
-      const total = issuedUnpaid.reduce((s, b) => s + b.remain, 0);
-      const oldest = issuedUnpaid[0]; // 依結帳日排序，最舊的一期
-      const daysLeft = Math.ceil((oldest.dueDate - today) / 86400000);
-      const sub = `${daysLeft < 0 ? '⚠ 已逾期' : daysLeft + ' 天後截止'}${issuedUnpaid.length > 1 ? `・含 ${issuedUnpaid.length} 期` : ''}`;
-      rows.push(`<div class="dash-todo-row">
-        <span class="dash-todo-icon">💳</span>
-        <span class="dash-todo-txt">${Utils.esc(a.name)}<small>${sub}</small></span>
-        <span class="dash-todo-amt">${Utils.formatMoney(total)}</span>
-        <button class="dash-todo-btn" data-act="todo-pay"
-          data-role="${Utils.esc(a.role)}" data-name="${Utils.esc(a.name)}"
-          data-amount="${total}">去繳費</button>
-      </div>`);
-    });
 
     // 定期提醒：本月尚未完成且已啟用者，依提醒日排序，逾期者標註 ⚠
     const curMonth = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}`;
@@ -410,7 +390,7 @@ Router.register('dashboard', (() => {
     const { income, expense } = sumIO(txs);
     const net = income - expense;
     const { entries, total } = catData(txs);
-    const assets = assetInfo(accounts, investments, balances, ledger);
+    const assets = assetInfo(accounts, investments, balances);
 
     const donutBlock = `
       <div class="card dash-donut-card">
@@ -452,7 +432,7 @@ Router.register('dashboard', (() => {
     const { income, expense } = sumIO(txs);
     const net = income - expense;
     const { entries, total } = catData(txs, 3);
-    const assets = assetInfo(accounts, investments, balances, ledger);
+    const assets = assetInfo(accounts, investments, balances);
 
     const grid = `
       <div class="dash-grid2">
@@ -523,13 +503,6 @@ Router.register('dashboard', (() => {
       btn.addEventListener('click', () => {
         const { act, val } = btn.dataset;
         if (act === 'goto-entry') { Router.go('entry'); return; }
-        if (act === 'todo-pay') {
-          localStorage.setItem('ff_entry_prefill', JSON.stringify({
-            type: '轉帳', roleIn: btn.dataset.role, accountIn: btn.dataset.name, amount: btn.dataset.amount
-          }));
-          Router.go('entry');
-          return;
-        }
         if (act === 'todo-reminder') {
           localStorage.setItem('ff_entry_prefill', JSON.stringify({
             type: '支出', reminderId: btn.dataset.id, role: btn.dataset.role,

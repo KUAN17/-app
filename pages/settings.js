@@ -285,14 +285,6 @@ Router.register('settings', (() => {
         <p class="input-hint">記帳頁選「信用卡」時自動帶入這張，一個角色限一張</p>
       </div>
       <div class="form-row">
-        <label>帳單結帳日（每月幾號）</label>
-        <input type="number" id="inp-acct-billing" class="form-input" placeholder="例：15" min="1" max="31" value="${acct.billingDate||''}">
-      </div>
-      <div class="form-row">
-        <label>繳費截止日（每月幾號）</label>
-        <input type="number" id="inp-acct-dueday" class="form-input" placeholder="例：25" min="1" max="31" value="${acct.dueDate||''}">
-      </div>
-      <div class="form-row">
         <label>扣款帳戶（選填）</label>
         <select id="inp-acct-payment" class="form-select">
           <option value="">不設定</option>
@@ -342,8 +334,9 @@ Router.register('settings', (() => {
         balance:     isNew ? (type === '信用卡' ? 0 : (parseFloat(Utils.el('inp-acct-balance2')?.value) || 0)) : acct.balance,
         baseDate:    isNew ? Utils.el('inp-acct-date2').value.replace(/-/g, '/') : acct.baseDate,
         type,
-        billingDate: type === '信用卡' ? parseInt(Utils.el('inp-acct-billing').value) || 0 : 0,
-        dueDate:     type === '信用卡' ? parseInt(Utils.el('inp-acct-dueday').value) || 0 : 0,
+        // 帳單結帳日/截止日已停用（無任何頁面讀取），表單不再收集，保留原值不動
+        billingDate: acct.billingDate || 0,
+        dueDate:     acct.dueDate || 0,
         paymentAccount: type === '信用卡' ? (Utils.el('inp-acct-payment')?.value || '') : '',
         isDefaultCC: type === '信用卡' ? !!Utils.el('inp-acct-default-cc')?.checked : false,
         targetRole:  !isNew ? (Utils.el('inp-acct-role')?.value || role) : role,
