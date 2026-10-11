@@ -180,17 +180,18 @@ Router.register('settings', (() => {
     return visible.map(a => {
       const typeClass = a.type === '現金' ? 'cash' : a.type === '信用卡' ? 'cc' : a.type === '證券帳戶' ? 'broker' : 'bank';
       const typeLabel = a.type || '銀行';
-      // 目前餘額＝期初＋帳本試算（含調帳校正）；未儲存的新帳戶尚無帳本紀錄，即期初值
-      let cur = a._new ? (a.balance || 0) : ((balances[role] || {})[a.name] ?? (a.balance || 0));
-      if (a.type === '信用卡') cur = Math.max(0, cur); // 應繳＝未繳帳單合計，溢繳不顯示負數
+      // 信用卡不追蹤餘額，只是記帳時的付款方式標籤；證券帳戶另有持倉市值頁面，兩者都不顯示這裡的餘額列
       const last = a._new ? '' : lastTxDate(role, a.name);
-      const curLabel = a.type === '信用卡' ? '目前應繳' : '目前餘額';
-      const curRow = a.type === '證券帳戶' ? '' : `
+      const curRow = (a.type === '證券帳戶' || a.type === '信用卡') ? '' : (() => {
+        // 目前餘額＝期初＋帳本試算（含調帳校正）；未儲存的新帳戶尚無帳本紀錄，即期初值
+        const cur = a._new ? (a.balance || 0) : ((balances[role] || {})[a.name] ?? (a.balance || 0));
+        return `
         <div class="acct-cur-row">
-          <span class="acct-cur-label">${curLabel}</span>
-          <b class="${a.type === '信用卡' ? (cur > 0 ? 'amount-out' : '') : (cur < 0 ? 'amount-out' : '')}">${cur < 0 ? '-' : ''}${Utils.formatMoney(cur)}</b>
+          <span class="acct-cur-label">目前餘額</span>
+          <b class="${cur < 0 ? 'amount-out' : ''}">${cur < 0 ? '-' : ''}${Utils.formatMoney(cur)}</b>
           ${last ? `<span class="acct-cur-date">最後異動 ${last.slice(5)}</span>` : ''}
         </div>`;
+      })();
       return `
       <div class="acct-item">
         <div class="acct-item-top">
@@ -288,8 +289,9 @@ Router.register('settings', (() => {
         <label>扣款帳戶（選填）</label>
         <select id="inp-acct-payment" class="form-select">
           <option value="">不設定</option>
-          ${(_acctState[role]||[]).filter(a=>!a._deleted&&a.type!=='信用卡'&&a.type!=='證券帳戶').map(a=>`<option value="${Utils.esc(a.name)}"${acct.paymentAccount===a.name?' selected':''}>${Utils.esc(a.name)}</option>`).join('')}
+          ${(_acctState[role]||[]).filter(a=>!a._deleted&&a.type==='銀行').map(a=>`<option value="${Utils.esc(a.name)}"${acct.paymentAccount===a.name?' selected':''}>${Utils.esc(a.name)}</option>`).join('')}
         </select>
+        <p class="input-hint">代付這張卡時，補款會轉進這個銀行帳戶（只能選銀行帳戶）</p>
       </div>
     </div>
     <div class="modal-actions">

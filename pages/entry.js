@@ -104,9 +104,10 @@ Router.register('entry', (() => {
     }
     return html;
   }
-  function acctSelectHtml(id, role, current, excludeCC = false) {
+  function acctSelectHtml(id, role, current, excludeCC = false, bankOnly = false) {
     const opts = acctsForRole(role)
       .filter(a => !excludeCC || a.type !== '信用卡')
+      .filter(a => !bankOnly || a.type === '銀行')
       .map(a => `<option value="${Utils.esc(a.name)}"${a.name === current ? ' selected' : ''}>${acctIcon(a.type)} ${Utils.esc(a.name)}</option>`)
       .join('');
     return `<select id="${id}" class="form-select">${opts || '<option value="">無帳戶</option>'}</select>`;
@@ -120,11 +121,20 @@ Router.register('entry', (() => {
     const names = acctsForRole(role).map(a => a.name);
     return names.includes(saved) ? saved : (names[0] || '');
   }
-  // 收入/轉出不可用信用卡（收入入卡是無效操作、卡轉出會憑空生錢）
+  // 收入不可用信用卡（入卡是無效操作）
   function lastAcctNonCC(role) {
     const saved = localStorage.getItem(LS_LAST_ACCT(role));
     const list = acctsForRole(role).filter(a => a.type !== '信用卡').map(a => a.name);
     return list.includes(saved) ? saved : (list[0] || '');
+  }
+  // 轉帳只能用銀行帳戶：現金不參與轉帳、信用卡不是可轉入/轉出的帳戶
+  function lastAcctBank(role) {
+    const saved = localStorage.getItem(LS_LAST_ACCT(role));
+    const list = acctsForRole(role).filter(a => a.type === '銀行').map(a => a.name);
+    return list.includes(saved) ? saved : (list[0] || '');
+  }
+  function isAcctCash(role, name) {
+    return Store.allAccountsFlat().some(a => a.role === role && a.name === name && a.type === '現金');
   }
   function acctIcon(type) {
     const map = { '現金': '💵', '銀行': '🏦', '信用卡': '💳', '證券帳戶': '📊' };
@@ -139,17 +149,20 @@ Router.register('entry', (() => {
     if (sh.payAccount && isAcctCreditCard(sh.payRole, sh.payAccount)) return true;
     return false;
   }
-  // 代付補款的轉入目標：信用卡 → 綁定的扣款帳戶；現金/活存等 → 代付帳戶本身
+  // 代付補款的轉入目標：信用卡 → 綁定的扣款帳戶；銀行帳戶 → 代付帳戶本身；
+  // 現金等其他帳戶 → 補款是轉帳、只能進銀行帳戶，回退到代付人名下的銀行帳戶
   function getPaymentInfo(payRole, payName, payType) {
     const all = Store.allAccountsFlat();
     const acct = all.find(a => a.role === payRole && a.name === payName && (!payType || a.type === payType));
     if (!acct) return null;
+    if (acct.type === '銀行') return { account: payName, role: payRole };
     if (acct.type === '信用卡') {
       if (!acct.paymentAccount) return null; // 信用卡未綁定扣款帳戶，無法判斷補款去向
       const owner = all.find(a => a.name === acct.paymentAccount);
       return { account: acct.paymentAccount, role: owner?.role || payRole };
     }
-    return { account: payName, role: payRole };
+    const bank = all.find(a => a.role === payRole && a.type === '銀行');
+    return bank ? { account: bank.name, role: payRole } : null;
   }
   function getProjectCatSuggestions() {
     return [...new Set(
@@ -358,9 +371,10 @@ Router.register('entry', (() => {
       _sh.autoTransfer = false; _sh.transferFrom = '';
       _sh.installment = 0;
     } else if (kind === 'transfer') {
+      // 轉帳只能用銀行帳戶（現金不參與轉帳、信用卡不是可轉入/轉出的帳戶）
       const prefillRoleOut = opts.roleOut && Store.roleNames().includes(opts.roleOut) ? opts.roleOut : _role;
       _sh.roleOut = prefillRoleOut;
-      _sh.accountOut = lastAcctNonCC(prefillRoleOut);
+      _sh.accountOut = lastAcctBank(prefillRoleOut);
       // 預設轉入對象：共享角色記帳 → 轉給個人（身份優先）；個人記帳 → 轉給共享角色
       const myId = Utils.identity();
       let roleIn = opts.roleIn && Store.roleNames().includes(opts.roleIn) ? opts.roleIn
@@ -368,8 +382,8 @@ Router.register('entry', (() => {
             ? ((myId && !Store.isShared(myId) && Store.roleNames().includes(myId)) ? myId : (Store.personalRoleNames()[0] || Store.roleNames()[0]))
             : (Store.sharedRoleNames()[0] || Store.roleNames().find(r => r !== _role) || _role));
       _sh.roleIn = roleIn;
-      const inNames = acctsForRole(roleIn).map(a => a.name);
-      _sh.accountIn = (opts.accountIn && inNames.includes(opts.accountIn)) ? opts.accountIn : lastAcct(roleIn);
+      const inNames = acctsForRole(roleIn).filter(a => a.type === '銀行').map(a => a.name);
+      _sh.accountIn = (opts.accountIn && inNames.includes(opts.accountIn)) ? opts.accountIn : lastAcctBank(roleIn);
       _sh.project = '';
       _sh.category = opts.category || '';
       _sh.settleId = opts.settleId || '';
@@ -449,11 +463,11 @@ Router.register('entry', (() => {
   }
 
   // ── 支出（cat）單頁記帳＋代付子頁 ─────────────────────────────────────────
-  // 轄下帳戶中，用來補款的預設帳戶：優先找名稱／用途含「日用」的銀行帳戶，否則用第一個非信用卡帳戶
+  // 轄下帳戶中，用來補款的預設帳戶：補款是轉帳，只能選銀行帳戶；優先找名稱／用途含「日用」的那個
   function defaultTransferFrom(role) {
-    const nonCC = acctsForRole(role).filter(a => a.type !== '信用卡');
-    const daily = nonCC.find(a => (a.purpose || '').includes('日用') || a.name.includes('日用'));
-    return (daily || nonCC[0] || {}).name || '';
+    const banks = acctsForRole(role).filter(a => a.type === '銀行');
+    const daily = banks.find(a => (a.purpose || '').includes('日用') || a.name.includes('日用'));
+    return (daily || banks[0] || {}).name || '';
   }
 
   // 分期／代付：同一排兩顆對等按鈕；分期只看自己選的帳戶是否為信用卡（不受代付影響，代付頁不提供分期）
@@ -563,12 +577,12 @@ Router.register('entry', (() => {
       <div class="sheet-scroll">
         <div class="sheet-amt-expr sheet-amt-expr-center" id="sheet-amt-expr">${calcExprDisplay(sh)}</div>
         <div class="entry-sheet-amt${amtZero}" id="sheet-amt">$ ${total.toLocaleString()}</div>
-        <div class="sheet-row"><label>轉出</label>${roleSelectHtml('sel-out-role', sh.roleOut)}${acctSelectHtml('sel-out-acct', sh.roleOut, sh.accountOut, true)}</div>
+        <div class="sheet-row"><label>轉出</label>${roleSelectHtml('sel-out-role', sh.roleOut)}${acctSelectHtml('sel-out-acct', sh.roleOut, sh.accountOut, true, true)}</div>
         <div class="entry-transfer-arrow" style="margin:2px 0">↓</div>
         <div class="sheet-row"><label>轉入</label>
           ${projLocked
             ? `<span class="sheet-static">🔒 ${Utils.esc(sh.roleIn)}／${Utils.esc(sh.accountIn)}</span>`
-            : roleSelectHtml('sel-in-role', sh.roleIn) + acctSelectHtml('sel-in-acct', sh.roleIn, sh.accountIn)}
+            : roleSelectHtml('sel-in-role', sh.roleIn) + acctSelectHtml('sel-in-acct', sh.roleIn, sh.accountIn, true, true)}
         </div>
         ${projects.length && !sh.repayBatch ? `<div class="sheet-row"><label>專案</label>
           <select id="sel-tr-proj" class="form-select">
@@ -612,8 +626,9 @@ Router.register('entry', (() => {
     if (sh.payAccount) {
       const pi = getPaymentInfo(sh.payRole, sh.payAccount, sh.payType);
       if (pi) {
-        const nonCCAccts = acctsForRole(sh.role).filter(a => a.type !== '信用卡');
-        const tfChips = nonCCAccts.map(a => {
+        // 補款是轉帳，只能選銀行帳戶
+        const bankAccts = acctsForRole(sh.role).filter(a => a.type === '銀行');
+        const tfChips = bankAccts.map(a => {
           const active = sh.transferFrom === a.name;
           return `<button type="button" class="sheet-chip${active ? ' active' : ''}" data-action="pay2-transfer" data-val="${Utils.esc(a.name)}">${acctIcon(a.type)} ${Utils.esc(a.name)}</button>`;
         }).join('');
@@ -898,13 +913,13 @@ Router.register('entry', (() => {
 
     _sheetEl.querySelector('#sel-out-role')?.addEventListener('change', e => {
       _sh.roleOut = e.target.value;
-      _sh.accountOut = lastAcctNonCC(_sh.roleOut);
+      _sh.accountOut = lastAcctBank(_sh.roleOut);
       renderSheet();
     });
     _sheetEl.querySelector('#sel-out-acct')?.addEventListener('change', e => { _sh.accountOut = e.target.value; });
     _sheetEl.querySelector('#sel-in-role')?.addEventListener('change', e => {
       _sh.roleIn = e.target.value;
-      _sh.accountIn = lastAcct(_sh.roleIn);
+      _sh.accountIn = lastAcctBank(_sh.roleIn);
       renderSheet();
     });
     _sheetEl.querySelector('#sel-in-acct')?.addEventListener('change', e => { _sh.accountIn = e.target.value; });
@@ -914,8 +929,8 @@ Router.register('entry', (() => {
       const p = Store.get().projects.find(x => x.name === val);
       if (val && p?.ownerRole && Store.roleNames().includes(p.ownerRole)) {
         _sh.roleIn = p.ownerRole;
-        const names = acctsForRole(p.ownerRole).map(a => a.name);
-        _sh.accountIn = (p.defaultAccount && names.includes(p.defaultAccount)) ? p.defaultAccount : (names[0] || '');
+        const names = acctsForRole(p.ownerRole).filter(a => a.type === '銀行').map(a => a.name);
+        _sh.accountIn = (p.defaultAccount && names.includes(p.defaultAccount)) ? p.defaultAccount : (names[0] || lastAcctBank(p.ownerRole));
       }
       renderSheet();
     });
@@ -959,7 +974,9 @@ Router.register('entry', (() => {
     } else if (_sh.kind === 'transfer') {
       if (!_sh.accountOut) return Utils.toast('請選擇轉出帳戶', 'warn');
       if (!_sh.accountIn)  return Utils.toast('請選擇轉入帳戶', 'warn');
-      if (isAcctCreditCard(_sh.roleOut, _sh.accountOut)) return Utils.toast('信用卡不可作為轉出帳戶', 'warn');
+      // 轉帳只能用銀行帳戶：現金不參與轉帳、信用卡不是可轉入/轉出的帳戶
+      if (isAcctCreditCard(_sh.roleOut, _sh.accountOut) || isAcctCash(_sh.roleOut, _sh.accountOut)) return Utils.toast('轉出帳戶只能選銀行帳戶', 'warn');
+      if (isAcctCreditCard(_sh.roleIn, _sh.accountIn) || isAcctCash(_sh.roleIn, _sh.accountIn)) return Utils.toast('轉入帳戶只能選銀行帳戶', 'warn');
       if (_sh.repayBatch && _sh.repayBatch.length) {
         // 全額補款：每期各建一筆轉帳，各自綁定 settleId（金額由各期帶入，不受輸入金額影響）
         row = _sh.repayBatch.map(item => [

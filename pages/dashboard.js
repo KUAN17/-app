@@ -93,22 +93,17 @@ Router.register('dashboard', (() => {
   function assetInfo(accounts, investments, balances) {
     const roles = scopeRoles();
     const set = new Set(roles);
-    let acctSum = 0, ccDebt = 0;
+    let acctSum = 0;
     roles.forEach(role => {
       (accounts[role] || []).forEach(a => {
-        if (a.type === '信用卡') {
-          // 信用卡應繳＝帳本逐筆試算的卡債餘額（跟設定頁帳戶管理同一套，溢繳不計入負債）
-          ccDebt += Math.max(0, (balances[role] || {})[a.name] || 0);
-          return;
-        }
-        if (a.type === '證券帳戶') return;
+        if (a.type === '信用卡' || a.type === '證券帳戶') return;
         acctSum += (balances[role] || {})[a.name] || 0;
       });
     });
     const invs = investments.filter(i => set.has(i.role));
     const invSum = invs.reduce((s, i) => s + i.marketValue, 0);
     const unreal = invs.reduce((s, i) => s + i.unrealized, 0);
-    return { acctSum, invSum, unreal, ccDebt, total: acctSum + invSum };
+    return { acctSum, invSum, unreal, total: acctSum + invSum };
   }
 
   function shiftMonth(d) {
@@ -414,7 +409,6 @@ Router.register('dashboard', (() => {
           <div class="dash-mini-label">總資產</div>
           <div class="dash-mini-val">${Utils.formatMoney(assets.total)}</div>
           <div class="dash-mini-sub">帳戶 ${Utils.formatMoney(assets.acctSum)}</div>
-          ${assets.ccDebt > 0 ? `<div class="dash-cc-debt">信用卡應繳 -${Utils.formatMoney(assets.ccDebt)}</div>` : ''}
         </div>
         <div class="card dash-mini-card">
           <div class="dash-mini-label">投資</div>
@@ -443,7 +437,6 @@ Router.register('dashboard', (() => {
         <div class="card dash-g-card">
           <div class="dash-mini-label">總資產</div>
           <div class="dash-g-val">${Utils.formatMoney(assets.total)}</div>
-          ${assets.ccDebt > 0 ? `<div class="dash-cc-debt">信用卡應繳 -${Utils.formatMoney(assets.ccDebt)}</div>` : ''}
         </div>
         <div class="card dash-g-card">
           <div class="dash-mini-label">收入 / 支出</div>

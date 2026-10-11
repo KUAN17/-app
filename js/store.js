@@ -246,37 +246,21 @@ window.Store = (() => {
   }
 
   // ── Account balance calculation ──────────────────────────────────────────
+  // 信用卡不追蹤餘額：純粹是記帳時「這筆是刷卡付的」標籤，不是有餘額的帳戶
+  // （帳單金額由使用者自己透過定期提醒每期手動輸入，從銀行帳戶直接扣）
   function calcBalance(role, accountName) {
     const cfg = (_data.accounts[role] || []).find(a => a.name === accountName);
+    if (cfg && cfg.type === '信用卡') return 0;
     const baseDate = cfg ? cfg.baseDate : '';
-    const isCC = !!(cfg && cfg.type === '信用卡');
-    // 信用卡忽略期初餘額：設定當下的應繳金額現實中會繳掉，待繳純由帳本推算（基準日起）
-    const initial = isCC ? 0 : (cfg ? cfg.balance : 0);
-
     const normBase = baseDate ? baseDate.replace(/-/g, '/') : '';
-    let balance = initial;
+    let balance = cfg ? cfg.balance : 0;
     _data.ledger.forEach(tx => {
-      // 信用卡用帳本全紀錄（期初與基準日皆不適用），其他帳戶自基準日起算
-      if (!isCC && normBase && tx.date < normBase) return;
-      if (isCC) {
-        // 信用卡＝未繳卡債：刷卡累加，轉帳入卡（繳費）扣減，繳清後歸零
-        if (tx.type === '轉帳' || tx.type === '公積金提撥') {
-          if (tx.roleIn === role && tx.accountIn === accountName) balance -= tx.amount;
-          return;
-        }
-        if (tx.type !== '支出') return;
-        if (tx.payAccount) {
-          if (tx.payAccount === accountName && (!tx.payRole || tx.payRole === role)) balance += tx.amount;
-        } else if (tx.roleOut === role && tx.accountOut === accountName) {
-          balance += tx.amount;
-        }
-        return;
-      }
+      if (normBase && tx.date < normBase) return;
       if (tx.type === '收入' && tx.roleOut === role && tx.accountOut === accountName) {
         balance += tx.amount;
       } else if (tx.type === '支出') {
         if (tx.payAccount) {
-          // 代付：實際從 payAccount 扣款，accountOut 為費用歸屬（待帳單轉帳時才扣）
+          // 代付：實際從 payAccount 扣款，accountOut 為費用歸屬（待補款轉帳時才扣）
           // payRole 為空的舊資料退回僅比對帳戶名稱
           if (tx.payAccount === accountName && (!tx.payRole || tx.payRole === role)) balance -= tx.amount;
         } else if (tx.roleOut === role && tx.accountOut === accountName) {
@@ -295,43 +279,35 @@ window.Store = (() => {
     const map = {};
     Object.entries(_data.accounts).forEach(([role, accts]) => {
       accts.forEach(a => {
-        const isCC = a.type === '信用卡';
-        // 信用卡忽略期初餘額（同 calcBalance）
-        map[`${role}||${a.name}`] = { bal: isCC ? 0 : a.balance, base: (a.baseDate || '').replace(/-/g, '/'), isCC };
+        if (a.type === '信用卡') return; // 信用卡不追蹤餘額（同 calcBalance）
+        map[`${role}||${a.name}`] = { bal: a.balance, base: (a.baseDate || '').replace(/-/g, '/') };
       });
     });
-    // kind: 'charge'=刷卡消費, 'in'=收入, 'tin'=轉帳轉入, 'out'=轉出
-    function apply(role, name, date, amt, kind) {
+    function apply(role, name, date, amt) {
       const e = map[`${role}||${name}`];
-      if (!e) return;
-      if (!e.isCC && e.base && date < e.base) return; // 信用卡不看基準日（同 calcBalance）
-      if (e.isCC) {
-        // 信用卡＝未繳卡債：刷卡累加，轉帳入卡（繳費）扣減，繳清後歸零
-        if (kind === 'charge') e.bal += -amt; // amt 為負，轉成正的消費額
-        else if (kind === 'tin') e.bal -= amt; // 繳費金額，卡債減少
-        return;
-      }
+      if (!e) return; // 信用卡／已刪除帳戶都不在 map 裡，直接略過
+      if (e.base && date < e.base) return;
       e.bal += amt;
     }
     _data.ledger.forEach(tx => {
       if (tx.type === '收入') {
-        apply(tx.roleOut, tx.accountOut, tx.date, tx.amount, 'in');
+        apply(tx.roleOut, tx.accountOut, tx.date, tx.amount);
       } else if (tx.type === '支出') {
         if (tx.payAccount) {
           if (tx.payRole) {
-            apply(tx.payRole, tx.payAccount, tx.date, -tx.amount, 'charge');
+            apply(tx.payRole, tx.payAccount, tx.date, -tx.amount);
           } else {
             // 舊資料無 payRole：所有同名帳戶都扣（與 calcBalance 退回邏輯一致）
             Object.keys(map).forEach(k => {
-              if (k.split('||')[1] === tx.payAccount) apply(...k.split('||'), tx.date, -tx.amount, 'charge');
+              if (k.split('||')[1] === tx.payAccount) apply(...k.split('||'), tx.date, -tx.amount);
             });
           }
         } else {
-          apply(tx.roleOut, tx.accountOut, tx.date, -tx.amount, 'charge');
+          apply(tx.roleOut, tx.accountOut, tx.date, -tx.amount);
         }
       } else if (tx.type === '轉帳' || tx.type === '公積金提撥') {
-        apply(tx.roleOut, tx.accountOut, tx.date, -tx.amount, 'out');
-        apply(tx.roleIn, tx.accountIn, tx.date, tx.amount, 'tin');
+        apply(tx.roleOut, tx.accountOut, tx.date, -tx.amount);
+        apply(tx.roleIn, tx.accountIn, tx.date, tx.amount);
       }
     });
     const res = {};
@@ -498,16 +474,18 @@ window.Store = (() => {
 
   // ── 代付往來 ──────────────────────────────────────────────────────────────
   // 補款實際要轉入的對象：代付帳戶是信用卡 → 轉進該卡綁定的扣款帳戶（持卡人才還得了卡費）；
-  // 現金/活存等 → 直接轉回代付帳戶本身。dashboard/repay 頁共用同一套判斷
+  // 銀行帳戶 → 直接轉回代付帳戶本身；現金等其他帳戶 → 補款是轉帳、只能進銀行帳戶，
+  // 回退到債權人名下的銀行帳戶。dashboard/repay 頁共用同一套判斷
   function repayTarget(creditorRole, payAccountName) {
     const all = allAccountsFlat();
     const acct = all.find(a => a.role === creditorRole && a.name === payAccountName);
-    if (!acct) return { role: creditorRole, account: payAccountName };
-    if (acct.type === '信用卡' && acct.paymentAccount) {
+    if (acct && acct.type === '銀行') return { role: creditorRole, account: payAccountName };
+    if (acct && acct.type === '信用卡' && acct.paymentAccount) {
       const owner = all.find(a => a.name === acct.paymentAccount);
       return { role: owner?.role || creditorRole, account: acct.paymentAccount };
     }
-    return { role: creditorRole, account: payAccountName };
+    const bank = all.find(a => a.role === creditorRole && a.type === '銀行');
+    return { role: creditorRole, account: bank ? bank.name : '' };
   }
 
   // 未結清代付清單：逐筆列出，代付補款轉帳依「債務人→債權人」FIFO（先借先還）沖銷
