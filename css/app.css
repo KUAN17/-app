@@ -1051,6 +1051,9 @@ html, body {
 }
 .entry-sheet-amt { text-align: center; font-size: 38px; font-weight: 800; padding: 8px 0; color: var(--text); touch-action: none; }
 .entry-sheet-amt.zero { color: var(--text-muted); opacity: .5; }
+/* 金額上方的計算式小字（例：150+320-50），結果自動算在下面的大字 */
+.sheet-amt-expr { font-size: 13px; color: var(--text-muted); text-align: right; min-height: 16px; touch-action: none; }
+.sheet-amt-expr-center { text-align: center; }
 
 .sheet-row { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
 .sheet-row label { font-size: 12px; color: var(--text-muted); flex: 0 0 40px; }

@@ -75,7 +75,7 @@ Router.register('entry', (() => {
     // 只要目前帳戶是信用卡（不論哪一張），就視為對應「信用卡」鍵，不顯示具體卡名；
     // 真正的「其他帳戶」只保留給非現金、非信用卡的銀行帳戶等特殊情況
     const isOther = sh.account && !curIsCC && sh.account !== cashName;
-    const amtDisp = calcExprDisplay(sh);
+    const total = calcSheetTotal(sh);
     const amtZero = (sh.amount || (sh.terms && sh.terms.length)) ? '' : ' zero';
     let toggleBtn;
     if (cashName && ccName) {
@@ -88,9 +88,11 @@ Router.register('entry', (() => {
       const act = ccName ? 'acct-cc' : 'acct-cash';
       toggleBtn = `<button type="button" class="sheet-acct-switch" data-action="${act}">${label}</button>`;
     }
-    let html = `<div class="sheet-amt-row">
+    // 上方小字顯示計算式（150+320-50），下方大字是自動算出的結果
+    let html = `<div class="sheet-amt-expr" id="sheet-amt-expr">${calcExprDisplay(sh)}</div>
+    <div class="sheet-amt-row">
       ${toggleBtn}
-      <div class="entry-sheet-amt sheet-amt-inline${amtZero}" id="sheet-amt">$ ${amtDisp}</div>
+      <div class="entry-sheet-amt sheet-amt-inline${amtZero}" id="sheet-amt">$ ${total.toLocaleString()}</div>
     </div>`;
     if (isOther && !sh.showAcctSelect) {
       html += `<div class="sheet-row"><label></label><span class="sheet-static">${acctIcon((acctsForRole(sh.role).find(a => a.name === sh.account) || {}).type)} ${Utils.esc(sh.account)}</span></div>`;
@@ -508,13 +510,14 @@ Router.register('entry', (() => {
     const catChips = `<div class="sheet-cat-chips">${CFG.CATEGORIES['收入'].map(c =>
       `<button type="button" class="sheet-chip${sh.category === c ? ' active' : ''}" data-action="inc-cat" data-val="${c}">${CAT_ICONS[c] || ''} ${c}</button>`
     ).join('')}</div>`;
-    const amtDisp = calcExprDisplay(sh);
+    const total = calcSheetTotal(sh);
     const amtZero = (sh.amount || (sh.terms && sh.terms.length)) ? '' : ' zero';
 
     return `
       <div class="sheet-scroll">
         ${catChips}
-        <div class="entry-sheet-amt${amtZero}" id="sheet-amt">$ ${amtDisp}</div>
+        <div class="sheet-amt-expr sheet-amt-expr-center" id="sheet-amt-expr">${calcExprDisplay(sh)}</div>
+        <div class="entry-sheet-amt${amtZero}" id="sheet-amt">$ ${total.toLocaleString()}</div>
         <div class="sheet-row"><label>帳戶</label>${acctSelectHtml('sel-sheet-acct', sh.role, sh.account, true)}</div>
         ${memoChips}
         <div class="sheet-row"><label>備註</label>
@@ -553,12 +556,13 @@ Router.register('entry', (() => {
       const p = Store.get().projects.find(x => x.name === sh.project);
       return !!(p?.ownerRole && Store.roleNames().includes(p.ownerRole));
     })();
-    const amtDisp = calcExprDisplay(sh);
+    const total = calcSheetTotal(sh);
     const amtZero = (sh.amount || (sh.terms && sh.terms.length)) ? '' : ' zero';
 
     return `
       <div class="sheet-scroll">
-        <div class="entry-sheet-amt${amtZero}" id="sheet-amt">$ ${amtDisp}</div>
+        <div class="sheet-amt-expr sheet-amt-expr-center" id="sheet-amt-expr">${calcExprDisplay(sh)}</div>
+        <div class="entry-sheet-amt${amtZero}" id="sheet-amt">$ ${total.toLocaleString()}</div>
         <div class="sheet-row"><label>轉出</label>${roleSelectHtml('sel-out-role', sh.roleOut)}${acctSelectHtml('sel-out-acct', sh.roleOut, sh.accountOut, true)}</div>
         <div class="entry-transfer-arrow" style="margin:2px 0">↓</div>
         <div class="sheet-row"><label>轉入</label>
@@ -773,9 +777,11 @@ Router.register('entry', (() => {
             else cur = cur === '0' ? k : cur + k;
             _sh.amount = cur;
           }
-          const disp = _sheetEl.querySelector('#sheet-amt');
-          if (disp) { disp.textContent = `$ ${calcExprDisplay(_sh)}`; disp.classList.toggle('zero', !(_sh.amount || (_sh.terms && _sh.terms.length))); }
           const total = calcSheetTotal(_sh);
+          const disp = _sheetEl.querySelector('#sheet-amt');
+          if (disp) { disp.textContent = `$ ${total.toLocaleString()}`; disp.classList.toggle('zero', !(_sh.amount || (_sh.terms && _sh.terms.length))); }
+          const exprEl = _sheetEl.querySelector('#sheet-amt-expr');
+          if (exprEl) exprEl.textContent = calcExprDisplay(_sh);
           const btn = _sheetEl.querySelector('#btn-sheet-submit');
           if (btn) btn.textContent = total ? `✓ 記帳 NT$ ${total.toLocaleString()}` : '✓ 記帳';
           const infoEl = _sheetEl.querySelector('.sheet-installment-info');
@@ -797,18 +803,24 @@ Router.register('entry', (() => {
         else if (action === 'inc-cat') { _sh.category = val; renderSheet(); }
         else if (action === 'cat-switch') { _sh.category = val; renderSheet(); }
         else if (action === 'acct-cash') {
-          _sh.account = Store.defaultCashFor(_sh.role); _sh.showAcctSelect = false;
+          const name = Store.defaultCashFor(_sh.role);
+          if (!name) { Utils.toast(`「${_sh.role}」還沒有現金帳戶，請先到設定新增`, 'warn'); return; }
+          _sh.account = name; _sh.showAcctSelect = false;
           if (!canInstallment(_sh)) _sh.installment = 0;
           renderSheet();
         }
         else if (action === 'acct-cc') {
-          _sh.account = Store.defaultCCFor(_sh.role); _sh.showAcctSelect = false;
+          const name = Store.defaultCCFor(_sh.role);
+          if (!name) { Utils.toast(`「${_sh.role}」還沒有信用卡帳戶，請先到設定新增`, 'warn'); return; }
+          _sh.account = name; _sh.showAcctSelect = false;
           renderSheet();
         }
         else if (action === 'acct-other') { _sh.showAcctSelect = true; renderSheet(); }
         else if (action === 'acct-toggle') {
           const curIsCC = isAcctCreditCard(_sh.role, _sh.account);
-          _sh.account = curIsCC ? Store.defaultCashFor(_sh.role) : Store.defaultCCFor(_sh.role);
+          const name = curIsCC ? Store.defaultCashFor(_sh.role) : Store.defaultCCFor(_sh.role);
+          if (!name) { Utils.toast(`「${_sh.role}」還沒有${curIsCC ? '現金' : '信用卡'}帳戶，請先到設定新增`, 'warn'); return; }
+          _sh.account = name;
           _sh.showAcctSelect = false;
           if (!canInstallment(_sh)) _sh.installment = 0;
           renderSheet();
