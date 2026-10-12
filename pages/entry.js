@@ -68,15 +68,65 @@ Router.register('entry', (() => {
     return Store.allAccountsFlat().filter(a => a.role === role && a.type !== '證券帳戶');
   }
   // 現金／信用卡快速鍵＋金額：同一排（鍵在左、金額在右），記帳不再需要指定信用卡別，僅代付時才需選銀行
+  // 代付是否實質成立（有代付人、有代付帳戶、不是自己付給自己）
+  function repayActive(sh) {
+    return !!sh.payRole && !!sh.payAccount && sh.role !== sh.payRole;
+  }
   function acctToggleSection(sh) {
+    const total = calcSheetTotal(sh);
+    const amtZero = (sh.amount || (sh.terms && sh.terms.length)) ? '' : ' zero';
+    const amtExpr = `<div class="sheet-amt-expr" id="sheet-amt-expr">${calcExprDisplay(sh)}</div>`;
+
+    if (repayActive(sh)) {
+      // 有代付時，這顆鍵改成代表「自己要怎麼補給對方」（跟轉出帳戶合併，不再是現金/信用卡）
+      if (sh.skipRepay) {
+        return `${amtExpr}
+        <div class="sheet-amt-row">
+          <button type="button" class="sheet-acct-switch sheet-acct-switch-skip" data-action="repay-resume">🕒 先不補款<span class="sheet-acct-switch-arrow">↺</span></button>
+          <div class="entry-sheet-amt sheet-amt-inline${amtZero}" id="sheet-amt">$ ${total.toLocaleString()}</div>
+        </div>
+        <div class="sheet-row"><label></label><span class="input-hint">之後請到「代付補款」頁再處理</span></div>`;
+      }
+      const cashName = Store.defaultCashFor(sh.role);
+      const bankName = defaultTransferFrom(sh.role);
+      const curIsCash = isAcctCash(sh.role, sh.transferFrom);
+      const isOther = sh.transferFrom && !curIsCash && sh.transferFrom !== bankName;
+      let toggleBtn;
+      if (cashName && bankName) {
+        const label = curIsCash ? '💵 現金' : '🏦 銀行';
+        toggleBtn = `<button type="button" class="sheet-acct-switch" data-action="repay-toggle">${label}<span class="sheet-acct-switch-arrow">⇄</span></button>`;
+      } else {
+        const label = bankName ? '🏦 銀行' : (cashName ? '💵 現金' : '選帳戶');
+        const act = bankName ? 'repay-bank' : 'repay-cash';
+        toggleBtn = `<button type="button" class="sheet-acct-switch" data-action="${act}">${label}</button>`;
+      }
+      let html = `${amtExpr}
+      <div class="sheet-amt-row">
+        ${toggleBtn}
+        <div class="entry-sheet-amt sheet-amt-inline${amtZero}" id="sheet-amt">$ ${total.toLocaleString()}</div>
+      </div>
+      <div class="sheet-row"><label></label><span class="input-hint">怎麼補給${Utils.esc(sh.payRole)}？</span></div>`;
+      if (isOther && !sh.showAcctSelect) {
+        html += `<div class="sheet-row"><label></label><span class="sheet-static">${acctIcon((acctsForRole(sh.role).find(a => a.name === sh.transferFrom) || {}).type)} ${Utils.esc(sh.transferFrom)}</span></div>`;
+      }
+      if (sh.showAcctSelect) {
+        html += `<div class="sheet-row"><label>帳戶</label>${acctSelectHtml('sel-sheet-transfer-from', sh.role, sh.transferFrom, true)}</div>`;
+      } else {
+        html += `<div class="sheet-row"><label></label>
+          <a href="javascript:void(0)" class="sheet-other-acct-link" data-action="acct-other">其他帳戶…</a>
+          <a href="javascript:void(0)" class="sheet-other-acct-link" data-action="repay-skip" style="margin-left:12px">先不要補</a>
+        </div>`;
+      }
+      return html;
+    }
+
+    // 沒有代付時：維持原本現金／信用卡切換
     const cashName = Store.defaultCashFor(sh.role);
     const ccName = Store.defaultCCFor(sh.role);
     const curIsCC = isAcctCreditCard(sh.role, sh.account);
     // 只要目前帳戶是信用卡（不論哪一張），就視為對應「信用卡」鍵，不顯示具體卡名；
     // 真正的「其他帳戶」只保留給非現金、非信用卡的銀行帳戶等特殊情況
     const isOther = sh.account && !curIsCC && sh.account !== cashName;
-    const total = calcSheetTotal(sh);
-    const amtZero = (sh.amount || (sh.terms && sh.terms.length)) ? '' : ' zero';
     let toggleBtn;
     if (cashName && ccName) {
       // 現金／信用卡合併成同一顆按鈕，點一下直接切到另一種（像記帳城市那樣）
@@ -89,7 +139,7 @@ Router.register('entry', (() => {
       toggleBtn = `<button type="button" class="sheet-acct-switch" data-action="${act}">${label}</button>`;
     }
     // 上方小字顯示計算式（150+320-50），下方大字是自動算出的結果
-    let html = `<div class="sheet-amt-expr" id="sheet-amt-expr">${calcExprDisplay(sh)}</div>
+    let html = `${amtExpr}
     <div class="sheet-amt-row">
       ${toggleBtn}
       <div class="entry-sheet-amt sheet-amt-inline${amtZero}" id="sheet-amt">$ ${total.toLocaleString()}</div>
@@ -171,6 +221,7 @@ Router.register('entry', (() => {
   }
   // 信用卡代付但沒綁扣款帳戶時，補到哪個帳戶必須手動選，送出前擋下未選的狀況
   function needsPayTarget(sh) {
+    if (sh.skipRepay) return false; // 先不補款：目標帳戶留到之後在代付補款頁再選
     return !!sh.payAccount && isAcctCreditCard(sh.payRole, sh.payAccount) &&
       !getPaymentInfo(sh.payRole, sh.payAccount, sh.payType) && !sh.payTargetAccount;
   }
@@ -342,7 +393,7 @@ Router.register('entry', (() => {
   }
 
   function buildPayExtra(sh, date, amount, settleId) {
-    if (!sh.autoTransfer || !sh.payAccount) return null;
+    if (!sh.autoTransfer || !sh.payAccount || sh.skipRepay) return null;
     const pi = sh.payTargetAccount ? { account: sh.payTargetAccount, role: sh.payRole } : getPaymentInfo(sh.payRole, sh.payAccount, sh.payType);
     if (!pi || !sh.transferFrom) return null;
     // 補款繼承原支出的維度與專案標籤，讓 store.js 能正確計入「已提撥」
@@ -367,7 +418,7 @@ Router.register('entry', (() => {
       _sh.showInstallmentPicker = false;
       _sh.reminderId = opts.reminderId || '';
       _sh.payRole = ''; _sh.payAccount = ''; _sh.payType = '';
-      _sh.autoTransfer = false; _sh.transferFrom = ''; _sh.payTargetAccount = '';
+      _sh.autoTransfer = false; _sh.transferFrom = ''; _sh.payTargetAccount = ''; _sh.skipRepay = false;
       _sh.installment = 0;
     } else if (kind === 'income') {
       _sh.category = '';
@@ -378,7 +429,7 @@ Router.register('entry', (() => {
       _sh.showAcctSelect = false;
       _sh.showInstallmentPicker = false;
       _sh.payRole = ''; _sh.payAccount = ''; _sh.payType = '';
-      _sh.autoTransfer = false; _sh.transferFrom = ''; _sh.payTargetAccount = '';
+      _sh.autoTransfer = false; _sh.transferFrom = ''; _sh.payTargetAccount = ''; _sh.skipRepay = false;
       _sh.installment = 0;
     } else if (kind === 'transfer') {
       // 轉帳只能用銀行帳戶（現金不參與轉帳、信用卡不是可轉入/轉出的帳戶）；
@@ -469,7 +520,7 @@ Router.register('entry', (() => {
     _sh.showAcctSelect = false;
     // 角色相依狀態重置：代付/自動補款/分期依新角色重新判斷
     _sh.payRole = ''; _sh.payAccount = ''; _sh.payType = '';
-    _sh.autoTransfer = false; _sh.transferFrom = ''; _sh.payTargetAccount = ''; _sh.showInstallmentPicker = false;
+    _sh.autoTransfer = false; _sh.transferFrom = ''; _sh.payTargetAccount = ''; _sh.skipRepay = false; _sh.showInstallmentPicker = false;
     if (_sh.installment && !canInstallment(_sh)) _sh.installment = 0;
     renderMain(); // 背後主畫面的角色列同步
     renderSheet();
@@ -636,33 +687,20 @@ Router.register('entry', (() => {
       <div class="sheet-cat-chips">${acctChips || '<span class="input-hint">該角色無可用帳戶</span>'}</div>
     </div>`;
 
-    if (sh.payAccount) {
-      // 信用卡沒綁扣款帳戶：開放手動選擇要補到代付人的哪個銀行帳戶（必填，不自動猜）
-      if (isAcctCreditCard(sh.payRole, sh.payAccount) && !getPaymentInfo(sh.payRole, sh.payAccount, sh.payType)) {
-        const tgtBanks = Store.allAccountsFlat().filter(a => a.role === sh.payRole && a.type === '銀行');
-        const tgtChips = tgtBanks.map(a => {
-          const active = sh.payTargetAccount === a.name;
-          return `<button type="button" class="sheet-chip${active ? ' active' : ''}" data-action="pay2-target" data-val="${Utils.esc(a.name)}">${acctIcon(a.type)} ${Utils.esc(a.name)}</button>`;
-        }).join('');
-        html += `<div class="sheet-pay-step">
-          <div class="sheet-pay-step-label">這張卡還沒設定扣款帳戶，補到${Utils.esc(sh.payRole)}的哪個銀行帳戶？（必填）</div>
-          <div class="sheet-cat-chips">${tgtChips || '<span class="input-hint">該角色沒有銀行帳戶</span>'}</div>
-        </div>`;
-      }
-      const pi = sh.payTargetAccount ? { account: sh.payTargetAccount, role: sh.payRole } : getPaymentInfo(sh.payRole, sh.payAccount, sh.payType);
-      if (pi) {
-        // 補款不一定要走正式轉帳，代付人可以用銀行帳戶或現金補
-        const fromAccts = acctsForRole(sh.role).filter(a => a.type === '銀行' || a.type === '現金');
-        const tfChips = fromAccts.map(a => {
-          const active = sh.transferFrom === a.name;
-          return `<button type="button" class="sheet-chip${active ? ' active' : ''}" data-action="pay2-transfer" data-val="${Utils.esc(a.name)}">${acctIcon(a.type)} ${Utils.esc(a.name)}</button>`;
-        }).join('');
-        html += `<div class="sheet-pay-step">
-          <div class="sheet-pay-step-label">怎麼補給${Utils.esc(pi.role)}？</div>
-          <div class="sheet-cat-chips">${tfChips || '<span class="input-hint">無可用帳戶</span>'}</div>
-        </div>`;
-      }
+    // 信用卡沒綁扣款帳戶：開放手動選擇要補到代付人的哪個銀行帳戶（必填，不自動猜）；
+    // 若已選擇「先不要補」則不急著問，之後到代付補款頁再選
+    if (sh.payAccount && !sh.skipRepay && isAcctCreditCard(sh.payRole, sh.payAccount) && !getPaymentInfo(sh.payRole, sh.payAccount, sh.payType)) {
+      const tgtBanks = Store.allAccountsFlat().filter(a => a.role === sh.payRole && a.type === '銀行');
+      const tgtChips = tgtBanks.map(a => {
+        const active = sh.payTargetAccount === a.name;
+        return `<button type="button" class="sheet-chip${active ? ' active' : ''}" data-action="pay2-target" data-val="${Utils.esc(a.name)}">${acctIcon(a.type)} ${Utils.esc(a.name)}</button>`;
+      }).join('');
+      html += `<div class="sheet-pay-step">
+        <div class="sheet-pay-step-label">這張卡還沒設定扣款帳戶，補到${Utils.esc(sh.payRole)}的哪個銀行帳戶？（必填）</div>
+        <div class="sheet-cat-chips">${tgtChips || '<span class="input-hint">該角色沒有銀行帳戶</span>'}</div>
+      </div>`;
     }
+    // 「怎麼補」改到主頁的現金/銀行切換鍵直接選，這裡不再重複問
     return html;
   }
 
@@ -876,13 +914,13 @@ Router.register('entry', (() => {
         else if (action === 'pay2-role') {
           _sh.payRole = val;
           _sh.payAccount = ''; _sh.payType = '';
-          _sh.autoTransfer = false; _sh.transferFrom = ''; _sh.payTargetAccount = '';
+          _sh.autoTransfer = false; _sh.transferFrom = ''; _sh.payTargetAccount = ''; _sh.skipRepay = false;
           renderSheet();
         }
         else if (action === 'pay2-acct') {
           const [r, n, t] = val.split('||');
           _sh.payRole = r; _sh.payAccount = n; _sh.payType = t;
-          _sh.payTargetAccount = '';
+          _sh.payTargetAccount = ''; _sh.skipRepay = false;
           const pi = getPaymentInfo(r, n, t);
           if ((pi || isAcctCreditCard(r, n)) && _sh.role !== r) {
             _sh.autoTransfer = true;
@@ -892,8 +930,29 @@ Router.register('entry', (() => {
           }
           renderSheet();
         }
-        else if (action === 'pay2-transfer') { _sh.transferFrom = val; renderSheet(); }
         else if (action === 'pay2-target') { _sh.payTargetAccount = val; renderSheet(); }
+        else if (action === 'repay-toggle') {
+          const curIsCash = isAcctCash(_sh.role, _sh.transferFrom);
+          const name = curIsCash ? defaultTransferFrom(_sh.role) : Store.defaultCashFor(_sh.role);
+          if (!name) { Utils.toast(`「${_sh.role}」還沒有${curIsCash ? '銀行' : '現金'}帳戶，請先到設定新增`, 'warn'); return; }
+          _sh.transferFrom = name; _sh.showAcctSelect = false; renderSheet();
+        }
+        else if (action === 'repay-bank') {
+          const name = defaultTransferFrom(_sh.role);
+          if (!name) { Utils.toast(`「${_sh.role}」還沒有銀行帳戶，請先到設定新增`, 'warn'); return; }
+          _sh.transferFrom = name; _sh.showAcctSelect = false; renderSheet();
+        }
+        else if (action === 'repay-cash') {
+          const name = Store.defaultCashFor(_sh.role);
+          if (!name) { Utils.toast(`「${_sh.role}」還沒有現金帳戶，請先到設定新增`, 'warn'); return; }
+          _sh.transferFrom = name; _sh.showAcctSelect = false; renderSheet();
+        }
+        else if (action === 'repay-skip') { _sh.skipRepay = true; _sh.showAcctSelect = false; renderSheet(); }
+        else if (action === 'repay-resume') {
+          _sh.skipRepay = false;
+          if (!_sh.transferFrom) _sh.transferFrom = defaultTransferFrom(_sh.role) || Store.defaultCashFor(_sh.role);
+          renderSheet();
+        }
         else if (action === 'memo-chip') {
           _sh.memo = val;
           const inp = _sheetEl.querySelector('#inp-sheet-memo');
@@ -922,6 +981,7 @@ Router.register('entry', (() => {
       if (!canInstallment(_sh)) _sh.installment = 0;
       renderSheet();
     });
+    _sheetEl.querySelector('#sel-sheet-transfer-from')?.addEventListener('change', e => { _sh.transferFrom = e.target.value; });
 
     _sheetEl.querySelector('#sel-sheet-proj')?.addEventListener('change', e => {
       const val = e.target.value;
