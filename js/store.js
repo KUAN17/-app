@@ -143,6 +143,22 @@ window.Store = (() => {
     };
   }
 
+  // 一次性分類改名遷移：把歷史帳本裡舊分類名稱的列批次改成新名稱，每個瀏覽器只跑一次
+  // （用 localStorage flag 擋重複執行；失敗不設 flag，下次 load() 會再試一次）
+  async function migrateCategoryRename(sid, oldName, newName) {
+    const flag = `ff_cat_migrated_${oldName}_${newName}`;
+    if (localStorage.getItem(flag)) return;
+    try {
+      const targets = _data.ledger.filter(tx => tx.category === oldName);
+      if (targets.length) {
+        const data = targets.map(tx => ({ range: `Ledger!F${tx._row}`, values: [[newName]] }));
+        await API.batchUpdateValues(sid, data);
+        targets.forEach(tx => { tx.category = newName; });
+      }
+      localStorage.setItem(flag, '1');
+    } catch (e) { /* 失敗不設 flag，下次 load() 重試 */ }
+  }
+
   async function load(force = false) {
     const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID);
     if (!sid) return;
@@ -175,6 +191,7 @@ window.Store = (() => {
       const [ledgerRows, projRows, invRows, acctRows, memberRows] = await API.batchGet(sid, ranges);
 
       _data.ledger = ledgerRows.filter(r => r[0]).map(parseLedgerRow);
+      await migrateCategoryRename(sid, '電信', '水電生活');
       _data.projects = projRows.filter(r => r[1]).map((row, idx) => parseProjectRow(row, idx));
       _data.investments = invRows.filter(r => r[2]).map((row, idx) => parseInvestRow(row, idx));
       _data.accounts = parseAccountConfig(acctRows);
