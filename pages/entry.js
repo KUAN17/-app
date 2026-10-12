@@ -97,6 +97,12 @@ Router.register('entry', (() => {
       ${toggleBtn}
       <div class="entry-sheet-amt sheet-amt-inline${amtZero}" id="sheet-amt">$ ${total.toLocaleString()}</div>
     </div>`;
+    // 分期鍵移到切換鍵正下方：只有目前帳戶是信用卡才出現
+    if (curIsCC) {
+      const instLabel = sh.installment > 1 ? `${sh.installment}期` : '不分期';
+      html += `<div class="sheet-row-inst"><button type="button" class="sheet-chip-btn sheet-chip-btn-inline" data-action="installment-toggle">${instLabel} <span class="sheet-chip-btn-caret">▾</span></button></div>`;
+      if (sh.showInstallmentPicker) html += buildInstallmentSection(sh);
+    }
     if (isOther && !sh.showAcctSelect) {
       html += `<div class="sheet-row"><label></label><span class="sheet-static">${acctIcon((acctsForRole(sh.role).find(a => a.name === sh.account) || {}).type)} ${Utils.esc(sh.account)}</span></div>`;
     }
@@ -487,35 +493,29 @@ Router.register('entry', (() => {
     return (daily || banks[0] || {}).name || '';
   }
 
-  // 分期／代付：同一排兩顆對等按鈕；分期只看自己選的帳戶是否為信用卡（不受代付影響，代付頁不提供分期）
-  function buildPayInstallRow(sh) {
-    const ownIsCC = isAcctCreditCard(sh.role, sh.account);
-    const instLabel = sh.installment > 1 ? `${sh.installment}期` : '不分期';
-    const instBtn = ownIsCC
-      ? `<button type="button" class="sheet-chip-btn" data-action="installment-toggle">${instLabel} <span class="sheet-chip-btn-caret">▾</span></button>`
-      : '';
+  // 代付鍵：放在備註欄右側，樣式跟分期鍵一樣樸素（不特別強調）
+  function payBtnHtml(sh) {
     const payLabel = sh.payAccount ? `🤝 ${sh.payRole}代付` : '🤝 代付';
-    const payBtn = `<button type="button" class="sheet-chip-btn sheet-chip-btn-pay${sh.payAccount ? ' active' : ''}" data-action="open-pay">${payLabel}</button>`;
-    let html = `<div class="sheet-row-dual">${instBtn}${payBtn}</div>`;
-    if (ownIsCC && sh.showInstallmentPicker) html += buildInstallmentSection(sh);
-    return html;
+    return `<button type="button" class="sheet-chip-btn sheet-chip-btn-inline" data-action="open-pay">${payLabel}</button>`;
   }
 
   // 支出主頁：分類 → 金額＋帳戶切換（同排）→ 備註 → 分期／代付 → 加減鍵＋數字鍵盤 → 送出
   // 數字鍵盤＋送出鍵：四種記帳類型的主頁共用，釘在畫面底部不捲動
+  // 算盤：4 欄整合計算機排列，＋／－／⌫／確認都併進數字格子裡；
+  // disabled（全額補款鎖定金額）只鎖數字/運算鍵，確認鍵仍可點（沿用 native disabled，不用 opacity 包住整塊）
   function buildNumpadFooter(sh, disabled = false) {
     const sheetTotal = calcSheetTotal(sh);
     const submitLabel = sheetTotal ? `✓ 記帳 NT$ ${sheetTotal.toLocaleString()}` : '✓ 記帳';
+    const keys = ['7','8','9','⌫','4','5','6','+','1','2','3','-','.','0'];
+    const keyLabel = { '+': '＋', '-': '－' };
     return `
-      <div class="sheet-calc-ops sheet-numpad${disabled ? ' disabled' : ''}">
-        <button type="button" class="sheet-calc-op" data-key="+">＋</button>
-        <button type="button" class="sheet-calc-op" data-key="-">－</button>
-      </div>
-      <div class="numpad-keys sheet-numpad${disabled ? ' disabled' : ''}">
-        ${['1','2','3','4','5','6','7','8','9','.','0','⌫'].map(k =>
-          `<button type="button" class="numpad-key${k === '⌫' ? ' numpad-del' : ''}" data-key="${k}">${k}</button>`).join('')}
-      </div>
-      <button type="button" class="numpad-done sheet-submit" id="btn-sheet-submit" data-action="submit">${submitLabel}</button>`;
+      <div class="numpad-keys sheet-numpad">
+        ${keys.map(k => {
+          const cls = (k === '+' || k === '-') ? ' numpad-op' : (k === '⌫' ? ' numpad-del' : '');
+          return `<button type="button" class="numpad-key${cls}" data-key="${k}"${disabled ? ' disabled' : ''}>${keyLabel[k] || k}</button>`;
+        }).join('')}
+        <button type="button" class="numpad-key numpad-confirm sheet-submit" id="btn-sheet-submit" data-action="submit">${submitLabel}</button>
+      </div>`;
   }
 
   function buildCatMainPage(sh, memoChips) {
@@ -525,13 +525,13 @@ Router.register('entry', (() => {
 
     return `
       <div class="sheet-scroll">
-        ${catChips}
         ${acctToggleSection(sh)}
+        ${catChips}
         ${memoChips}
         <div class="sheet-row"><label>備註</label>
           <input type="text" id="inp-sheet-memo" class="form-input" placeholder="選填" value="${Utils.esc(sh.memo || '')}" autocomplete="off">
+          ${payBtnHtml(sh)}
         </div>
-        ${buildPayInstallRow(sh)}
       </div>
       ${buildNumpadFooter(sh)}`;
   }
@@ -574,8 +574,8 @@ Router.register('entry', (() => {
         ${memoChips}
         <div class="sheet-row"><label>備註</label>
           <input type="text" id="inp-sheet-memo" class="form-input" placeholder="選填" value="${Utils.esc(sh.memo || '')}" autocomplete="off">
+          ${payBtnHtml(sh)}
         </div>
-        ${buildPayInstallRow(sh)}
       </div>
       ${buildNumpadFooter(sh)}`;
   }
@@ -694,7 +694,7 @@ Router.register('entry', (() => {
         <span class="entry-sheet-title-txt" style="margin-left:auto">🤝 代付</span>
         <button type="button" class="entry-sheet-close" data-action="close">✕</button>
       </div>
-      <div class="sheet-pay-pinned">
+      <div class="sheet-pay-pinned" data-action="back-to-main">
         <span class="sheet-pay-pinned-amt">$ ${sheetTotal.toLocaleString()}</span>
         <span class="sheet-pay-pinned-sub">${subLabel}</span>
       </div>

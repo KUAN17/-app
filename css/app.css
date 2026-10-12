@@ -770,21 +770,22 @@ html, body {
   text-align: right; padding: 10px 24px 12px;
   letter-spacing: -1px; min-height: 64px;
 }
+/* 記帳表單算盤：4 欄整合計算機排列，鍵與鍵之間用間距分隔，不用格線 */
 .numpad-keys {
-  display: grid; grid-template-columns: repeat(3,1fr);
-  border-top: 1px solid var(--border);
+  display: grid; grid-template-columns: repeat(4,1fr); gap: 7px;
 }
 .numpad-key {
-  background: var(--card); padding: 18px 0;
-  font-size: 22px; font-weight: 500; color: var(--text);
-  border: none; border-right: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-  cursor: pointer; -webkit-tap-highlight-color: transparent;
+  background: var(--card); padding: 15px 0; border-radius: 14px;
+  font-size: 18px; font-weight: 600; color: var(--text);
+  border: none; cursor: pointer; -webkit-tap-highlight-color: transparent;
   transition: background .08s;
 }
-.numpad-key:nth-child(3n) { border-right: none; }
 .numpad-key:active { background: var(--bg); }
-.numpad-del { font-size: 20px; }
+.numpad-key:disabled { opacity: .35; pointer-events: none; }
+.numpad-op { color: var(--primary); font-weight: 700; }
+.numpad-del { color: var(--text-muted); font-size: 16px; }
+.numpad-confirm { grid-column: span 2; background: var(--primary); color: #fff; font-weight: 700; font-size: 14px; }
+.numpad-confirm:active { background: var(--primary); opacity: .9; }
 .numpad-done {
   display: block; width: calc(100% - 24px); margin: 10px 12px 4px;
   padding: 14px 0; border-radius: 12px;
@@ -1083,16 +1084,15 @@ html, body {
 .sheet-amt-row { display: flex; align-items: center; gap: 10px; padding: 4px 0; }
 .sheet-amt-inline { flex: 1; text-align: right; font-size: 34px; padding: 0; touch-action: none; }
 
-/* 支出主頁：分期／代付同排兩顆對等按鈕 */
-.sheet-row-dual { display: flex; gap: 8px; margin: 10px 0 0; }
+/* 分期鍵（切換鍵下方）／代付鍵（備註欄右側）共用的樸素小按鈕樣式 */
+.sheet-row-inst { margin: 8px 0 0; }
 .sheet-chip-btn {
-  flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
   padding: 11px 0; border-radius: 14px; background: var(--card); border: 1px solid var(--border);
   color: var(--text); font-size: 14px; font-weight: 600; cursor: pointer; -webkit-tap-highlight-color: transparent;
 }
+.sheet-chip-btn-inline { flex: 0 0 auto; display: inline-flex; padding: 9px 14px; font-size: 13px; }
 .sheet-chip-btn-caret { font-size: 11px; color: var(--text-muted); }
-.sheet-chip-btn-pay { border: 1.5px solid var(--primary); color: var(--primary); font-weight: 700; }
-.sheet-chip-btn-pay.active { background: var(--primary); color: #fff; }
 
 /* 代付子頁 */
 .entry-sheet-back {
@@ -1103,20 +1103,15 @@ html, body {
 .sheet-pay-pinned {
   display: flex; align-items: center; justify-content: center; gap: 8px;
   margin: 12px 0 4px; padding: 11px 0; border-radius: 14px; background: var(--card);
-  border: 1px solid var(--border); flex-shrink: 0;
+  border: 1px solid var(--border); flex-shrink: 0; cursor: pointer; -webkit-tap-highlight-color: transparent;
 }
 .sheet-pay-pinned-amt { font-size: 20px; font-weight: 800; color: var(--text); }
 .sheet-pay-pinned-sub { font-size: 12px; color: var(--text-muted); }
 .sheet-pay-step { margin: 14px 0; }
 .sheet-pay-step-label { font-size: 12px; color: var(--text-muted); margin-bottom: 8px; }
 .sheet-other-acct-link { flex: 1; font-size: 12px; color: var(--text-muted); text-decoration: underline; }
-.sheet-calc-ops { display: flex; gap: 1px; background: var(--border); }
-.sheet-calc-op {
-  flex: 1; background: var(--card); padding: 14px 0; font-size: 20px; font-weight: 600;
-  color: var(--primary); border: none; cursor: pointer; -webkit-tap-highlight-color: transparent;
-}
-.sheet-calc-op:active { background: var(--bg); }
 .sheet-auto-toggle { display: flex; align-items: center; gap: 8px; font-size: 13px; margin: 8px 0; }
+.sheet-pay-sync-check { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text); cursor: pointer; }
 .sheet-installment { margin: 8px 0; border-top: 1px dashed var(--border); padding-top: 8px; }
 .sheet-installment-chips { display: flex; gap: 6px; flex-wrap: wrap; }
 .sheet-installment-info { font-size: 12px; color: var(--text-muted); margin: 4px 0 0 0; padding-left: 2px; }
