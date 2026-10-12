@@ -1,8 +1,10 @@
 Router.register('dashboard', (() => {
   let _scope  = '';   // 我的 / 全部 / 單一角色
-  let _period = 'month';
+  let _period = 'month'; // month / year / range（自訂區間）
   let _month  = '';
   let _year   = 0;
+  let _rangeFrom = ''; // 'YYYY-MM-DD'，區間模式起日
+  let _rangeTo   = ''; // 'YYYY-MM-DD'，留空＝至今
   let _ver    = localStorage.getItem('ff_dash_ver') || 'v1'; // v1=分析版 v2=卡片版
   let _openAcct = false;
   let _openProj = true;
@@ -55,7 +57,33 @@ Router.register('dashboard', (() => {
       const prefix = normDate(_month); // '2026-06' → '2026/06'
       return byRole(ledger).filter(tx => tx.date.startsWith(prefix));
     }
+    if (_period === 'range') {
+      const from = _rangeFrom ? normDate(_rangeFrom) : '';
+      const to = _rangeTo ? normDate(_rangeTo) : '';
+      return byRole(ledger).filter(tx => (!from || tx.date >= from) && (!to || tx.date <= to));
+    }
     return byRole(ledger).filter(tx => tx.date.startsWith(String(_year)));
+  }
+
+  // 區間模式的月份清單（給趨勢圖分桶用），超過 36 個月自動截斷避免暴衝
+  function rangeMonths() {
+    const now = new Date();
+    const toDate = _rangeTo ? new Date(_rangeTo) : now;
+    const fromDate = _rangeFrom ? new Date(_rangeFrom) : toDate;
+    const months = [];
+    let y = fromDate.getFullYear(), m = fromDate.getMonth();
+    const ty = toDate.getFullYear(), tm = toDate.getMonth();
+    let guard = 0;
+    while ((y < ty || (y === ty && m <= tm)) && guard < 36) {
+      months.push(`${y}/${String(m + 1).padStart(2, '0')}`);
+      m++; if (m > 11) { m = 0; y++; }
+      guard++;
+    }
+    return months;
+  }
+
+  function rangeLabel() {
+    return `${_rangeFrom || '—'} ~ ${_rangeTo || '至今'}`;
   }
 
   function sumIO(txs) {
@@ -128,6 +156,20 @@ Router.register('dashboard', (() => {
 
   function navRow() {
     const now = new Date();
+    const periodMini = [['month','月'],['year','年'],['range','區間']].map(([k,l]) =>
+      `<button class="dash-pmini ${_period === k ? 'active' : ''}" data-val="${k}" data-act="period">${l}</button>`
+    ).join('');
+    if (_period === 'range') {
+      return `<div class="dash-nav-row dash-nav-row-range">
+        <div class="dash-range-row">
+          <input type="date" id="dash-range-from" class="dash-range-input" value="${_rangeFrom}">
+          <span class="dash-range-sep">→</span>
+          <input type="date" id="dash-range-to" class="dash-range-input" value="${_rangeTo}">
+          <div class="dash-pmini-group">${periodMini}</div>
+        </div>
+        <div class="dash-range-hint">結束日期留空＝至今</div>
+      </div>`;
+    }
     let label, prevAct, nextAct, canNext;
     if (_period === 'month') {
       const [y, m] = _month.split('-').map(Number);
@@ -139,9 +181,6 @@ Router.register('dashboard', (() => {
       prevAct = 'prev-y'; nextAct = 'next-y';
       canNext = _year < now.getFullYear();
     }
-    const periodMini = [['month','月'],['year','年']].map(([k,l]) =>
-      `<button class="dash-pmini ${_period === k ? 'active' : ''}" data-val="${k}" data-act="period">${l}</button>`
-    ).join('');
     return `<div class="dash-nav-row">
       <button class="dash-nav-btn" data-act="${prevAct}">‹</button>
       <span class="dash-nav-label">${label}</span>
@@ -213,7 +252,7 @@ Router.register('dashboard', (() => {
 
     const total = txs.reduce((s, t) => s + t.amount, 0);
     const [y, m] = _month.split('-').map(Number);
-    const periodLabel = _period === 'month' ? `${y}年${m}月` : `${_year}年`;
+    const periodLabel = _period === 'month' ? `${y}年${m}月` : _period === 'range' ? rangeLabel() : `${_year}年`;
 
     const listHtml = txs.length ? txs.map(tx => {
       const name = tx.memo || tx.category || '（未命名）';
@@ -252,15 +291,28 @@ Router.register('dashboard', (() => {
   }
 
   function trendChart(ledger) {
-    if (_period !== 'year') return '';
-    const txs = byRole(ledger).filter(tx => tx.date.startsWith(String(_year)));
     const BAR_H = 64;
-    const months = Array.from({ length: 12 }, (_, i) => {
-      const mm = String(i + 1).padStart(2, '0');
-      const mTxs = txs.filter(tx => tx.date.startsWith(`${_year}/${mm}`));
-      const io = sumIO(mTxs);
-      return { m: i + 1, in: io.income, out: io.expense };
-    });
+    let months; // [{ m: 顯示用標籤, in, out }]
+    if (_period === 'year') {
+      const txs = byRole(ledger).filter(tx => tx.date.startsWith(String(_year)));
+      months = Array.from({ length: 12 }, (_, i) => {
+        const mm = String(i + 1).padStart(2, '0');
+        const mTxs = txs.filter(tx => tx.date.startsWith(`${_year}/${mm}`));
+        const io = sumIO(mTxs);
+        return { m: i + 1, in: io.income, out: io.expense };
+      });
+    } else if (_period === 'range') {
+      const ym = rangeMonths();
+      if (ym.length < 2) return ''; // 單月區間不用畫趨勢圖
+      const txs = byRole(ledger);
+      months = ym.map(prefix => {
+        const mTxs = txs.filter(tx => tx.date.startsWith(prefix));
+        const io = sumIO(mTxs);
+        return { m: prefix.slice(2).replace('/', '/'), in: io.income, out: io.expense }; // 例：26/08
+      });
+    } else {
+      return '';
+    }
     const maxVal = Math.max(...months.map(mo => Math.max(mo.in, mo.out)), 1);
     return `<div class="section-label">月度趨勢</div>
       <div class="card dash-bar-chart">
@@ -431,7 +483,7 @@ Router.register('dashboard', (() => {
     const grid = `
       <div class="dash-grid2">
         <div class="card dash-g-card">
-          <div class="dash-mini-label">${_period === 'month' ? '本月結餘' : '本年結餘'}</div>
+          <div class="dash-mini-label">${_period === 'month' ? '本月結餘' : _period === 'range' ? '區間結餘' : '本年結餘'}</div>
           <div class="dash-g-val ${net >= 0 ? 'amount-in' : 'amount-out'}">${Utils.formatMoney(net, true)}</div>
         </div>
         <div class="card dash-g-card">
@@ -509,7 +561,13 @@ Router.register('dashboard', (() => {
           return;
         }
         if (act === 'role')   _scope  = val;
-        if (act === 'period') _period = val;
+        if (act === 'period') {
+          _period = val;
+          if (val === 'range' && !_rangeFrom) {
+            const now = new Date();
+            _rangeFrom = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+          }
+        }
         if (act === 'prev-m') shiftMonth(-1);
         if (act === 'next-m') shiftMonth(1);
         if (act === 'prev-y') _year--;
@@ -524,6 +582,8 @@ Router.register('dashboard', (() => {
     el.querySelectorAll('[data-cat]').forEach(row => {
       row.addEventListener('click', () => showCatDetail(row.dataset.cat));
     });
+    el.querySelector('#dash-range-from')?.addEventListener('change', e => { _rangeFrom = e.target.value; renderAll(); });
+    el.querySelector('#dash-range-to')?.addEventListener('change', e => { _rangeTo = e.target.value; renderAll(); });
     document.getElementById('dash-col-acct')?.addEventListener('toggle', e => { _openAcct = e.target.open; });
     document.getElementById('dash-col-proj')?.addEventListener('toggle', e => { _openProj = e.target.open; });
     el.querySelectorAll('.proj-card').forEach(c =>

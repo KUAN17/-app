@@ -270,6 +270,16 @@ html, body {
 }
 .dash-pmini.active { background: var(--primary); color: #fff; }
 
+/* dash nav：自訂區間模式 */
+.dash-nav-row-range { flex-direction: column; align-items: stretch; gap: 4px; }
+.dash-range-row { display: flex; align-items: center; gap: 6px; }
+.dash-range-input {
+  flex: 1; min-width: 0; padding: 7px 8px; border: 1.5px solid var(--border); border-radius: 8px;
+  background: var(--card); color: var(--text); font-size: 13px;
+}
+.dash-range-sep { color: var(--text-muted); font-size: 13px; flex-shrink: 0; }
+.dash-range-hint { font-size: 11px; color: var(--text-muted); padding-left: 2px; }
+
 /* dash 環圈圖 */
 .dash-donut-card { padding: 16px 14px 8px; }
 .dash-donut-wrap { position: relative; width: 176px; margin: 0 auto; }
