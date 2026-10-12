@@ -474,18 +474,18 @@ window.Store = (() => {
 
   // ── 代付往來 ──────────────────────────────────────────────────────────────
   // 補款實際要轉入的對象：代付帳戶是信用卡 → 轉進該卡綁定的扣款帳戶（持卡人才還得了卡費）；
-  // 銀行帳戶 → 直接轉回代付帳戶本身；現金等其他帳戶 → 補款是轉帳、只能進銀行帳戶，
-  // 回退到債權人名下的銀行帳戶。dashboard/repay 頁共用同一套判斷
+  // 銀行／現金帳戶 → 直接轉回代付帳戶本身（補款不一定要走正式轉帳，現金收付也算）；
+  // 信用卡沒綁扣款帳戶 → 回傳空帳戶，交由畫面開放使用者手動選擇（必填，不自動猜）。
+  // dashboard/repay 頁共用同一套判斷
   function repayTarget(creditorRole, payAccountName) {
     const all = allAccountsFlat();
     const acct = all.find(a => a.role === creditorRole && a.name === payAccountName);
-    if (acct && acct.type === '銀行') return { role: creditorRole, account: payAccountName };
+    if (acct && (acct.type === '銀行' || acct.type === '現金')) return { role: creditorRole, account: payAccountName };
     if (acct && acct.type === '信用卡' && acct.paymentAccount) {
       const owner = all.find(a => a.name === acct.paymentAccount);
       return { role: owner?.role || creditorRole, account: acct.paymentAccount };
     }
-    const bank = all.find(a => a.role === creditorRole && a.type === '銀行');
-    return { role: creditorRole, account: bank ? bank.name : '' };
+    return { role: creditorRole, account: '' };
   }
 
   // 未結清代付清單：逐筆列出，代付補款轉帳依「債務人→債權人」FIFO（先借先還）沖銷

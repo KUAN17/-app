@@ -44,7 +44,7 @@ Router.register('repay', (() => {
       const gk = gm ? `id:${gm[1]}` : `${pi.base}||${pi.total}||${e.creditor}||${e.debtor}`;
       if (!(gk in gidByKey)) {
         gidByKey[gk] = _payGroups.length;
-        _payGroups.push({ creditor: e.creditor, debtor: e.debtor, members: [] });
+        _payGroups.push({ creditor: e.creditor, debtor: e.debtor, payAccount: e.payAccount, members: [] });
       }
       e._gid = gidByKey[gk];
       _payGroups[e._gid].members.push({ settleId: e.id, amount: e.remaining, date: e.date, memo: e.memo });
@@ -74,7 +74,7 @@ Router.register('repay', (() => {
       const isMyDebt = g.debtor === id;
       const isMyRecv = g.creditor === id;
       const label = isMyDebt ? `我欠 ${Utils.esc(g.creditor)}` : isMyRecv ? `${Utils.esc(g.debtor)} 欠我` : `${Utils.esc(g.debtor)} 欠 ${Utils.esc(g.creditor)}`;
-      const acctSub = g.tgtAcct ? `補到 ${Utils.esc(g.tgtRole)}／${Utils.esc(g.tgtAcct)}` : '補款對象帳戶未設定';
+      const acctSub = g.tgtAcct ? `補到 ${Utils.esc(g.tgtRole)}／${Utils.esc(g.tgtAcct)}` : '補款帳戶未設定，記補款時會請你選';
       const groupSum = g.items.reduce((s, e) => s + e.remaining, 0);
       const checkedInGroup = g.items.filter(e => _payChecked.has(e.id));
       const allChecked = checkedInGroup.length === g.items.length;
@@ -90,6 +90,7 @@ Router.register('repay', (() => {
           data-amount="${e.remaining}"
           data-settle="${Utils.esc(e.id || '')}"
           data-group="${grouped ? e._gid : ''}"
+          data-tgt-acct="${Utils.esc(e.tgt.account)}"
           data-memo="${Utils.esc(repayMemo)}">記補款 →</button>`;
         const checked = _payChecked.has(e.id) ? ' checked' : '';
         return `<div class="dash-acct-row dash-pay-row">
@@ -188,17 +189,44 @@ Router.register('repay', (() => {
     });
   }
 
+  // 信用卡代付但沒綁扣款帳戶時，補款帳戶無法自動判斷，開放手動選一個銀行帳戶（必填）
+  function pickTargetAccountIfNeeded(role, tgtAcct, cb) {
+    if (tgtAcct) { cb(tgtAcct); return; }
+    const banks = Store.allAccountsFlat().filter(a => a.role === role && a.type === '銀行');
+    if (!banks.length) { Utils.toast(`「${role}」沒有銀行帳戶可選，請先到設定新增`, 'warn'); return; }
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.innerHTML = `<div class="modal-card">
+      <div class="modal-title">補到${Utils.esc(role)}的哪個帳戶？</div>
+      <p class="section-hint">這張代付用的信用卡還沒設定扣款帳戶，請選一個銀行帳戶（必填）。</p>
+      <div class="modal-actions" style="flex-direction:column;align-items:stretch;gap:8px">
+        ${banks.map(a => `<button class="btn btn-outline" data-acct="${Utils.esc(a.name)}">${Utils.esc(a.name)}</button>`).join('')}
+        <button class="btn btn-outline btn-sm" id="pick-tgt-cancel">取消</button>
+      </div>
+    </div>`;
+    document.body.appendChild(modal);
+    modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+    document.getElementById('pick-tgt-cancel').addEventListener('click', () => modal.remove());
+    modal.querySelectorAll('[data-acct]').forEach(btn => {
+      btn.addEventListener('click', () => { const v = btn.dataset.acct; modal.remove(); cb(v); });
+    });
+  }
+
   function prefillSingleRepay(btn) {
-    localStorage.setItem('ff_entry_prefill', JSON.stringify({
-      type: '轉帳',
-      roleOut: btn.dataset.debtor,
-      roleIn: btn.dataset.creditor,
-      amount: btn.dataset.amount,
-      category: CFG.CAT_REPAYMENT,
-      settleId: btn.dataset.settle || '',
-      memo: btn.dataset.memo || ''
-    }));
-    Router.go('entry');
+    const creditor = btn.dataset.creditor;
+    pickTargetAccountIfNeeded(creditor, btn.dataset.tgtAcct || '', (accountIn) => {
+      localStorage.setItem('ff_entry_prefill', JSON.stringify({
+        type: '轉帳',
+        roleOut: btn.dataset.debtor,
+        roleIn: creditor,
+        accountIn,
+        amount: btn.dataset.amount,
+        category: CFG.CAT_REPAYMENT,
+        settleId: btn.dataset.settle || '',
+        memo: btn.dataset.memo || ''
+      }));
+      Router.go('entry');
+    });
   }
 
   // 自由多選補款：使用者在清單勾選的任意幾筆（同一債權人＋債務人＋補款對象帳戶），
@@ -207,33 +235,39 @@ Router.register('repay', (() => {
     if (!items.length) return;
     const first = items[0];
     const total = items.reduce((s, m) => s + m.amount, 0);
-    localStorage.setItem('ff_entry_prefill', JSON.stringify({
-      type: '轉帳',
-      roleOut: first.debtor,
-      roleIn: first.tgtRole,
-      accountIn: first.tgtAcct,
-      category: CFG.CAT_REPAYMENT,
-      amount: total,
-      repayBatch: items.map(m => ({ settleId: m.settleId, amount: m.amount, memo: m.memo }))
-    }));
-    Router.go('entry');
+    pickTargetAccountIfNeeded(first.tgtRole, first.tgtAcct || '', (accountIn) => {
+      localStorage.setItem('ff_entry_prefill', JSON.stringify({
+        type: '轉帳',
+        roleOut: first.debtor,
+        roleIn: first.tgtRole,
+        accountIn,
+        category: CFG.CAT_REPAYMENT,
+        amount: total,
+        repayBatch: items.map(m => ({ settleId: m.settleId, amount: m.amount, memo: m.memo }))
+      }));
+      Router.go('entry');
+    });
   }
 
   function prefillBatchRepay(g) {
     const total = g.members.reduce((s, m) => s + m.amount, 0);
-    localStorage.setItem('ff_entry_prefill', JSON.stringify({
-      type: '轉帳',
-      roleOut: g.debtor,
-      roleIn: g.creditor,
-      category: CFG.CAT_REPAYMENT,
-      amount: total,
-      repayBatch: g.members.map(m => ({
-        settleId: m.settleId,
-        amount: m.amount,
-        memo: `補款／${m.date.slice(5)} ${m.memo}`
-      }))
-    }));
-    Router.go('entry');
+    const tgt = g.payAccount ? Store.repayTarget(g.creditor, g.payAccount) : { role: g.creditor, account: '' };
+    pickTargetAccountIfNeeded(tgt.role, tgt.account || '', (accountIn) => {
+      localStorage.setItem('ff_entry_prefill', JSON.stringify({
+        type: '轉帳',
+        roleOut: g.debtor,
+        roleIn: tgt.role,
+        accountIn,
+        category: CFG.CAT_REPAYMENT,
+        amount: total,
+        repayBatch: g.members.map(m => ({
+          settleId: m.settleId,
+          amount: m.amount,
+          memo: `補款／${m.date.slice(5)} ${m.memo}`
+        }))
+      }));
+      Router.go('entry');
+    });
   }
 
   // 分期代付的補款方式選擇：補這期 vs 補全部剩餘
