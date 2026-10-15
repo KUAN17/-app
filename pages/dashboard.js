@@ -5,7 +5,6 @@ Router.register('dashboard', (() => {
   let _year   = 0;
   let _rangeFrom = ''; // 'YYYY-MM-DD'，區間模式起日
   let _rangeTo   = ''; // 'YYYY-MM-DD'，留空＝至今
-  let _ver    = localStorage.getItem('ff_dash_ver') || 'v1'; // v1=分析版 v2=卡片版
   let _openAcct = false;
   let _openProj = true;
 
@@ -150,7 +149,6 @@ Router.register('dashboard', (() => {
     ).join('');
     return `<div class="dash-top-row">
       <div class="dash-chips-row">${chips}</div>
-      <button class="dash-ver-btn" data-act="ver" title="切換版型">${_ver === 'v1' ? '◐ 分析' : '▦ 卡片'}</button>
     </div>`;
   }
 
@@ -188,28 +186,6 @@ Router.register('dashboard', (() => {
       <span class="dash-nav-spacer"></span>
       <div class="dash-pmini-group">${periodMini}</div>
     </div>`;
-  }
-
-  function donutSVG(entries, total, size, stroke) {
-    if (!total) {
-      return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
-        <circle r="${(size - stroke) / 2}" cx="${size/2}" cy="${size/2}" fill="none"
-          stroke="var(--border, #e5e7eb)" stroke-width="${stroke}"/></svg>`;
-    }
-    const r = (size - stroke) / 2;
-    const c = 2 * Math.PI * r;
-    let offset = 0;
-    const segs = entries.map(([cat, amt]) => {
-      const dash = amt / total * c;
-      const s = `<circle r="${r}" cx="${size/2}" cy="${size/2}" fill="none"
-        stroke="${colorFor(cat)}" stroke-width="${stroke}"
-        stroke-dasharray="${dash.toFixed(2)} ${(c - dash).toFixed(2)}"
-        stroke-dashoffset="${(-offset).toFixed(2)}" stroke-linecap="butt"
-        transform="rotate(-90 ${size/2} ${size/2})"/>`;
-      offset += dash;
-      return s;
-    }).join('');
-    return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">${segs}</svg>`;
   }
 
   function catListHtml(entries, total) {
@@ -288,6 +264,53 @@ Router.register('dashboard', (() => {
     document.body.appendChild(modal);
     modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
     Utils.el('btn-close-cat-detail').addEventListener('click', () => modal.remove());
+  }
+
+  // ── 收入明細 ──────────────────────────────────────────────────────────────
+  function showIncomeDetail() {
+    const { ledger } = Store.get();
+    const set = new Set(scopeRoles());
+    const txs = periodTxs(ledger).filter(t => {
+      if (t.type !== '收入' || !set.has(t.roleOut)) return false;
+      // 與 sumIO 相同的排除規則，明細合計才會跟上方結餘列一致
+      return t.category !== CFG.CAT_CARD_BILL && t.category !== CFG.CAT_ADJUST;
+    }).sort((a, b) => b.date.localeCompare(a.date));
+
+    const total = txs.reduce((s, t) => s + t.amount, 0);
+    const [y, m] = _month.split('-').map(Number);
+    const periodLabel = _period === 'month' ? `${y}年${m}月` : _period === 'range' ? rangeLabel() : `${_year}年`;
+
+    const listHtml = txs.length ? txs.map(tx => {
+      const name = tx.memo || tx.category || '（未命名）';
+      return `<div class="proj-detail-item">
+        <div class="proj-detail-item-main">
+          <span class="proj-detail-item-name">${Utils.esc(name)}</span>
+          <span class="proj-detail-item-amt amount-in">${Utils.formatMoney(tx.amount)}</span>
+        </div>
+        <div class="proj-detail-item-sub">
+          <span>${tx.date}</span>
+          <span>· ${Utils.esc(tx.roleOut)}／${Utils.esc(tx.accountOut)}</span>
+          ${tx.category ? `<span>· ${Utils.esc(tx.category)}</span>` : ''}
+        </div>
+      </div>`;
+    }).join('') : `<p class="empty-hint">本期無收入</p>`;
+
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.innerHTML = `<div class="modal-card" style="max-height:80vh;display:flex;flex-direction:column">
+      <div class="modal-title">收入明細｜${periodLabel}</div>
+      <div class="proj-detail-summary">
+        <div><span class="label-sm">合計</span><span class="amount-in">${Utils.formatMoney(total)}</span></div>
+        <div><span class="label-sm">筆數</span><span>${txs.length} 筆</span></div>
+      </div>
+      <div class="proj-detail-list" style="overflow-y:auto;flex:1">${listHtml}</div>
+      <div class="modal-actions" style="margin-top:12px">
+        <button class="btn btn-outline btn-sm" id="btn-close-income-detail">關閉</button>
+      </div>
+    </div>`;
+    document.body.appendChild(modal);
+    modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+    Utils.el('btn-close-income-detail').addEventListener('click', () => modal.remove());
   }
 
   function trendChart(ledger) {
@@ -431,27 +454,28 @@ Router.register('dashboard', (() => {
     return `<div class="card dash-todo-card">${rows.join('')}</div>`;
   }
 
-  // ── 版型一：分析版（環圈圖為主角） ─────────────────────────────────────────
-  function buildV1(ledger, accounts, investments, balances) {
+  // ── 主要內容：結餘為主視覺數字，收入可點開明細，支出分類為純清單（不畫圓圈） ──────
+  function buildMain(ledger, accounts, investments, balances) {
     const txs = periodTxs(ledger);
     const { income, expense } = sumIO(txs);
     const net = income - expense;
     const { entries, total } = catData(txs);
     const assets = assetInfo(accounts, investments, balances);
+    const netLabel = _period === 'month' ? '本月結餘' : _period === 'range' ? '區間結餘' : '本年結餘';
 
-    const donutBlock = `
-      <div class="card dash-donut-card">
-        <div class="dash-donut-wrap">
-          ${donutSVG(entries, total, 176, 26)}
-          <div class="dash-donut-center">
-            <div class="dash-donut-center-label">支出</div>
-            <div class="dash-donut-center-val">${Utils.formatMoney(expense)}</div>
-          </div>
+    const heroBlock = `
+      <div class="card dash-hero-card">
+        <div class="dash-hero-label">${netLabel}</div>
+        <div class="dash-hero-val ${net >= 0 ? 'amount-in' : 'amount-out'}">${Utils.formatMoney(net, true)}</div>
+        <div class="dash-hero-sub">
+          <span class="dash-hero-io-item" data-act="income-detail">收入 <b class="amount-in">${Utils.formatMoney(income)}</b><span class="dash-hero-io-link">明細 ›</span></span>
+          <span class="dash-hero-io-item">支出 <b class="amount-out">${Utils.formatMoney(expense)}</b></span>
         </div>
-        <div class="dash-io-row">
-          <span>收入 <b class="amount-in">${Utils.formatMoney(income)}</b></span>
-          <span>結餘 <b class="${net >= 0 ? 'amount-in' : 'amount-out'}">${Utils.formatMoney(net, true)}</b></span>
-        </div>
+      </div>`;
+
+    const catBlock = `
+      <div class="card dash-catl-card">
+        <div class="dash-mini-label">支出分類<span class="dash-catl-hint">（點分類看明細）</span></div>
         <div class="dash-catl">${catListHtml(entries, total)}</div>
       </div>`;
 
@@ -469,52 +493,7 @@ Router.register('dashboard', (() => {
         </div>
       </div>`;
 
-    return donutBlock + trendChart(ledger) + miniCards;
-  }
-
-  // ── 版型二：卡片版（2×2 網格為主角） ──────────────────────────────────────
-  function buildV2(ledger, accounts, investments, balances) {
-    const txs = periodTxs(ledger);
-    const { income, expense } = sumIO(txs);
-    const net = income - expense;
-    const { entries, total } = catData(txs, 3);
-    const assets = assetInfo(accounts, investments, balances);
-
-    const grid = `
-      <div class="dash-grid2">
-        <div class="card dash-g-card">
-          <div class="dash-mini-label">${_period === 'month' ? '本月結餘' : _period === 'range' ? '區間結餘' : '本年結餘'}</div>
-          <div class="dash-g-val ${net >= 0 ? 'amount-in' : 'amount-out'}">${Utils.formatMoney(net, true)}</div>
-        </div>
-        <div class="card dash-g-card">
-          <div class="dash-mini-label">總資產</div>
-          <div class="dash-g-val">${Utils.formatMoney(assets.total)}</div>
-        </div>
-        <div class="card dash-g-card">
-          <div class="dash-mini-label">收入 / 支出</div>
-          <div class="dash-g-io">
-            <span class="amount-in">${Utils.formatMoney(income)}</span>
-            <span class="amount-out">${Utils.formatMoney(expense)}</span>
-          </div>
-        </div>
-        <div class="card dash-g-card">
-          <div class="dash-mini-label">投資損益</div>
-          <div class="dash-g-val ${assets.unreal >= 0 ? 'amount-in' : 'amount-out'}">${assets.unreal >= 0 ? '▲' : '▼'} ${Utils.formatMoney(Math.abs(assets.unreal))}</div>
-        </div>
-      </div>`;
-
-    const donutRow = `
-      <div class="card dash-donut-sm-card">
-        <div class="dash-donut-sm-wrap">
-          ${donutSVG(entries, total, 108, 18)}
-          <div class="dash-donut-center dash-donut-center-sm">
-            <div class="dash-donut-center-val-sm">${Utils.formatMoney(expense)}</div>
-          </div>
-        </div>
-        <div class="dash-catl dash-catl-sm">${catListHtml(entries, total)}</div>
-      </div>`;
-
-    return grid + donutRow + trendChart(ledger);
+    return heroBlock + catBlock + trendChart(ledger) + miniCards;
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -524,9 +503,7 @@ Router.register('dashboard', (() => {
     const balances = Store.calcAllBalances(); // 一次掃描算出所有帳戶餘額，本次渲染共用
     const warnings = overcommitWarnings(projects, balances);
 
-    const main = _ver === 'v1'
-      ? buildV1(ledger, accounts, investments, balances)
-      : buildV2(ledger, accounts, investments, balances);
+    const main = buildMain(ledger, accounts, investments, balances);
 
     const emptyCta = !ledger.length ? `<div class="card empty-cta">
       <div class="empty-cta-icon">👋</div>
@@ -560,6 +537,7 @@ Router.register('dashboard', (() => {
           Router.go('repay');
           return;
         }
+        if (act === 'income-detail') { showIncomeDetail(); return; }
         if (act === 'role')   _scope  = val;
         if (act === 'period') {
           _period = val;
@@ -572,10 +550,6 @@ Router.register('dashboard', (() => {
         if (act === 'next-m') shiftMonth(1);
         if (act === 'prev-y') _year--;
         if (act === 'next-y') _year++;
-        if (act === 'ver') {
-          _ver = _ver === 'v1' ? 'v2' : 'v1';
-          localStorage.setItem('ff_dash_ver', _ver);
-        }
         renderAll();
       });
     });

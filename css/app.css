@@ -251,14 +251,9 @@ html, body {
 .dash-pay-group-sum { font-size: 14px; font-weight: 700; color: var(--text); }
 .dash-pay-group-sub { font-size: 11px; color: var(--text-muted); padding: 2px 14px 8px; }
 
-/* dash top row（角色 chips + 版型切換） */
+/* dash top row（角色 chips） */
 .dash-top-row { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 4px; }
 .dash-top-row .dash-chips-row { flex: 1; }
-.dash-ver-btn {
-  border: 1.5px solid var(--border); background: var(--card); border-radius: 99px;
-  padding: 5px 12px; font-size: 12px; font-weight: 600; cursor: pointer;
-  color: var(--text-muted); white-space: nowrap; flex-shrink: 0;
-}
 
 /* dash nav 內嵌 月/年 mini toggle */
 .dash-nav-row { justify-content: flex-start; gap: 8px; }
@@ -280,20 +275,17 @@ html, body {
 .dash-range-sep { color: var(--text-muted); font-size: 13px; flex-shrink: 0; }
 .dash-range-hint { font-size: 11px; color: var(--text-muted); padding-left: 2px; }
 
-/* dash 環圈圖 */
-.dash-donut-card { padding: 16px 14px 8px; }
-.dash-donut-wrap { position: relative; width: 176px; margin: 0 auto; }
-.dash-donut-center {
-  position: absolute; inset: 0; display: flex; flex-direction: column;
-  align-items: center; justify-content: center; pointer-events: none;
-}
-.dash-donut-center-label { font-size: 11px; color: var(--text-muted); font-weight: 600; }
-.dash-donut-center-val { font-size: 18px; font-weight: 800; color: var(--text); }
-.dash-io-row {
-  display: flex; justify-content: space-around; font-size: 13px; color: var(--text-muted);
-  padding: 12px 0 10px; border-bottom: 1px solid var(--border); margin-bottom: 4px;
-}
-.dash-io-row b { font-weight: 700; margin-left: 2px; }
+/* dash 結餘主卡：大數字為主視覺，收入可點開明細 */
+.dash-hero-card { padding: 18px 16px; text-align: center; }
+.dash-hero-label { font-size: 12px; color: var(--text-muted); font-weight: 600; letter-spacing: .4px; }
+.dash-hero-val { font-size: 38px; font-weight: 800; line-height: 1.2; margin: 2px 0 10px; word-break: break-all; }
+.dash-hero-sub { display: flex; justify-content: center; gap: 20px; font-size: 14px; color: var(--text-muted); }
+.dash-hero-sub b { font-weight: 700; margin-left: 2px; }
+.dash-hero-io-item[data-act] { cursor: pointer; }
+.dash-hero-io-link { font-size: 11px; color: var(--primary); margin-left: 4px; }
+
+.dash-catl-card { padding: 14px; }
+.dash-catl-hint { font-weight: 400; text-transform: none; letter-spacing: 0; margin-left: 4px; }
 
 /* dash 分類清單（含色點與百分比） */
 .dash-catl-row { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border); }
@@ -320,19 +312,6 @@ html, body {
 .dash-mini-val { font-size: 17px; font-weight: 800; line-height: 1.2; word-break: break-all; }
 .dash-mini-sub { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
 
-/* dash 2×2 卡片網格（卡片版） */
-.dash-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
-.dash-g-card { padding: 12px 14px; }
-.dash-g-val { font-size: 17px; font-weight: 800; line-height: 1.2; word-break: break-all; }
-.dash-g-io { display: flex; flex-direction: column; gap: 2px; font-size: 14px; font-weight: 700; }
-
-/* dash 小環圈 + Top 分類 橫排（卡片版） */
-.dash-donut-sm-card { display: flex; align-items: center; gap: 14px; padding: 14px; }
-.dash-donut-sm-wrap { position: relative; width: 108px; flex-shrink: 0; }
-.dash-donut-center-sm { padding: 0 14px; }
-.dash-donut-center-val-sm { font-size: 12px; font-weight: 800; color: var(--text); text-align: center; word-break: break-all; }
-.dash-catl-sm { flex: 1; min-width: 0; }
-.dash-catl-sm .dash-catl-amt { width: 60px; }
 
 /* dash 摺疊區塊 */
 .dash-collapse { margin-bottom: 8px; }
