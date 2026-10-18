@@ -159,6 +159,67 @@ window.Store = (() => {
     } catch (e) { /* 失敗不設 flag，下次 load() 重試 */ }
   }
 
+  // 一次性分類重整：「家用」依備註關鍵字拆成家用用品／家用採購／水電生活／禮物／食物／房貸，
+  // 「醫療保險」改名「保險」。跟 migrateCategoryRename 一樣用 localStorage flag 擋重複執行，
+  // 失敗不設 flag，下次 load() 會再試一次
+  async function migrateCategorySplit(sid) {
+    const flag = 'ff_cat_migrated_split_v1';
+    if (localStorage.getItem(flag)) return;
+    try {
+      const MONTHLY_KW  = ['房貸', '新青安'];
+      const UTILITY_KW  = ['水電', '電費', '瓦斯', '水費', '寬頻', '網路'];
+      const DURABLE_KW  = ['收納', '水槽', '層架', '電鍋', '特力屋', '垃圾桶', '菜刀', '漏勺', '廚房龍頭',
+                            '入厝', '枕套', '掃把', '刀具架', '碗盤', 'ikea', 'IKEA', '置物架', '衣架',
+                            '電視', '背膠', '砧板', '濾網', '拖鞋'];
+      const GIFT_KW     = ['禮物', '生日', '初魚'];
+      const FOOD_KW     = ['買菜', '食材', '晚餐', '午餐', '早餐', '蛋', '芭蕉', '烤肉', '拜拜買米', '家用和食物', '拜拜'];
+
+      function reclassifyHome(memo) {
+        const m = memo || '';
+        if (MONTHLY_KW.some(k => m.includes(k))) return '房貸';
+        if (UTILITY_KW.some(k => m.includes(k))) return '水電生活';
+        if (DURABLE_KW.some(k => m.includes(k))) return '家用採購';
+        if (GIFT_KW.some(k => m.includes(k))) return '禮物';
+        if (FOOD_KW.some(k => m.includes(k))) return '食物';
+        return '家用用品';
+      }
+
+      const data = [];
+      _data.ledger.forEach(tx => {
+        if (tx.category === '家用') {
+          const newCat = reclassifyHome(tx.memo);
+          data.push({ range: `Ledger!F${tx._row}`, values: [[newCat]] });
+          tx.category = newCat;
+        } else if (tx.category === '醫療保險') {
+          data.push({ range: `Ledger!F${tx._row}`, values: [['保險']] });
+          tx.category = '保險';
+        }
+      });
+      if (data.length) await API.batchUpdateValues(sid, data);
+      localStorage.setItem(flag, '1');
+    } catch (e) { /* 失敗不設 flag，下次 load() 重試 */ }
+  }
+
+  // 定期提醒的分類也同步重整：房貸/新青安提醒 → 房貸；醫療保險提醒（壽險等）→ 保險
+  async function migrateReminderCategorySplit(sid) {
+    const flag = 'ff_cat_migrated_reminder_split_v1';
+    if (localStorage.getItem(flag)) return;
+    try {
+      const data = [];
+      _data.reminders.forEach(r => {
+        if (r.category === '家用' && (r.name.includes('房貸') || r.name.includes('新青安'))) {
+          data.push({ range: `Reminders!D${r._row}`, values: [['房貸']] });
+          r.category = '房貸';
+        } else if (r.category === '醫療保險') {
+          data.push({ range: `Reminders!D${r._row}`, values: [['保險']] });
+          r.category = '保險';
+        }
+      });
+      if (data.length) await API.batchUpdateValues(sid, data);
+      localStorage.setItem(flag, '1');
+    } catch (e) { /* 失敗不設 flag，下次 load() 重試 */ }
+  }
+
   async function load(force = false) {
     const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID);
     if (!sid) return;
@@ -192,6 +253,7 @@ window.Store = (() => {
 
       _data.ledger = ledgerRows.filter(r => r[0]).map(parseLedgerRow);
       await migrateCategoryRename(sid, '電信', '水電生活');
+      await migrateCategorySplit(sid);
       _data.projects = projRows.filter(r => r[1]).map((row, idx) => parseProjectRow(row, idx));
       _data.investments = invRows.filter(r => r[2]).map((row, idx) => parseInvestRow(row, idx));
       _data.accounts = parseAccountConfig(acctRows);
@@ -205,6 +267,7 @@ window.Store = (() => {
       try {
         const remRows = await API.getRange(sid, 'Reminders!A2:J');
         _data.reminders = remRows.filter(r => r[0]).map((row, idx) => parseReminderRow(row, idx));
+        await migrateReminderCategorySplit(sid);
       } catch (e) {
         if ((e.message || '').toLowerCase().includes('unable to parse range')) {
           await ensureRemindersSheet(sid);
