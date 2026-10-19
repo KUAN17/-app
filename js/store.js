@@ -167,6 +167,7 @@ window.Store = (() => {
     if (localStorage.getItem(flag)) return;
     try {
       const MONTHLY_KW  = ['房貸', '新青安'];
+      const INSURANCE_KW = ['壽險', '保險'];
       const UTILITY_KW  = ['水電', '電費', '瓦斯', '水費', '寬頻', '網路'];
       const DURABLE_KW  = ['收納', '水槽', '層架', '電鍋', '特力屋', '垃圾桶', '菜刀', '漏勺', '廚房龍頭',
                             '入厝', '枕套', '掃把', '刀具架', '碗盤', 'ikea', 'IKEA', '置物架', '衣架',
@@ -177,6 +178,7 @@ window.Store = (() => {
       function reclassifyHome(memo) {
         const m = memo || '';
         if (MONTHLY_KW.some(k => m.includes(k))) return '房貸';
+        if (INSURANCE_KW.some(k => m.includes(k))) return '保險';
         if (UTILITY_KW.some(k => m.includes(k))) return '水電生活';
         if (DURABLE_KW.some(k => m.includes(k))) return '家用採購';
         if (GIFT_KW.some(k => m.includes(k))) return '禮物';
@@ -196,6 +198,22 @@ window.Store = (() => {
         }
       });
       if (data.length) await API.batchUpdateValues(sid, data);
+      localStorage.setItem(flag, '1');
+    } catch (e) { /* 失敗不設 flag，下次 load() 重試 */ }
+  }
+
+  // 修正遷移：migrateCategorySplit 第一版漏了「壽險」關鍵字，誤把壽險列歸到家用用品，
+  // 這次補抓回來改成「保險」（獨立一次性遷移，不影響已經跑過的 split_v1 旗標）
+  async function migrateInsuranceFix(sid) {
+    const flag = 'ff_cat_migrated_insurance_fix_v1';
+    if (localStorage.getItem(flag)) return;
+    try {
+      const targets = _data.ledger.filter(tx => tx.category === '家用用品' && (tx.memo || '').includes('壽險'));
+      if (targets.length) {
+        const data = targets.map(tx => ({ range: `Ledger!F${tx._row}`, values: [['保險']] }));
+        await API.batchUpdateValues(sid, data);
+        targets.forEach(tx => { tx.category = '保險'; });
+      }
       localStorage.setItem(flag, '1');
     } catch (e) { /* 失敗不設 flag，下次 load() 重試 */ }
   }
@@ -254,6 +272,7 @@ window.Store = (() => {
       _data.ledger = ledgerRows.filter(r => r[0]).map(parseLedgerRow);
       await migrateCategoryRename(sid, '電信', '水電生活');
       await migrateCategorySplit(sid);
+      await migrateInsuranceFix(sid);
       _data.projects = projRows.filter(r => r[1]).map((row, idx) => parseProjectRow(row, idx));
       _data.investments = invRows.filter(r => r[2]).map((row, idx) => parseInvestRow(row, idx));
       _data.accounts = parseAccountConfig(acctRows);
