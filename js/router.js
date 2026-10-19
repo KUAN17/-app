@@ -3,11 +3,11 @@ window.Router = (() => {
   let current = null;
   let _titleEl, _contentEl, _navItems;
 
-  const DRAWER_PAGES = new Set(['repay', 'projects', 'investments', 'settings']);
+  const DRAWER_PAGES = new Set(['repay', 'projects', 'investments', 'analysis', 'settings']);
 
   const PAGE_TITLES = {
     dashboard: '總覽', entry: '記帳', ledger: '帳本',
-    repay: '代付補款', projects: '專案', investments: '投資', settings: '設定'
+    repay: '代付補款', projects: '專案', investments: '投資', analysis: '財務分析', settings: '設定'
   };
 
   function register(name, mod) { pages[name] = mod; }

@@ -330,6 +330,62 @@ html, body {
 }
 .dash-collapse-body { padding-top: 2px; }
 
+/* ── 財務分析頁 ──────────────────────────────────────────── */
+.an-filter-card { padding: 14px; }
+.an-filter-label { font-size: 12px; color: var(--text-muted); font-weight: 600; letter-spacing: .4px; margin-bottom: 6px; }
+.an-chips-row { display: flex; gap: 6px; flex-wrap: wrap; }
+
+.an-role-scroll {
+  display: flex; gap: 12px; overflow-x: auto; scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch; padding-bottom: 4px;
+}
+.an-role-scroll::-webkit-scrollbar { display: none; }
+.an-role-card { flex: 0 0 88%; scroll-snap-align: center; display: flex; flex-direction: column; gap: 12px; }
+.an-dots { display: flex; justify-content: center; gap: 6px; margin-top: 8px; }
+.an-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--border); transition: all .15s; }
+.an-dot.active { background: var(--primary); width: 16px; border-radius: 3px; }
+
+.an-hero-card { padding: 16px; text-align: center; }
+.an-hero-label { font-size: 12px; color: var(--text-muted); font-weight: 600; letter-spacing: .4px; }
+.an-hero-val { font-size: 30px; font-weight: 800; line-height: 1.2; margin: 2px 0 8px; word-break: break-all; }
+.an-hero-sub { display: flex; justify-content: center; gap: 16px; font-size: 13px; color: var(--text-muted); }
+.an-hero-sub b { font-weight: 700; margin-left: 2px; }
+
+.an-body-card { padding: 4px 14px; }
+.an-section { padding: 8px 0; border-bottom: 1px solid var(--border); }
+.an-section:last-child { border-bottom: none; }
+.an-section-title {
+  font-size: 12px; font-weight: 700; padding-left: 8px; margin-bottom: 4px;
+  border-left: 3px solid var(--border); cursor: default; list-style: none;
+}
+.an-section-title.is-income { border-left-color: var(--success); color: var(--success); }
+.an-section-title.is-expense { border-left-color: var(--danger); color: var(--danger); }
+.an-section-title::-webkit-details-marker { display: none; }
+
+.an-cat-row { display: flex; justify-content: space-between; align-items: center; padding: 7px 0; }
+.an-cat-row-plain { cursor: default; }
+.an-cat-name { font-size: 13px; color: var(--text); }
+.an-cat-amt { font-size: 13px; font-weight: 600; color: var(--text); }
+.an-cat-details { border-bottom: 1px solid var(--border); }
+.an-cat-details:last-child { border-bottom: none; }
+.an-cat-details > summary { list-style: none; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.an-cat-details > summary::-webkit-details-marker { display: none; }
+.an-cat-details > summary .an-cat-name::after { content: ' ▸'; color: var(--text-muted); font-size: 11px; }
+.an-cat-details[open] > summary .an-cat-name::after { content: ' ▾'; }
+.an-cat-detail { padding: 2px 0 8px 8px; }
+
+.an-detail-month { margin-bottom: 4px; }
+.an-detail-month-head { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-muted); font-weight: 600; padding: 4px 0; }
+.an-detail-item { display: flex; gap: 8px; align-items: center; padding: 4px 0; font-size: 12px; color: var(--text-muted); }
+.an-detail-item-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.an-detail-item-date { flex-shrink: 0; }
+.an-detail-item-amt { flex-shrink: 0; font-weight: 600; color: var(--text); }
+
+.an-group { border-bottom: none; }
+.an-group > summary { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.an-group > summary::-webkit-details-marker { display: none; }
+.an-group-body { padding-top: 4px; }
+
 /* ── Progress bars ──────────────────────────────────────── */
 .progress-wrap { background: #E5E7EB; border-radius: 4px; height: 8px; margin: 8px 0; overflow: hidden; }
 .progress-bar { height: 100%; border-radius: 4px; background: var(--success); transition: width .4s ease; }
