@@ -218,6 +218,23 @@ window.Store = (() => {
     } catch (e) { /* 失敗不設 flag，下次 load() 重試 */ }
   }
 
+  // 補充遷移：migrateCategorySplit 只處理分類="家用"的列，漏了原本就分類="購物"但
+  // 備註其實是送禮/人情的列（如「爸爸生日-初魚」「姪子禮物」），這次一併改成「禮物」
+  async function migrateGiftFromShopping(sid) {
+    const flag = 'ff_cat_migrated_gift_from_shopping_v1';
+    if (localStorage.getItem(flag)) return;
+    try {
+      const GIFT_KW = ['禮物', '生日', '初魚'];
+      const targets = _data.ledger.filter(tx => tx.category === '購物' && GIFT_KW.some(k => (tx.memo || '').includes(k)));
+      if (targets.length) {
+        const data = targets.map(tx => ({ range: `Ledger!F${tx._row}`, values: [['禮物']] }));
+        await API.batchUpdateValues(sid, data);
+        targets.forEach(tx => { tx.category = '禮物'; });
+      }
+      localStorage.setItem(flag, '1');
+    } catch (e) { /* 失敗不設 flag，下次 load() 重試 */ }
+  }
+
   // 定期提醒的分類也同步重整：房貸/新青安提醒 → 房貸；醫療保險提醒（壽險等）→ 保險
   async function migrateReminderCategorySplit(sid) {
     const flag = 'ff_cat_migrated_reminder_split_v1';
@@ -273,6 +290,7 @@ window.Store = (() => {
       await migrateCategoryRename(sid, '電信', '水電生活');
       await migrateCategorySplit(sid);
       await migrateInsuranceFix(sid);
+      await migrateGiftFromShopping(sid);
       _data.projects = projRows.filter(r => r[1]).map((row, idx) => parseProjectRow(row, idx));
       _data.investments = invRows.filter(r => r[2]).map((row, idx) => parseInvestRow(row, idx));
       _data.accounts = parseAccountConfig(acctRows);
