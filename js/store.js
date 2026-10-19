@@ -235,6 +235,49 @@ window.Store = (() => {
     } catch (e) { /* 失敗不設 flag，下次 load() 重試 */ }
   }
 
+  // 補充遷移：migrateCategorySplit 只處理分類="家用"的列，漏了原本就分類="購物"但
+  // 備註其實是耐用品/家具小物的列（如「磁吸置物架」「生活用品ikea」「衣架」），
+  // 套用跟 migrateCategorySplit 相同的 DURABLE_KW 規則，一併改成「家用採購」
+  async function migrateDurableFromShopping(sid) {
+    const flag = 'ff_cat_migrated_durable_from_shopping_v1';
+    if (localStorage.getItem(flag)) return;
+    try {
+      const DURABLE_KW = ['收納', '水槽', '層架', '電鍋', '特力屋', '垃圾桶', '菜刀', '漏勺', '廚房龍頭',
+                           '入厝', '枕套', '掃把', '刀具架', '碗盤', 'ikea', 'IKEA', '置物架', '衣架',
+                           '電視', '背膠', '砧板', '濾網', '拖鞋'];
+      const targets = _data.ledger.filter(tx => tx.category === '購物' && DURABLE_KW.some(k => (tx.memo || '').includes(k)));
+      if (targets.length) {
+        const data = targets.map(tx => ({ range: `Ledger!F${tx._row}`, values: [['家用採購']] }));
+        await API.batchUpdateValues(sid, data);
+        targets.forEach(tx => { tx.category = '家用採購'; });
+      }
+      localStorage.setItem(flag, '1');
+    } catch (e) { /* 失敗不設 flag，下次 load() 重試 */ }
+  }
+
+  // 一次性個案修正：09/17 那筆「電視」15,030 元，使用者指定要併入「家電」專案，
+  // 不是單純分類問題，連開銷維度／專案標籤都要一起改，用備註+金額精準比對避免誤改其他筆
+  async function migrateTVToApplianceProject(sid) {
+    const flag = 'ff_cat_migrated_tv_to_appliance_v1';
+    if (localStorage.getItem(flag)) return;
+    try {
+      const target = _data.ledger.find(tx =>
+        tx.memo === '電視' && tx.amount === 15030 && tx.date === '2026/09/17' && !tx.projectTag
+      );
+      if (target) {
+        await API.batchUpdateValues(sid, [
+          { range: `Ledger!C${target._row}`, values: [['專案']] },
+          { range: `Ledger!D${target._row}`, values: [['家電']] },
+          { range: `Ledger!F${target._row}`, values: [['']] },
+        ]);
+        target.dimension = '專案';
+        target.projectTag = '家電';
+        target.category = '';
+      }
+      localStorage.setItem(flag, '1');
+    } catch (e) { /* 失敗不設 flag，下次 load() 重試 */ }
+  }
+
   // 定期提醒的分類也同步重整：房貸/新青安提醒 → 房貸；醫療保險提醒（壽險等）→ 保險
   async function migrateReminderCategorySplit(sid) {
     const flag = 'ff_cat_migrated_reminder_split_v1';
@@ -291,6 +334,8 @@ window.Store = (() => {
       await migrateCategorySplit(sid);
       await migrateInsuranceFix(sid);
       await migrateGiftFromShopping(sid);
+      await migrateTVToApplianceProject(sid);
+      await migrateDurableFromShopping(sid);
       _data.projects = projRows.filter(r => r[1]).map((row, idx) => parseProjectRow(row, idx));
       _data.investments = invRows.filter(r => r[2]).map((row, idx) => parseInvestRow(row, idx));
       _data.accounts = parseAccountConfig(acctRows);
