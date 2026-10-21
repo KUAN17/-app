@@ -517,7 +517,7 @@ Router.register('investments', (() => {
       // 實際扣款（價金＋手續費）同步記一筆「投資儲蓄」支出，從扣款帳戶扣款
       const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID) || CFG.SHEET_ID;
       const code = ticker.replace(/^TPE:/i, '');
-      const memo = Utils.sheetText(`${name}（${code}）買入 ${shares}股@${price}${fee ? `，含手續費${fee}` : ''}`);
+      const memo = Utils.sheetText(`${name}（${code}）買入 ${shares}股@${price}，持股成本 ${amount.toLocaleString()}，手續費${fee}`);
       const row = [Utils.uid(), role, '日常', '', '支出', '投資儲蓄', memo, Utils.todayStr(), total,
                    payAccount, '', '', '', '', ''];
       Utils.showLoading(true);
@@ -649,8 +649,7 @@ Router.register('investments', (() => {
       // 淨入帳（價金－手續費－證交稅）記一筆「投資賣出」收入
       const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID) || CFG.SHEET_ID;
       const code = pos.ticker.replace(/^TPE:/i, '');
-      const costs = [t.fee ? `手續費${t.fee}` : '', t.tax ? `證交稅${t.tax}` : ''].filter(Boolean).join('、');
-      const memo = Utils.sheetText(`${pos.name}（${code}）賣出 ${t.shares}股@${t.price}${costs ? `，扣${costs}` : ''}`);
+      const memo = Utils.sheetText(`${pos.name}（${code}）賣出 ${t.shares}股@${t.price}，賣股收入 ${t.amount.toLocaleString()}，證交稅${t.tax}，手續費${t.fee}`);
       const row = [Utils.uid(), pos.role, '日常', '', '收入', CFG.CAT_INVEST_SELL, memo, Utils.todayStr(), t.net,
                    inAccount, '', '', '', '', ''];
       Utils.showLoading(true);
