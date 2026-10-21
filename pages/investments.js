@@ -517,7 +517,7 @@ Router.register('investments', (() => {
       // 實際扣款（價金＋手續費）同步記一筆「投資儲蓄」支出，從扣款帳戶扣款
       const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID) || CFG.SHEET_ID;
       const code = ticker.replace(/^TPE:/i, '');
-      const memo = Utils.sheetText(`${name}（${code}）買入 ${shares}股@${price}，持股成本 ${amount.toLocaleString()}，手續費${fee}`);
+      const memo = Utils.sheetText(`${name}（${code}）買入 ${shares}股@${price}，成交金額 ${amount.toLocaleString()}，手續費${fee}`);
       const row = [Utils.uid(), role, '日常', '', '支出', '投資儲蓄', memo, Utils.todayStr(), total,
                    payAccount, '', '', '', '', ''];
       Utils.showLoading(true);
