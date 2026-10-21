@@ -112,6 +112,28 @@ Router.register('investments', (() => {
     ).slice(0, 8);
   }
 
+  // ── 台股交易成本（券商交割單皆為無條件捨去） ─────────────────────────────
+  const FEE_RATE = 0.001425;
+  function isTWTicker(ticker) {
+    const t = String(ticker || '').trim();
+    return /^TPE:/i.test(t) || /^\d/.test(t);
+  }
+  function calcFee(amount, ticker) {
+    if (!isTWTicker(ticker) || amount <= 0) return 0;
+    return Math.floor(amount * FEE_RATE);
+  }
+  // 證交稅只在賣出時收：債券 ETF（00 開頭、B 結尾）停徵、ETF（00 開頭）0.1%、股票 0.3%
+  function sellTaxRate(ticker) {
+    if (!isTWTicker(ticker)) return 0;
+    const code = String(ticker).replace(/^TPE:/i, '').trim().toUpperCase();
+    if (/^00\w*B$/.test(code)) return 0;
+    if (/^00/.test(code)) return 0.001;
+    return 0.003;
+  }
+  function calcSellTax(amount, ticker) {
+    return amount > 0 ? Math.floor(amount * sellTaxRate(ticker)) : 0;
+  }
+
   // ── Lifecycle ─────────────────────────────────────────────────────────
   function render(el) {
     el.innerHTML = `<div class="page-inner"><div class="spinner"></div></div>`;
@@ -388,13 +410,18 @@ Router.register('investments', (() => {
       <div class="form-row"><label>扣款帳戶</label>
         <select id="inp-inv-pay-account" class="form-select">${payAcctOpts(defaultRole)}</select>
       </div>
-      <p class="input-hint">買入金額將同步記一筆「投資儲蓄」支出</p>
+      <p class="input-hint">實際扣款（價金＋手續費）將同步記一筆「投資儲蓄」支出</p>
       <div class="form-row"><label>買入股數</label>
         <input type="number" id="inp-inv-shares" class="form-input" placeholder="0" min="0" step="1">
       </div>
-      <div class="form-row"><label>買入均價</label>
+      <div class="form-row"><label>成交價</label>
         <input type="number" id="inp-inv-avgcost" class="form-input" placeholder="0.00" min="0" step="0.01">
       </div>
+      <div class="form-row"><label>手續費</label>
+        <input type="number" id="inp-inv-fee" class="form-input" placeholder="0" min="0" step="1">
+        <p class="input-hint">依 0.1425% 自動試算，與交割單不同可直接修改</p>
+      </div>
+      <div id="inv-buy-summary" class="inv-trade-summary" style="display:none"></div>
       <div class="modal-actions">
         <button class="btn btn-primary" id="btn-inv-confirm">${prefill.ticker ? '確認加倉' : '新增持倉'}</button>
         <button class="btn btn-outline" id="btn-inv-cancel">取消</button>
@@ -408,6 +435,27 @@ Router.register('investments', (() => {
       Utils.el('inp-inv-account').innerHTML = brokerOpts(role);
       Utils.el('inp-inv-pay-account').innerHTML = payAcctOpts(role);
     });
+
+    // 手續費自動試算；使用者手動改過就不再覆蓋
+    let feeTouched = false;
+    function updateBuySummary() {
+      const shares = parseFloat(Utils.el('inp-inv-shares').value) || 0;
+      const price  = parseFloat(Utils.el('inp-inv-avgcost').value) || 0;
+      const amount = Math.round(shares * price);
+      const ticker = Utils.el('inp-inv-ticker').value.trim();
+      if (!feeTouched) Utils.el('inp-inv-fee').value = amount > 0 ? calcFee(amount, ticker) : '';
+      const fee = parseFloat(Utils.el('inp-inv-fee').value) || 0;
+      const box = Utils.el('inv-buy-summary');
+      if (amount <= 0) { box.style.display = 'none'; return; }
+      box.style.display = 'block';
+      box.innerHTML = `價金 ${Utils.formatMoney(amount)} ＋ 手續費 ${Utils.formatMoney(fee)}
+        ＝ 實際扣款 <b>${Utils.formatMoney(amount + fee)}</b><br>
+        <span class="inv-trade-sub">持股成本均價 $${((amount + fee) / shares).toFixed(2)}</span>`;
+    }
+    Utils.el('inp-inv-shares').addEventListener('input', updateBuySummary);
+    Utils.el('inp-inv-avgcost').addEventListener('input', updateBuySummary);
+    Utils.el('inp-inv-ticker').addEventListener('change', updateBuySummary);
+    Utils.el('inp-inv-fee').addEventListener('input', () => { feeTouched = true; updateBuySummary(); });
 
     if (!prefill.ticker) {
       let _t;
@@ -432,6 +480,7 @@ Router.register('investments', (() => {
               Utils.el('inp-inv-name').value = item.dataset.name;
               Utils.el('inp-inv-search').value = `${item.dataset.code}　${item.dataset.name}`;
               dd.classList.add('hidden');
+              updateBuySummary();
             });
           });
         }, 200);
@@ -447,23 +496,29 @@ Router.register('investments', (() => {
       const ticker     = Utils.el('inp-inv-ticker').value.trim();
       const name       = Utils.el('inp-inv-name').value.trim();
       const shares     = parseFloat(Utils.el('inp-inv-shares').value) || 0;
-      const avgCost    = parseFloat(Utils.el('inp-inv-avgcost').value) || 0;
+      const price      = parseFloat(Utils.el('inp-inv-avgcost').value) || 0;
+      const fee        = Math.max(0, Math.round(parseFloat(Utils.el('inp-inv-fee').value) || 0));
       const payAccount = Utils.el('inp-inv-pay-account')?.value || '';
       if (!account)    return Utils.toast('請先至設定新增證券帳戶', 'warn');
       if (!ticker)     return Utils.toast('請選擇標的或輸入代號', 'warn');
       if (!name)       return Utils.toast('請輸入標的名稱', 'warn');
       if (!shares)     return Utils.toast('請輸入買入股數', 'warn');
+      if (!price)      return Utils.toast('請輸入成交價', 'warn');
       if (!payAccount) return Utils.toast('請選擇扣款帳戶', 'warn');
 
+      // 持股成本含買進手續費（與券商庫存成本一致）
+      const amount  = Math.round(shares * price);
+      const total   = amount + fee;
+      const avgCost = Math.round(total / shares * 10000) / 10000;
       _lots.push({ role, account, ticker, name, shares, avgCost,
         totalCost: 0, price: 0, marketValue: 0, unrealized: 0, returnRate: 0, _deleted: false });
       modal.remove();
 
-      // 買入金額同步記一筆「投資儲蓄」支出，從扣款帳戶扣款
+      // 實際扣款（價金＋手續費）同步記一筆「投資儲蓄」支出，從扣款帳戶扣款
       const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID) || CFG.SHEET_ID;
-      const cost = Math.round(shares * avgCost);
-      const memo = Utils.sheetText(`${name}（${ticker.replace(/^TPE:/i, '')}）買入`);
-      const row = [Utils.uid(), role, '日常', '', '支出', '投資儲蓄', memo, Utils.todayStr(), cost,
+      const code = ticker.replace(/^TPE:/i, '');
+      const memo = Utils.sheetText(`${name}（${code}）買入 ${shares}股@${price}${fee ? `，含手續費${fee}` : ''}`);
+      const row = [Utils.uid(), role, '日常', '', '支出', '投資儲蓄', memo, Utils.todayStr(), total,
                    payAccount, '', '', '', '', ''];
       Utils.showLoading(true);
       try {
@@ -481,6 +536,15 @@ Router.register('investments', (() => {
   function showReduceModal(pos) {
     const modal = document.createElement('div');
     modal.className = 'modal-overlay';
+    const PAY_ICON = { '現金': '💵', '銀行': '🏦' };
+    const inAccts = Store.allAccountsFlat().filter(a => a.role === pos.role && a.type !== '證券帳戶' && a.type !== '信用卡');
+    const inOpts = inAccts.length
+      ? inAccts.map(a => `<option value="${Utils.esc(a.name)}">${PAY_ICON[a.type] || '🏦'} ${Utils.esc(a.name)}</option>`).join('')
+      : `<option value="">（無可入帳帳戶）</option>`;
+    const taxRate = sellTaxRate(pos.ticker);
+    const taxHint = !isTWTicker(pos.ticker) ? '非台股不自動試算'
+      : taxRate === 0 ? '債券 ETF 證交稅停徵' : `證交稅 ${(taxRate * 100).toFixed(1)}%`;
+
     modal.innerHTML = `<div class="modal-card">
       <div class="modal-title">減倉 — ${Utils.esc(pos.name)}</div>
       <div class="form-row">
@@ -494,10 +558,22 @@ Router.register('investments', (() => {
         <input type="number" id="inp-reduce-shares" class="form-input" placeholder="0" min="1" max="${pos.totalShares}" step="1">
       </div>
       <div class="form-row">
-        <label>賣出價格（選填，計算已實現損益）</label>
+        <label>成交價 *</label>
         <input type="number" id="inp-reduce-price" class="form-input" placeholder="${pos.price || pos.weightedAvg.toFixed(2)}" min="0" step="0.01">
       </div>
-      <div id="reduce-pnl" style="display:none;padding:8px 12px;border-radius:8px;margin:4px 0;font-size:.9rem"></div>
+      <div class="form-row"><label>入帳帳戶 *</label>
+        <select id="inp-reduce-in-account" class="form-select">${inOpts}</select>
+      </div>
+      <div class="inv-fee-grid">
+        <div class="form-row"><label>手續費</label>
+          <input type="number" id="inp-reduce-fee" class="form-input" placeholder="0" min="0" step="1">
+        </div>
+        <div class="form-row"><label>證交稅</label>
+          <input type="number" id="inp-reduce-tax" class="form-input" placeholder="0" min="0" step="1">
+        </div>
+      </div>
+      <p class="input-hint">手續費 0.1425%、${taxHint}，自動試算可直接修改；淨入帳將記一筆「投資賣出」收入</p>
+      <div id="reduce-pnl" class="inv-trade-summary" style="display:none"></div>
       <div class="modal-actions">
         <button class="btn btn-primary" id="btn-reduce-confirm">確認減倉</button>
         <button class="btn btn-outline" id="btn-reduce-cancel">取消</button>
@@ -508,34 +584,59 @@ Router.register('investments', (() => {
     Utils.el('btn-reduce-cancel').addEventListener('click', () => modal.remove());
 
     const sorted = [...pos.lots].sort((a, b) => a._si - b._si);
+    let feeTouched = false, taxTouched = false;
+
+    function fifoCostOf(sellShares) {
+      let rem = sellShares, cost = 0;
+      for (const l of sorted) {
+        if (rem <= 0) break;
+        const take = Math.min(l.shares, rem);
+        cost += take * l.avgCost;
+        rem -= take;
+      }
+      return cost;
+    }
+
+    function readTrade() {
+      const shares = parseFloat(Utils.el('inp-reduce-shares').value) || 0;
+      const price  = parseFloat(Utils.el('inp-reduce-price').value) || 0;
+      const amount = Math.round(shares * price);
+      const fee = Math.max(0, Math.round(parseFloat(Utils.el('inp-reduce-fee').value) || 0));
+      const tax = Math.max(0, Math.round(parseFloat(Utils.el('inp-reduce-tax').value) || 0));
+      return { shares, price, amount, fee, tax, net: amount - fee - tax };
+    }
 
     function updatePnL() {
-      const sellShares = parseFloat(Utils.el('inp-reduce-shares').value) || 0;
-      const sellPrice  = parseFloat(Utils.el('inp-reduce-price').value) || 0;
+      const pre = readTrade();
+      if (!feeTouched) Utils.el('inp-reduce-fee').value = pre.amount > 0 ? calcFee(pre.amount, pos.ticker) : '';
+      if (!taxTouched) Utils.el('inp-reduce-tax').value = pre.amount > 0 ? calcSellTax(pre.amount, pos.ticker) : '';
+      const t = readTrade();
       const pnlEl = Utils.el('reduce-pnl');
-      if (sellShares > 0 && sellPrice > 0) {
-        let rem = sellShares, fifoCost = 0;
-        for (const l of sorted) {
-          if (rem <= 0) break;
-          const take = Math.min(l.shares, rem);
-          fifoCost += take * l.avgCost;
-          rem -= take;
-        }
-        const realized = sellShares * sellPrice - fifoCost;
+      if (t.shares > 0 && t.price > 0) {
+        const fifoCost = fifoCostOf(Math.min(t.shares, pos.totalShares));
+        const realized = t.net - fifoCost;
         pnlEl.style.display = 'block';
-        pnlEl.style.background = realized >= 0 ? 'var(--success-light)' : 'var(--danger-light)';
-        pnlEl.style.color = realized >= 0 ? '#059669' : 'var(--danger)';
-        pnlEl.textContent = `已實現損益：${realized >= 0 ? '+' : ''}${Utils.formatMoney(Math.round(realized))}（FIFO 成本 ${Utils.formatMoney(Math.round(fifoCost))}）`;
+        pnlEl.innerHTML = `價金 ${Utils.formatMoney(t.amount)} − 手續費 ${Utils.formatMoney(t.fee)} − 證交稅 ${Utils.formatMoney(t.tax)}
+          ＝ 淨入帳 <b>${Utils.formatMoney(t.net)}</b><br>
+          <span class="${realized >= 0 ? 'amount-in' : 'amount-out'}">已實現損益：${realized >= 0 ? '+' : '-'}${Utils.formatMoney(Math.abs(Math.round(realized)))}</span>
+          <span class="inv-trade-sub">（FIFO 成本 ${Utils.formatMoney(Math.round(fifoCost))}）</span>`;
       } else { pnlEl.style.display = 'none'; }
     }
     Utils.el('inp-reduce-shares').addEventListener('input', updatePnL);
     Utils.el('inp-reduce-price').addEventListener('input', updatePnL);
+    Utils.el('inp-reduce-fee').addEventListener('input', () => { feeTouched = true; updatePnL(); });
+    Utils.el('inp-reduce-tax').addEventListener('input', () => { taxTouched = true; updatePnL(); });
 
-    Utils.el('btn-reduce-confirm').addEventListener('click', () => {
-      const sellShares = parseFloat(Utils.el('inp-reduce-shares').value) || 0;
-      if (!sellShares || sellShares <= 0) return Utils.toast('請輸入賣出股數', 'warn');
-      if (sellShares > pos.totalShares)   return Utils.toast(`最多可賣出 ${pos.totalShares} 股`, 'warn');
-      let rem = sellShares;
+    Utils.el('btn-reduce-confirm').addEventListener('click', async () => {
+      const t = readTrade();
+      const inAccount = Utils.el('inp-reduce-in-account').value;
+      if (!t.shares || t.shares <= 0)  return Utils.toast('請輸入賣出股數', 'warn');
+      if (t.shares > pos.totalShares)  return Utils.toast(`最多可賣出 ${pos.totalShares} 股`, 'warn');
+      if (!t.price || t.price <= 0)    return Utils.toast('請輸入成交價', 'warn');
+      if (!inAccount)                  return Utils.toast('請選擇入帳帳戶', 'warn');
+      if (t.net < 0)                   return Utils.toast('手續費與證交稅超過價金，請確認金額', 'warn');
+
+      let rem = t.shares;
       for (const l of sorted) {
         if (rem <= 0) break;
         const take = Math.min(l.shares, rem);
@@ -544,6 +645,22 @@ Router.register('investments', (() => {
         rem -= take;
       }
       modal.remove();
+
+      // 淨入帳（價金－手續費－證交稅）記一筆「投資賣出」收入
+      const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID) || CFG.SHEET_ID;
+      const code = pos.ticker.replace(/^TPE:/i, '');
+      const costs = [t.fee ? `手續費${t.fee}` : '', t.tax ? `證交稅${t.tax}` : ''].filter(Boolean).join('、');
+      const memo = Utils.sheetText(`${pos.name}（${code}）賣出 ${t.shares}股@${t.price}${costs ? `，扣${costs}` : ''}`);
+      const row = [Utils.uid(), pos.role, '日常', '', '收入', CFG.CAT_INVEST_SELL, memo, Utils.todayStr(), t.net,
+                   inAccount, '', '', '', '', ''];
+      Utils.showLoading(true);
+      try {
+        await API.append(sid, 'Ledger!A:O', row);
+      } catch (e) {
+        Utils.toast('記錄收入失敗：' + e.message, 'error');
+      } finally {
+        Utils.showLoading(false);
+      }
       saveLots();
     });
   }

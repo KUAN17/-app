@@ -330,6 +330,14 @@ html, body {
 }
 .dash-collapse-body { padding-top: 2px; }
 
+/* ── 投資買賣試算 ────────────────────────────────────────── */
+.inv-trade-summary {
+  background: var(--primary-light); border-radius: 8px; padding: 8px 12px;
+  margin: 4px 0 8px; font-size: 13px; line-height: 1.6; color: var(--text);
+}
+.inv-trade-sub { font-size: 12px; color: var(--text-muted); }
+.inv-fee-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
 /* ── 財務分析頁 ──────────────────────────────────────────── */
 .an-filter-card { padding: 14px; }
 .an-filter-label { font-size: 12px; color: var(--text-muted); font-weight: 600; letter-spacing: .4px; margin-bottom: 6px; }
