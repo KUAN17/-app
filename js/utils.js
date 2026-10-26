@@ -57,6 +57,30 @@ window.Utils = {
     return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}`;
   },
 
+  // 信用卡帳單期間：以結帳日推算，回傳「refISO 當天（含）之前已結帳」的最近 count 期，新到舊
+  // 結帳日超過當月天數時（如 31 號）夾到當月最後一天
+  cardBillPeriods(closingDay, refISO, count = 3) {
+    const cd = parseInt(closingDay) || 0;
+    if (cd < 1 || cd > 31) return [];
+    const closeOf = (y, m) => new Date(y, m, Math.min(cd, new Date(y, m + 1, 0).getDate()));
+    const [ry, rm, rd] = String(refISO).split('-').map(Number);
+    const ref = new Date(ry, rm - 1, rd);
+    let y = ref.getFullYear(), m = ref.getMonth();
+    if (closeOf(y, m) > ref) { m--; if (m < 0) { m = 11; y--; } }
+    const out = [];
+    for (let i = 0; i < count; i++) {
+      const end = closeOf(y, m);
+      const pm = m === 0 ? 11 : m - 1, py = m === 0 ? y - 1 : y;
+      const start = closeOf(py, pm);
+      start.setDate(start.getDate() + 1);
+      const md = d => `${d.getMonth() + 1}/${d.getDate()}`;
+      out.push({ key: `${end.getFullYear()}-${String(end.getMonth() + 1).padStart(2, '0')}`,
+        month: end.getMonth() + 1, range: `${md(start)}-${md(end)}` });
+      m--; if (m < 0) { m = 11; y--; }
+    }
+    return out;
+  },
+
   isThisMonth(dateStr) {
     if (!dateStr) return false;
     const d = new Date(dateStr.replace(/\//g, '-'));

@@ -1139,6 +1139,11 @@ html, body {
 
 /* 分期鍵（切換鍵下方）／代付鍵（備註欄右側）共用的樸素小按鈕樣式 */
 .sheet-row-inst { margin: 8px 0 0; }
+.sheet-row-top { align-items: flex-start; }
+.sheet-row-top > label { padding-top: 8px; }
+.sheet-row-top .sheet-cat-chips { flex: 1; min-width: 0; margin: 0; }
+.sheet-bill-lock { font-size: 11px; color: var(--text-muted); margin-left: 6px; font-weight: 400; }
+.sheet-bill-hint { margin: 0 0 8px 48px; }
 .sheet-chip-btn {
   display: flex; align-items: center; justify-content: center; gap: 6px;
   padding: 11px 0; border-radius: 14px; background: var(--card); border: 1px solid var(--border);

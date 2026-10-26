@@ -1,6 +1,6 @@
 window.Store = (() => {
   // 本機快取資料結構版本：改動解析邏輯時 +1，自動讓舊快取失效並重抓
-  const SCHEMA_V = 6;
+  const SCHEMA_V = 7;
 
   // 統一日期格式為 YYYY/MM/DD，相容多種來源格式以避免字串比較失敗：
   //  - 試算表序列值（UNFORMATTED_VALUE 下日期欄可能回傳純數字，如 46000）
@@ -139,7 +139,9 @@ window.Store = (() => {
       dueDay:        parseInt(row[6]) || 1,
       lastPaidMonth: txt(row[7]), // 'YYYY-MM'，與目前月份比對決定是否已繳
       active:        row[8] !== 'N',
-      memo:          txt(row[9])
+      memo:          txt(row[9]),
+      card:          txt(row[10]),             // 信用卡費提醒：繳哪張卡
+      closingDay:    parseInt(row[11]) || 0     // 信用卡費提醒：結帳日（推算帳單期間）
     };
   }
 
@@ -298,6 +300,33 @@ window.Store = (() => {
     } catch (e) { /* 失敗不設 flag，下次 load() 重試 */ }
   }
 
+  // 一次性建立卡費提醒（中信 12 號結帳／1 號繳款、台新 20 號結帳／7 號繳款），
+  // 卡片或扣款帳戶不存在、或已有同卡的卡費提醒時跳過
+  const CARD_BILL_SEEDS = [
+    { name: '中信卡費', role: '阿熊', card: '中信LinePoint卡', closingDay: 12, dueDay: 1, account: '中信活存' },
+    { name: '台新卡費', role: '阿熊', card: '台新Richart卡',   closingDay: 20, dueDay: 7, account: '台新Richart' }
+  ];
+  async function migrateCardBillReminders(sid) {
+    const flag = 'ff_card_bill_reminders_v1';
+    if (localStorage.getItem(flag)) return;
+    try {
+      const accts = _data.accounts || {};
+      const has = (role, name, type) => (accts[role] || []).some(a => a.name === name && (!type || a.type === type));
+      const seeds = CARD_BILL_SEEDS.filter(s =>
+        has(s.role, s.card, '信用卡') && has(s.role, s.account) &&
+        !_data.reminders.some(r => r.category === CFG.CAT_CARD_BILL && r.card === s.card));
+      if (seeds.length) {
+        const start = _data.reminders.length;
+        const rows = seeds.map(s => [Utils.uid(), s.name, s.role, CFG.CAT_CARD_BILL, 0, s.account,
+          s.dueDay, '', 'Y', '', s.card, s.closingDay]);
+        await API.updateRange(sid, 'Reminders!K1:L1', [['信用卡', '結帳日']]);
+        await API.updateRange(sid, `Reminders!A${start + 2}:L${start + 1 + rows.length}`, rows);
+        rows.forEach((row, i) => _data.reminders.push(parseReminderRow(row, start + i)));
+      }
+      localStorage.setItem(flag, '1');
+    } catch (e) { /* 失敗不設 flag，下次 load() 重試 */ }
+  }
+
   async function load(force = false) {
     const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID);
     if (!sid) return;
@@ -347,9 +376,10 @@ window.Store = (() => {
 
       // 定期提醒：獨立讀取（非主 batchGet），工作表不存在時自動建立，不中斷主要載入
       try {
-        const remRows = await API.getRange(sid, 'Reminders!A2:J');
+        const remRows = await API.getRange(sid, 'Reminders!A2:L');
         _data.reminders = remRows.filter(r => r[0]).map((row, idx) => parseReminderRow(row, idx));
         await migrateReminderCategorySplit(sid);
+        await migrateCardBillReminders(sid);
       } catch (e) {
         if ((e.message || '').toLowerCase().includes('unable to parse range')) {
           await ensureRemindersSheet(sid);
@@ -554,8 +584,8 @@ window.Store = (() => {
     if (!_sheetMeta.length) _sheetMeta = await API.getSheetMeta(sid);
     if (_sheetMeta.find(m => m.name === 'Reminders')) return;
     await API.batchUpdate(sid, [{ addSheet: { properties: { title: 'Reminders' } } }]);
-    await API.updateRange(sid, 'Reminders!A1:J1',
-      [['ID', '名稱', '角色', '分類', '預設金額', '扣款帳戶', '提醒日', '最後完成月份', '啟用', '備忘']]);
+    await API.updateRange(sid, 'Reminders!A1:L1',
+      [['ID', '名稱', '角色', '分類', '預設金額', '扣款帳戶', '提醒日', '最後完成月份', '啟用', '備忘', '信用卡', '結帳日']]);
     _sheetMeta = await API.getSheetMeta(sid);
   }
 
@@ -566,11 +596,14 @@ window.Store = (() => {
     await ensureRemindersSheet(sid);
     const rows = list.map(r => [
       r.id || Utils.uid(), r.name, r.role, r.category || '', r.amount || 0,
-      r.account, r.dueDay || 1, r.lastPaidMonth || '', r.active === false ? 'N' : 'Y', r.memo || ''
+      r.account, r.dueDay || 1, r.lastPaidMonth || '', r.active === false ? 'N' : 'Y', r.memo || '',
+      r.category === CFG.CAT_CARD_BILL ? (r.card || '') : '',
+      r.category === CFG.CAT_CARD_BILL ? (r.closingDay || '') : ''
     ]);
     const padded = [...rows];
-    while (padded.length < 50) padded.push(['', '', '', '', '', '', '', '', '', '']);
-    await API.updateRange(sid, `Reminders!A2:J${1 + padded.length}`, padded);
+    while (padded.length < 50) padded.push(['', '', '', '', '', '', '', '', '', '', '', '']);
+    await API.updateRange(sid, 'Reminders!K1:L1', [['信用卡', '結帳日']]);
+    await API.updateRange(sid, `Reminders!A2:L${1 + padded.length}`, padded);
     _data.reminders = rows.map((row, idx) => parseReminderRow(row, idx));
   }
 

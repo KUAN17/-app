@@ -772,10 +772,24 @@ Router.register('settings', (() => {
       const roleOpts = Store.roleNames().map(role =>
         `<option value="${Utils.esc(role)}"${r.role === role ? ' selected' : ''}>${Utils.esc(role)}</option>`
       ).join('');
-      const accts = r.role ? Store.accountsForRole(r.role) : [];
+      const isBill = r.category === CFG.CAT_CARD_BILL;
+      const roleAccts = r.role ? Store.allAccountsFlat().filter(a => a.role === r.role && a.type !== '證券帳戶') : [];
+      // 卡費只能從銀行／現金扣款
+      const accts = roleAccts.filter(a => !isBill || a.type !== '信用卡').map(a => a.name);
       const acctOpts = accts.map(a =>
         `<option value="${Utils.esc(a)}"${r.account === a ? ' selected' : ''}>${Utils.esc(a)}</option>`
       ).join('');
+      const cardOpts = roleAccts.filter(a => a.type === '信用卡').map(a =>
+        `<option value="${Utils.esc(a.name)}"${r.card === a.name ? ' selected' : ''}>${Utils.esc(a.name)}</option>`
+      ).join('');
+      const billRow = isBill ? `
+        <div class="proj-setting-fields">
+          <select class="form-select inp-rem-card" data-i="${i}" style="flex:2;font-size:13px">
+            <option value="">繳哪張卡 *</option>${cardOpts}
+          </select>
+          <input type="number" min="1" max="31" class="form-input inp-rem-closing" data-i="${i}" value="${r.closingDay || ''}" placeholder="結帳日 *" style="flex:1;font-size:13px">
+        </div>
+        <p class="input-hint" style="margin:0 0 4px">結帳日用來推算帳單期間，例如 20 號結帳 → 9/21-10/20</p>` : '';
       const catOpts = CFG.CATEGORIES['支出'].map(c =>
         `<option value="${Utils.esc(c)}"${r.category === c ? ' selected' : ''}>${Utils.esc(c)}</option>`
       ).join('');
@@ -794,7 +808,7 @@ Router.register('settings', (() => {
           <select class="form-select inp-rem-acct" data-i="${i}" style="flex:1;min-width:100px;font-size:13px">
             <option value="">扣款帳戶</option>${acctOpts}
           </select>
-        </div>
+        </div>${billRow}
         <div class="proj-setting-fields">
           <input type="number" step="any" class="form-input inp-rem-amount" data-i="${i}" value="${r.amount || ''}" placeholder="預設金額（留空每次手動填）" style="flex:2;font-size:13px">
           <input type="number" min="1" max="31" class="form-input inp-rem-day" data-i="${i}" value="${r.dueDay || 1}" placeholder="提醒日" style="flex:1;font-size:13px">
@@ -817,9 +831,27 @@ Router.register('settings', (() => {
       const i = parseInt(sel.dataset.i);
       _remState[i].role = sel.value;
       _remState[i].account = '';
+      _remState[i].card = '';
       renderReminderSection();
     }));
-    el.querySelectorAll('.inp-rem-cat').forEach(sel => sel.addEventListener('change', () => { _remState[parseInt(sel.dataset.i)].category = sel.value; }));
+    el.querySelectorAll('.inp-rem-cat').forEach(sel => sel.addEventListener('change', () => {
+      const r = _remState[parseInt(sel.dataset.i)];
+      r.category = sel.value;
+      if (r.category === CFG.CAT_CARD_BILL && Store.allAccountsFlat().some(a => a.role === r.role && a.name === r.account && a.type === '信用卡')) r.account = '';
+      renderReminderSection();
+    }));
+    el.querySelectorAll('.inp-rem-card').forEach(sel => sel.addEventListener('change', () => {
+      const r = _remState[parseInt(sel.dataset.i)];
+      r.card = sel.value;
+      // 選卡後帶入帳戶設定裡的帳單日與扣款帳戶（尚未填過才帶）
+      const card = Store.allAccountsFlat().find(a => a.role === r.role && a.name === r.card);
+      if (card) {
+        if (!r.closingDay && card.billingDate) r.closingDay = card.billingDate;
+        if (!r.account && card.paymentAccount) r.account = card.paymentAccount;
+      }
+      renderReminderSection();
+    }));
+    el.querySelectorAll('.inp-rem-closing').forEach(inp => inp.addEventListener('input', () => { _remState[parseInt(inp.dataset.i)].closingDay = parseInt(inp.value) || 0; }));
     el.querySelectorAll('.inp-rem-acct').forEach(sel => sel.addEventListener('change', () => { _remState[parseInt(sel.dataset.i)].account = sel.value; }));
     el.querySelectorAll('.inp-rem-amount').forEach(inp => inp.addEventListener('input', () => { _remState[parseInt(inp.dataset.i)].amount = parseFloat(inp.value) || 0; }));
     el.querySelectorAll('.inp-rem-day').forEach(inp => inp.addEventListener('input', () => { _remState[parseInt(inp.dataset.i)].dueDay = parseInt(inp.value) || 1; }));
@@ -830,7 +862,7 @@ Router.register('settings', (() => {
     }));
 
     Utils.el('btn-add-reminder').addEventListener('click', () => {
-      _remState.push({ id: Utils.uid(), name: '', role: Store.roleNames()[0] || '', category: '', amount: 0, account: '', dueDay: 1, lastPaidMonth: '', active: true, memo: '' });
+      _remState.push({ id: Utils.uid(), name: '', role: Store.roleNames()[0] || '', category: '', amount: 0, account: '', dueDay: 1, lastPaidMonth: '', active: true, memo: '', card: '', closingDay: 0 });
       renderReminderSection();
     });
     Utils.el('btn-save-reminders').addEventListener('click', saveReminderSettings);
@@ -839,6 +871,9 @@ Router.register('settings', (() => {
   async function saveReminderSettings() {
     const invalid = _remState.filter(r => !r.name.trim() || !r.role || !r.account);
     if (invalid.length) return Utils.toast('每筆提醒需填寫名稱、角色與扣款帳戶', 'warn');
+    const badBill = _remState.filter(r => r.category === CFG.CAT_CARD_BILL &&
+      (!r.card || !(r.closingDay >= 1 && r.closingDay <= 31)));
+    if (badBill.length) return Utils.toast('信用卡費提醒需選擇信用卡並填寫結帳日（1-31）', 'warn');
     Utils.showLoading(true);
     try {
       await Store.saveReminders(_remState);

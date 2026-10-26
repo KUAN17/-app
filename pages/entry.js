@@ -202,6 +202,11 @@ Router.register('entry', (() => {
     return [...CFG.CATEGORIES['支出']].sort((a, b) => (counts[b] || 0) - (counts[a] || 0));
   }
 
+  // 開新支出表單時的預設分類：不會預設成信用卡費（卡費只在手動選或從提醒進來時出現）
+  function defaultExpenseCat(role) {
+    return catOrder(role).find(c => c !== CFG.CAT_CARD_BILL);
+  }
+
   // ── Lifecycle ─────────────────────────────────────────────────────────────
   function render(el) {
     el.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:200px"><div class="spinner"></div></div>`;
@@ -235,7 +240,7 @@ Router.register('entry', (() => {
     } else {
       // 三秒記帳：進頁直接開表單（上次分類），關閉表單即可回到分類磚牆
       const saved = localStorage.getItem(LS_LAST_CAT);
-      const cat = CFG.CATEGORIES['支出'].includes(saved) ? saved : catOrder(_role)[0];
+      const cat = CFG.CATEGORIES['支出'].includes(saved) ? saved : defaultExpenseCat(_role);
       if (cat) openSheet('cat', { category: cat });
     }
   }
@@ -280,7 +285,7 @@ Router.register('entry', (() => {
         renderMain();
       } else if (action === 'open-expense') {
         const savedCat = localStorage.getItem(LS_LAST_CAT);
-        const cat = CFG.CATEGORIES['支出'].includes(savedCat) ? savedCat : catOrder(_role)[0];
+        const cat = CFG.CATEGORIES['支出'].includes(savedCat) ? savedCat : defaultExpenseCat(_role);
         openSheet('cat', { category: cat });
       } else if (action === 'open-proj') {
         openSheet('proj');
@@ -379,6 +384,7 @@ Router.register('entry', (() => {
       _sh.payRole = ''; _sh.payAccount = ''; _sh.payType = '';
       _sh.autoTransfer = false; _sh.transferFrom = ''; _sh.payTargetAccount = ''; _sh.skipRepay = false;
       _sh.installment = 0;
+      if (isCardBill(_sh)) enterCardBill(_sh, opts);
     } else if (kind === 'income') {
       _sh.category = '';
       _sh.role = _role; _sh.account = lastAcctNonCC(_role);
@@ -430,10 +436,11 @@ Router.register('entry', (() => {
     if (!_sh || _sh.kind === kind) return;
     const wasRepay = _sh.kind === 'transfer' && (_sh.repayBatch || _sh.settleId);
     // 切換類型一律重新從主頁開始（支出／專案的 step 2 是代付子頁，不隨切換類型沿用）
-    const keep = { amount: _sh.amount, terms: _sh.terms, curOp: _sh.curOp, memo: _sh.memo };
+    const keep = { amount: _sh.amount, terms: _sh.terms, curOp: _sh.curOp,
+      memo: isCardBill(_sh) && _sh.memo === billAutoMemo(_sh) ? '' : _sh.memo };
     if (kind === 'cat') {
       const saved = localStorage.getItem(LS_LAST_CAT);
-      const cat = CFG.CATEGORIES['支出'].includes(saved) ? saved : catOrder(_role)[0];
+      const cat = CFG.CATEGORIES['支出'].includes(saved) ? saved : defaultExpenseCat(_role);
       initSheetState('cat', { category: cat });
     } else {
       initSheetState(kind);
@@ -481,6 +488,7 @@ Router.register('entry', (() => {
     _sh.payRole = ''; _sh.payAccount = ''; _sh.payType = '';
     _sh.autoTransfer = false; _sh.transferFrom = ''; _sh.payTargetAccount = ''; _sh.skipRepay = false; _sh.showInstallmentPicker = false;
     if (_sh.installment && !canInstallment(_sh)) _sh.installment = 0;
+    if (isCardBill(_sh)) { _sh.reminderId = ''; enterCardBill(_sh); }
     renderMain(); // 背後主畫面的角色列同步
     renderSheet();
   }
@@ -531,6 +539,88 @@ Router.register('entry', (() => {
         <div class="sheet-row"><label>備註</label>
           <input type="text" id="inp-sheet-memo" class="form-input" placeholder="選填" value="${Utils.esc(sh.memo || '')}" autocomplete="off">
           ${payBtnHtml(sh)}
+        </div>
+      </div>
+      ${buildNumpadFooter(sh)}`;
+  }
+
+  // ── 信用卡費：繳哪張卡（必選）→ 帳單月份（依提醒的結帳日推算）→ 付款帳戶（銀行／現金）→ 備註 ──
+  function isCardBill(sh) { return !!sh && sh.kind === 'cat' && sh.category === CFG.CAT_CARD_BILL; }
+  function cardsForRole(role) { return acctsForRole(role).filter(a => a.type === '信用卡'); }
+  function billReminderFor(role, card) {
+    return Store.get().reminders.find(r => r.category === CFG.CAT_CARD_BILL && r.role === role && r.card === card);
+  }
+  function billPayAccts(role) { return acctsForRole(role).filter(a => a.type === '銀行' || a.type === '現金'); }
+  function billPeriodsFor(sh) { return sh.billClosingDay ? Utils.cardBillPeriods(sh.billClosingDay, _date, 3) : []; }
+  function billAutoMemo(sh) {
+    if (!sh.billCard) return '';
+    const p = billPeriodsFor(sh)[sh.billPeriodIdx || 0];
+    return `${sh.billCard} 卡費${p ? ' ' + p.range : ''}`;
+  }
+  // 選定卡片：結帳日取自該卡的卡費提醒，付款帳戶優先帶提醒的扣款帳戶，其次卡片設定的扣款帳戶
+  function selectBillCard(sh, cardName, preferAccount) {
+    sh.billCard = cardName;
+    sh.billPeriodIdx = 0;
+    const rem = cardName ? billReminderFor(sh.role, cardName) : null;
+    sh.billClosingDay = rem ? rem.closingDay : 0;
+    const payNames = billPayAccts(sh.role).map(a => a.name);
+    const card = cardsForRole(sh.role).find(a => a.name === cardName);
+    const pick = [preferAccount, rem?.account, card?.paymentAccount, sh.account].find(n => n && payNames.includes(n));
+    sh.account = pick || lastAcctBankOrCash(sh.role);
+    sh.memo = billAutoMemo(sh);
+  }
+  function enterCardBill(sh, opts = {}) {
+    sh.installment = 0; sh.showInstallmentPicker = false; sh.showAcctSelect = false;
+    sh.payRole = ''; sh.payAccount = ''; sh.payType = '';
+    sh.autoTransfer = false; sh.transferFrom = ''; sh.payTargetAccount = ''; sh.skipRepay = false;
+    const rem = opts.reminderId ? Store.get().reminders.find(r => r.id === opts.reminderId) : null;
+    if (rem && rem.card && rem.role === sh.role) {
+      sh.billLocked = true;
+      selectBillCard(sh, rem.card, opts.account);
+      return;
+    }
+    sh.billLocked = false;
+    const cards = cardsForRole(sh.role);
+    if (cards.length === 1) selectBillCard(sh, cards[0].name);
+    else { sh.billCard = ''; sh.billClosingDay = 0; sh.billPeriodIdx = 0; sh.account = lastAcctBankOrCash(sh.role); sh.memo = ''; }
+  }
+
+  function buildCardBillPage(sh) {
+    const catChips = `<div class="sheet-cat-chips sheet-cat-scroll">${catOrder(sh.role).map(c =>
+      `<button type="button" class="sheet-chip${sh.category === c ? ' active' : ''}" data-action="cat-switch" data-val="${c}">${CAT_ICONS[c] || ''} ${c}</button>`
+    ).join('')}</div>`;
+    const total = calcSheetTotal(sh);
+    const amtZero = (sh.amount || (sh.terms && sh.terms.length)) ? '' : ' zero';
+    const cards = cardsForRole(sh.role);
+
+    const cardRow = sh.billLocked
+      ? `<span class="sheet-static">💳 ${Utils.esc(sh.billCard)}<span class="sheet-bill-lock">由提醒帶入</span></span>`
+      : (cards.length
+          ? `<div class="sheet-cat-chips">${cards.map(a =>
+              `<button type="button" class="sheet-chip${sh.billCard === a.name ? ' active' : ''}" data-action="bill-card" data-val="${Utils.esc(a.name)}">💳 ${Utils.esc(a.name)}</button>`
+            ).join('')}</div>`
+          : `<span class="input-hint">「${Utils.esc(sh.role)}」沒有信用卡帳戶</span>`);
+
+    const periods = billPeriodsFor(sh);
+    let periodRow = '';
+    if (sh.billCard && periods.length) {
+      periodRow = `<div class="sheet-row sheet-row-top"><label>帳單</label><div class="sheet-cat-chips">${periods.map((p, i) =>
+        `<button type="button" class="sheet-chip${(sh.billPeriodIdx || 0) === i ? ' active' : ''}" data-action="bill-period" data-val="${i}">${p.month}月帳單 ${p.range}</button>`
+      ).join('')}</div></div>`;
+    } else if (sh.billCard) {
+      periodRow = `<p class="input-hint sheet-bill-hint">這張卡還沒有卡費提醒，到「設定 › 定期提醒」新增並填結帳日，就能自動帶入帳單期間</p>`;
+    }
+
+    return `
+      <div class="sheet-scroll">
+        ${catChips}
+        <div class="sheet-amt-expr sheet-amt-expr-center" id="sheet-amt-expr">${calcExprDisplay(sh)}</div>
+        <div class="entry-sheet-amt${amtZero}" id="sheet-amt">$ ${total.toLocaleString()}</div>
+        <div class="sheet-row sheet-row-top"><label>繳卡</label>${cardRow}</div>
+        ${periodRow}
+        <div class="sheet-row"><label>付款</label>${acctSelectHtml('sel-sheet-acct', sh.role, sh.account, true)}</div>
+        <div class="sheet-row"><label>備註</label>
+          <input type="text" id="inp-sheet-memo" class="form-input" placeholder="選填" value="${Utils.esc(sh.memo || '')}" autocomplete="off">
         </div>
       </div>
       ${buildNumpadFooter(sh)}`;
@@ -727,6 +817,7 @@ Router.register('entry', (() => {
     ).join('')}</div>`;
 
     const mainContent =
+      isCardBill(_sh)         ? buildCardBillPage(_sh) :
       _sh.kind === 'cat'      ? buildCatMainPage(_sh, memoChips) :
       _sh.kind === 'income'   ? buildIncomeMainPage(_sh, memoChips) :
       _sh.kind === 'proj'     ? buildProjMainPage(_sh, memoChips) :
@@ -773,7 +864,7 @@ Router.register('entry', (() => {
       if (!axis && (Math.abs(dx) > 12 || Math.abs(dy) > 12)) {
         // 角度夠平（水平位移明顯大於垂直）才算切頁手勢，否則都算下滑關閉；
         // 只有支出／專案有代付子頁可切，收入／轉帳一律當下滑關閉處理
-        const canStep = _sh.kind === 'cat' || _sh.kind === 'proj';
+        const canStep = (_sh.kind === 'cat' && !isCardBill(_sh)) || _sh.kind === 'proj';
         axis = (canStep && Math.abs(dx) > Math.abs(dy) * 1.5) ? 'h' : 'v';
       }
       if (axis === 'v') {
@@ -861,7 +952,28 @@ Router.register('entry', (() => {
         if (action === 'close') closeSheet();
         else if (action === 'submit') submitSheet();
         else if (action === 'inc-cat') { _sh.category = val; renderSheet(); }
-        else if (action === 'cat-switch') { _sh.category = val; renderSheet(); }
+        else if (action === 'cat-switch') {
+          const wasBill = isCardBill(_sh);
+          _sh.category = val;
+          if (isCardBill(_sh) && !wasBill) enterCardBill(_sh);
+          else if (wasBill && !isCardBill(_sh)) {
+            // 離開卡費：帳戶回到一般記帳的預設，清掉自動帶入的卡費備註
+            _sh.account = lastAcct(_sh.role);
+            if (_sh.memo === billAutoMemo(_sh)) _sh.memo = '';
+            _sh.billCard = ''; _sh.billLocked = false; _sh.billClosingDay = 0;
+          }
+          renderSheet();
+        }
+        else if (action === 'bill-card') {
+          if (_sh.billLocked) return;
+          selectBillCard(_sh, val);
+          renderSheet();
+        }
+        else if (action === 'bill-period') {
+          _sh.billPeriodIdx = parseInt(val) || 0;
+          _sh.memo = billAutoMemo(_sh);
+          renderSheet();
+        }
         else if (action === 'acct-cash') {
           const name = Store.defaultCashFor(_sh.role);
           if (!name) { Utils.toast(`「${_sh.role}」還沒有現金帳戶，請先到設定新增`, 'warn'); return; }
@@ -928,6 +1040,7 @@ Router.register('entry', (() => {
     _sheetEl.querySelector('#inp-sheet-date')?.addEventListener('change', e => {
       if (!e.target.value) return;
       _date = e.target.value;
+      if (isCardBill(_sh) && _sh.billCard) { _sh.billPeriodIdx = 0; _sh.memo = billAutoMemo(_sh); }
       renderSheet();
       // 同步更新主畫面日期標籤
       const mainLabel = Utils.el('date-label');
@@ -999,7 +1112,12 @@ Router.register('entry', (() => {
 
     if (needsPayTarget(_sh)) return Utils.toast('請選擇信用卡代付的補款帳戶', 'warn');
 
-    if (_sh.kind === 'cat') {
+    if (isCardBill(_sh)) {
+      if (!_sh.billCard) return Utils.toast('請選擇要繳哪張信用卡', 'warn');
+      if (!_sh.account) return Utils.toast('請選擇付款帳戶', 'warn');
+      if (!billPayAccts(_sh.role).some(a => a.name === _sh.account)) return Utils.toast('卡費只能用銀行或現金帳戶支付', 'warn');
+      row = [Utils.uid(), _sh.role, '日常', '', '支出', CFG.CAT_CARD_BILL, memoCell, date, amount, _sh.account, '', '', '', '', ''];
+    } else if (_sh.kind === 'cat') {
       if (!_sh.account) return Utils.toast('請選擇帳戶', 'warn');
       if (_sh.installment > 1) {
         row = buildInstallmentRows(_sh, amount, memo, date);
@@ -1059,7 +1177,7 @@ Router.register('entry', (() => {
       await API.append(sid, 'Ledger!A:O', allRows);
       Store.invalidate();
       if (usedRole && usedAcct) localStorage.setItem(LS_LAST_ACCT(usedRole), usedAcct);
-      if (_sh.kind === 'cat' && _sh.category) localStorage.setItem(LS_LAST_CAT, _sh.category);
+      if (_sh.kind === 'cat' && _sh.category && !isCardBill(_sh)) localStorage.setItem(LS_LAST_CAT, _sh.category);
       if (_sh.kind === 'cat' && _sh.reminderId) {
         try { await Store.markReminderPaid(_sh.reminderId, date.replace(/\//g, '-').slice(0, 7)); } catch {}
       }
