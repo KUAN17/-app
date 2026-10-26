@@ -327,6 +327,23 @@ window.Store = (() => {
     } catch (e) { /* 失敗不設 flag，下次 load() 重試 */ }
   }
 
+  // 一次性清掉信用卡殘留的期初餘額（信用卡改成只當付款標籤後已不使用，但試算表上仍看得到）
+  async function migrateClearCardBalances(sid, acctRows) {
+    const flag = 'ff_clear_card_balances_v1';
+    if (localStorage.getItem(flag)) return;
+    try {
+      const data = [];
+      acctRows.forEach((row, idx) => {
+        if (txt(row[5]) === '信用卡' && Utils.parseAmount(row[2]) !== 0) {
+          data.push({ range: `Backend!N${idx + 2}`, values: [[0]] });
+        }
+      });
+      if (data.length) await API.batchUpdateValues(sid, data);
+      Object.values(_data.accounts).forEach(list => list.forEach(a => { if (a.type === '信用卡') a.balance = 0; }));
+      localStorage.setItem(flag, '1');
+    } catch (e) { /* 失敗不設 flag，下次 load() 重試 */ }
+  }
+
   async function load(force = false) {
     const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID);
     if (!sid) return;
@@ -368,6 +385,7 @@ window.Store = (() => {
       _data.projects = projRows.filter(r => r[1]).map((row, idx) => parseProjectRow(row, idx));
       _data.investments = invRows.filter(r => r[2]).map((row, idx) => parseInvestRow(row, idx));
       _data.accounts = parseAccountConfig(acctRows);
+      await migrateClearCardBalances(sid, acctRows);
       _data.members = (memberRows || [])
         .filter(r => r[0])
         .map(r => ({ name: String(r[0]), type: r[1] === '共享' ? 'shared' : 'personal' }));

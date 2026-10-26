@@ -619,7 +619,8 @@ Router.register('settings', (() => {
     const rows = [];
     Store.roleNames().forEach(role => {
       (_acctState[role] || []).filter(a => !a._deleted).forEach(a => {
-        rows.push([role, a.name, a.balance||0, a.baseDate||'', a.purpose||'', a.type||'', a.billingDate||'', a.dueDate||'', a.paymentAccount||'', a.isDefaultCC ? 'Y' : '']);
+        // 信用卡不追蹤餘額，期初餘額一律存 0，避免試算表殘留誤導
+        rows.push([role, a.name, a.type === '信用卡' ? 0 : (a.balance||0), a.baseDate||'', a.purpose||'', a.type||'', a.billingDate||'', a.dueDate||'', a.paymentAccount||'', a.isDefaultCC ? 'Y' : '']);
       });
     });
 
