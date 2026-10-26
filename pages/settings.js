@@ -279,13 +279,6 @@ Router.register('settings', (() => {
     </div>` : ''}
     <div id="cc-acct-fields" style="display:${t==='信用卡'?'block':'none'}">
       <div class="form-row">
-        <label class="sheet-auto-toggle" style="flex:1">
-          <input type="checkbox" id="inp-acct-default-cc"${acct.isDefaultCC ? ' checked' : ''}>
-          <span>設為此角色的「日常信用卡」快速鍵</span>
-        </label>
-        <p class="input-hint">記帳頁選「信用卡」時自動帶入這張，一個角色限一張</p>
-      </div>
-      <div class="form-row">
         <label>扣款帳戶（選填）</label>
         <select id="inp-acct-payment" class="form-select">
           <option value="">不設定</option>
@@ -324,6 +317,7 @@ Router.register('settings', (() => {
     Utils.el('btn-confirm-acct').addEventListener('click', () => {
       const name = Utils.el('inp-acct-name').value.trim();
       if (!name) return Utils.toast('請輸入帳戶名稱', 'warn');
+      if (name === CFG.CC_GENERIC) return Utils.toast(`「${CFG.CC_GENERIC}」是記帳用的保留名稱，請換一個名稱（例如加上銀行名）`, 'warn');
       const type = getType();
       // 同名防呆：帳單引擎與餘額計算部分以帳戶名匹配，同名（尤其信用卡）會互相污染
       const dup = Object.entries(_acctState).some(([r, list]) =>
@@ -340,7 +334,6 @@ Router.register('settings', (() => {
         billingDate: acct.billingDate || 0,
         dueDate:     acct.dueDate || 0,
         paymentAccount: type === '信用卡' ? (Utils.el('inp-acct-payment')?.value || '') : '',
-        isDefaultCC: type === '信用卡' ? !!Utils.el('inp-acct-default-cc')?.checked : false,
         targetRole:  !isNew ? (Utils.el('inp-acct-role')?.value || role) : role,
       });
       modal.remove();
@@ -352,11 +345,8 @@ Router.register('settings', (() => {
       title: `新增帳戶（${role}）`,
       role,
       isNew: true,
-      acct: { name:'', purpose:'', balance:0, baseDate:'', type:'銀行', billingDate:0, dueDate:0, paymentAccount:'', isDefaultCC:false },
+      acct: { name:'', purpose:'', balance:0, baseDate:'', type:'銀行', billingDate:0, dueDate:0, paymentAccount:'' },
       onConfirm(data) {
-        if (data.isDefaultCC) {
-          _acctState[role].forEach(a => { if (a.type === '信用卡') a.isDefaultCC = false; });
-        }
         _acctState[role].push({ ...data, _deleted: false, _new: true });
         Utils.el(`acct-list-${role}`).innerHTML = renderRoleList(role);
         attachListListeners();
@@ -427,17 +417,11 @@ Router.register('settings', (() => {
               // 帳戶移轉角色：從原角色清單移除，併入目標角色清單
               _acctState[role].splice(idx, 1);
               _acctState[role].forEach(a => { if (a.paymentAccount === oldName) a.paymentAccount = newName; });
-              if (data.isDefaultCC) {
-                _acctState[targetRole].forEach(a => { if (a.type === '信用卡') a.isDefaultCC = false; });
-              }
               _acctState[targetRole] = _acctState[targetRole] || [];
               _acctState[targetRole].push({ ...acct, ...data, targetRole: undefined });
             } else {
               // 同角色信用卡的扣款帳戶引用
               _acctState[role].forEach(a => { if (a.paymentAccount === oldName) a.paymentAccount = newName; });
-              if (data.isDefaultCC) {
-                _acctState[role].forEach((a, i) => { if (i !== idx && a.type === '信用卡') a.isDefaultCC = false; });
-              }
               _acctState[role][idx] = { ...acct, ...data };
             }
             await saveAccounts();
@@ -450,9 +434,6 @@ Router.register('settings', (() => {
             Utils.showLoading(false);
           }
           return;
-        }
-        if (data.isDefaultCC) {
-          _acctState[role].forEach((a, i) => { if (i !== idx && a.type === '信用卡') a.isDefaultCC = false; });
         }
         _acctState[role][idx] = { ...acct, ...data };
         Utils.el(`acct-list-${role}`).innerHTML = renderRoleList(role);
@@ -620,7 +601,7 @@ Router.register('settings', (() => {
     Store.roleNames().forEach(role => {
       (_acctState[role] || []).filter(a => !a._deleted).forEach(a => {
         // 信用卡不追蹤餘額，期初餘額一律存 0，避免試算表殘留誤導
-        rows.push([role, a.name, a.type === '信用卡' ? 0 : (a.balance||0), a.baseDate||'', a.purpose||'', a.type||'', a.billingDate||'', a.dueDate||'', a.paymentAccount||'', a.isDefaultCC ? 'Y' : '']);
+        rows.push([role, a.name, a.type === '信用卡' ? 0 : (a.balance||0), a.baseDate||'', a.purpose||'', a.type||'', a.billingDate||'', a.dueDate||'', a.paymentAccount||'', '']);
       });
     });
 

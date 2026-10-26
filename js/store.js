@@ -1,6 +1,6 @@
 window.Store = (() => {
   // 本機快取資料結構版本：改動解析邏輯時 +1，自動讓舊快取失效並重抓
-  const SCHEMA_V = 7;
+  const SCHEMA_V = 8;
 
   // 統一日期格式為 YYYY/MM/DD，相容多種來源格式以避免字串比較失敗：
   //  - 試算表序列值（UNFORMATTED_VALUE 下日期欄可能回傳純數字，如 46000）
@@ -119,8 +119,7 @@ window.Store = (() => {
         type:        txt(row[5]),
         billingDate: parseInt(row[6]) || 0,
         dueDate:     parseInt(row[7]) || 0,
-        paymentAccount: txt(row[8]),
-        isDefaultCC: row[9] === 'Y' // 該角色記帳時「信用卡」快速鍵自動帶入的卡（一角色限一張）
+        paymentAccount: txt(row[8])
       });
     });
     return map;
@@ -344,6 +343,37 @@ window.Store = (() => {
     } catch (e) { /* 失敗不設 flag，下次 load() 重試 */ }
   }
 
+  // 一次性把一般消費 J 欄的個別卡名改成「信用卡」（代付 N 欄、轉帳 L 欄保留卡名）
+  // 改寫前先複製整個 Ledger 分頁當備份；備份失敗就不改，下次 load() 重試
+  async function migrateGenericCreditCard(sid, ledgerRows) {
+    const flag = 'ff_generic_cc_v1';
+    if (localStorage.getItem(flag)) return;
+    try {
+      const isCard = (role, name) => (_data.accounts[role] || []).some(a => a.name === name && a.type === '信用卡');
+      const data = [], ids = new Set();
+      ledgerRows.forEach((row, i) => {
+        if (!row[0]) return;
+        if (txt(row[4]) !== '支出') return;
+        if (!isCard(txt(row[1]), txt(row[9]))) return;
+        data.push({ range: `Ledger!J${i + 2}`, values: [[CFG.CC_GENERIC]] });
+        ids.add(txt(row[0]));
+      });
+      if (data.length) {
+        const meta = await API.getSheetMeta(sid);
+        const d = new Date();
+        const backupName = `Ledger_備份_${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+        const ledgerMeta = meta.find(m => m.name === 'Ledger');
+        if (!ledgerMeta) return;
+        if (!meta.some(m => m.name.startsWith('Ledger_備份_'))) {
+          await API.batchUpdate(sid, [{ duplicateSheet: { sourceSheetId: ledgerMeta.id, newSheetName: backupName, insertSheetIndex: meta.length } }]);
+        }
+        await API.batchUpdateValues(sid, data);
+        _data.ledger.forEach(tx => { if (ids.has(tx.id)) tx.accountOut = CFG.CC_GENERIC; });
+      }
+      localStorage.setItem(flag, '1');
+    } catch (e) { /* 失敗不設 flag，下次 load() 重試 */ }
+  }
+
   async function load(force = false) {
     const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID);
     if (!sid) return;
@@ -386,6 +416,7 @@ window.Store = (() => {
       _data.investments = invRows.filter(r => r[2]).map((row, idx) => parseInvestRow(row, idx));
       _data.accounts = parseAccountConfig(acctRows);
       await migrateClearCardBalances(sid, acctRows);
+      await migrateGenericCreditCard(sid, ledgerRows);
       _data.members = (memberRows || [])
         .filter(r => r[0])
         .map(r => ({ name: String(r[0]), type: r[1] === '共享' ? 'shared' : 'personal' }));
@@ -555,10 +586,9 @@ window.Store = (() => {
     return (_data.accounts[role] || []).filter(a => a.type === '證券帳戶').map(a => a.name);
   }
 
-  // 該角色記帳用「信用卡」快速鍵對應的帳戶名：優先設定頁勾選的預設卡，否則退回第一張信用卡
+  // 該角色記帳用「信用卡」快速鍵對應的帳戶名：一般消費不記卡別，角色有任何信用卡就回傳通用的「信用卡」
   function defaultCCFor(role) {
-    const ccs = (_data.accounts[role] || []).filter(a => a.type === '信用卡');
-    return (ccs.find(a => a.isDefaultCC) || ccs[0] || {}).name || '';
+    return (_data.accounts[role] || []).some(a => a.type === '信用卡') ? CFG.CC_GENERIC : '';
   }
   // 該角色記帳用「現金」快速鍵對應的帳戶名：第一個現金類型帳戶
   function defaultCashFor(role) {

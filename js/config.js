@@ -53,6 +53,8 @@ window.CFG = {
   CAT_ADJUST: '調帳',
   CAT_CARD_BILL: '信用卡費', // 繳卡費屬還債非消費，統計時排除避免與刷卡消費重複計算
   CAT_INVEST_SELL: '投資賣出',
+  // 一般消費刷卡時付款帳戶只記「信用卡」，不記卡別；只有代付（N 欄）與繳卡費才需要指定哪張卡
+  CC_GENERIC: '信用卡',
 
   // 台股報價 Proxy（Cloudflare Worker）
   QUOTE_PROXY: 'https://twse-proxy.leo30331.workers.dev',

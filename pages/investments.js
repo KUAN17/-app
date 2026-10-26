@@ -372,7 +372,10 @@ Router.register('investments', (() => {
     // 扣款帳戶：買入金額同步記一筆支出，證券帳戶本身不能拿來扣款
     const PAY_ICON = { '現金': '💵', '銀行': '🏦', '信用卡': '💳' };
     function payAcctOpts(role) {
-      const list = Store.allAccountsFlat().filter(a => a.role === role && a.type !== '證券帳戶');
+      // 個別信用卡合併成「信用卡」（一般消費不記卡別）
+      const all = Store.allAccountsFlat().filter(a => a.role === role && a.type !== '證券帳戶');
+      const list = all.filter(a => a.type !== '信用卡');
+      if (all.some(a => a.type === '信用卡')) list.push({ name: CFG.CC_GENERIC, type: '信用卡' });
       if (!list.length) return `<option value="">（無可扣款帳戶）</option>`;
       return list.map(a => `<option value="${Utils.esc(a.name)}">${PAY_ICON[a.type] || '🏦'} ${Utils.esc(a.name)}</option>`).join('');
     }

@@ -67,6 +67,13 @@ Router.register('entry', (() => {
   function acctsForRole(role) {
     return Store.allAccountsFlat().filter(a => a.role === role && a.type !== '證券帳戶');
   }
+  // 記帳用的付款帳戶清單：個別信用卡合併成一個「信用卡」（一般消費不記卡別）
+  function entryAccts(role) {
+    const all = acctsForRole(role);
+    const list = all.filter(a => a.type !== '信用卡');
+    if (all.some(a => a.type === '信用卡')) list.push({ role, name: CFG.CC_GENERIC, type: '信用卡' });
+    return list;
+  }
   // 現金／信用卡快速鍵＋金額：同一排（鍵在左、金額在右），記帳不再需要指定信用卡別，僅代付時才需選銀行
   function acctToggleSection(sh) {
     const total = calcSheetTotal(sh);
@@ -104,7 +111,7 @@ Router.register('entry', (() => {
       if (sh.showInstallmentPicker) html += buildInstallmentSection(sh);
     }
     if (isOther && !sh.showAcctSelect) {
-      html += `<div class="sheet-row"><label></label><span class="sheet-static">${acctIcon((acctsForRole(sh.role).find(a => a.name === sh.account) || {}).type)} ${Utils.esc(sh.account)}</span></div>`;
+      html += `<div class="sheet-row"><label></label><span class="sheet-static">${acctIcon((entryAccts(sh.role).find(a => a.name === sh.account) || {}).type)} ${Utils.esc(sh.account)}</span></div>`;
     }
     if (sh.showAcctSelect) {
       html += `<div class="sheet-row"><label>帳戶</label>${acctSelectHtml('sel-sheet-acct', sh.role, sh.account)}</div>`;
@@ -114,7 +121,7 @@ Router.register('entry', (() => {
     return html;
   }
   function acctSelectHtml(id, role, current, excludeCC = false, bankOnly = false) {
-    const opts = acctsForRole(role)
+    const opts = entryAccts(role)
       .filter(a => !excludeCC || a.type !== '信用卡')
       .filter(a => !bankOnly || a.type === '銀行')
       .map(a => `<option value="${Utils.esc(a.name)}"${a.name === current ? ' selected' : ''}>${acctIcon(a.type)} ${Utils.esc(a.name)}</option>`)
@@ -126,8 +133,10 @@ Router.register('entry', (() => {
       `<option value="${Utils.esc(r)}"${r === current ? ' selected' : ''}>${Utils.esc(r)}</option>`).join('')}</select>`;
   }
   function lastAcct(role) {
-    const saved = localStorage.getItem(LS_LAST_ACCT(role));
-    const names = acctsForRole(role).map(a => a.name);
+    let saved = localStorage.getItem(LS_LAST_ACCT(role));
+    // 舊版記住的是個別卡名，一律視為「信用卡」
+    if (acctsForRole(role).some(a => a.name === saved && a.type === '信用卡')) saved = CFG.CC_GENERIC;
+    const names = entryAccts(role).map(a => a.name);
     return names.includes(saved) ? saved : (names[0] || '');
   }
   // 收入不可用信用卡（入卡是無效操作）
@@ -156,6 +165,7 @@ Router.register('entry', (() => {
     return map[type] || '🏦';
   }
   function isAcctCreditCard(role, name) {
+    if (name === CFG.CC_GENERIC) return true;
     return Store.allAccountsFlat().some(a => a.role === role && a.name === name && a.type === '信用卡');
   }
   function canInstallment(sh) {
@@ -376,7 +386,7 @@ Router.register('entry', (() => {
     if (kind === 'cat') {
       _sh.category = opts.category;
       _sh.role = _role;
-      const acctNames = acctsForRole(_role).map(a => a.name);
+      const acctNames = entryAccts(_role).map(a => a.name);
       _sh.account = (opts.account && acctNames.includes(opts.account)) ? opts.account : lastAcct(_role);
       _sh.showAcctSelect = false;
       _sh.showInstallmentPicker = false;
@@ -1067,7 +1077,7 @@ Router.register('entry', (() => {
       const p = Store.get().projects.find(x => x.name === val);
       if (val && p?.ownerRole && Store.roleNames().includes(p.ownerRole)) {
         _sh.role = p.ownerRole;
-        const names = acctsForRole(p.ownerRole).map(a => a.name);
+        const names = entryAccts(p.ownerRole).map(a => a.name);
         _sh.account = (p.defaultAccount && names.includes(p.defaultAccount)) ? p.defaultAccount : (names[0] || '');
         _sh.locked = true;
       } else {

@@ -149,7 +149,11 @@ Router.register('ledger', (() => {
     // 專案支出有空白選項（分類非必填）；自訂分類不在清單也補進
     const catList = isProject ? ['', ...cats] : cats;
     if (tx.category && !catList.includes(tx.category)) catList.unshift(tx.category);
-    const acctOuts = Store.accountsForRole(tx.roleOut);
+    // 支出的付款帳戶：個別信用卡合併成「信用卡」（一般消費不記卡別）；這筆原本的值不在清單時補進，避免存檔時被換掉
+    const roleAccts = Store.allAccountsFlat().filter(a => a.role === tx.roleOut && a.type !== '證券帳戶');
+    let acctOuts = isTransfer ? Store.accountsForRole(tx.roleOut) : roleAccts.filter(a => a.type !== '信用卡').map(a => a.name);
+    if (tx.type === '支出' && roleAccts.some(a => a.type === '信用卡')) acctOuts.push(CFG.CC_GENERIC);
+    if (tx.accountOut && !acctOuts.includes(tx.accountOut)) acctOuts = [tx.accountOut, ...acctOuts];
 
     const catOptions = catList.map(c =>
       `<option value="${Utils.esc(c)}"${c === tx.category ? ' selected' : ''}>${Utils.esc(c) || '（不選分類）'}</option>`
