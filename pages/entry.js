@@ -606,11 +606,16 @@ Router.register('entry', (() => {
             <option value="">無（一般轉帳）</option>
             ${projects.map(p => `<option value="${Utils.esc(p.name)}"${sh.project === p.name ? ' selected' : ''}>📁 ${Utils.esc(p.name)}</option>`).join('')}
           </select></div>` : ''}
-        ${sh.repayBatch ? `<div class="sheet-batch-hint">全額補款 ${sh.repayBatch.length} 期：將分別建立 ${sh.repayBatch.length} 筆補款轉帳（總額 ${Utils.formatMoney(sh.repayBatch.reduce((s,m)=>s+Number(m.amount||0),0))}）</div>` : ''}
+        ${sh.repayBatch ? `
+        <div class="sheet-batch-hint">將分別建立 ${sh.repayBatch.length} 筆補款轉帳（總額 ${Utils.formatMoney(sh.repayBatch.reduce((s,m)=>s+Number(m.amount||0),0))}），備註自動帶入：
+          <div class="sheet-batch-list">${sh.repayBatch.map(m => `
+            <div class="sheet-batch-item"><span>${Utils.esc(m.memo || '補款')}</span><span>${Utils.formatMoney(Number(m.amount || 0))}</span></div>`).join('')}
+          </div>
+        </div>` : `
         ${memoChips}
         <div class="sheet-row"><label>備註</label>
           <input type="text" id="inp-sheet-memo" class="form-input" placeholder="選填" value="${Utils.esc(sh.memo || '')}" autocomplete="off">
-        </div>
+        </div>`}
       </div>
       ${buildNumpadFooter(sh, !!sh.repayBatch)}`;
   }
