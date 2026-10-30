@@ -1,6 +1,6 @@
 window.Store = (() => {
   // 本機快取資料結構版本：改動解析邏輯時 +1，自動讓舊快取失效並重抓
-  const SCHEMA_V = 8;
+  const SCHEMA_V = 9;
 
   // 統一日期格式為 YYYY/MM/DD，相容多種來源格式以避免字串比較失敗：
   //  - 試算表序列值（UNFORMATTED_VALUE 下日期欄可能回傳純數字，如 46000）
@@ -374,6 +374,23 @@ window.Store = (() => {
     } catch (e) { /* 失敗不設 flag，下次 load() 重試 */ }
   }
 
+  // 一次性修正：9/28 補款（爸爸生日-初魚）是舊版記法，轉入了聯邦吉鶴卡本身；
+  // 改成轉入該卡的扣款帳戶 Line bank。以 ID＋原值精準比對，只動 L 欄
+  async function migrateLegacyRepayToLineBank(sid, ledgerRows) {
+    const flag = 'ff_fix_repay_linebank_v1';
+    if (localStorage.getItem(flag)) return;
+    try {
+      const ID = 'mukxu6jj2gyp9cn';
+      const i = ledgerRows.findIndex(r => txt(r[0]) === ID);
+      if (i >= 0 && txt(ledgerRows[i][10]) === '阿熊' && txt(ledgerRows[i][11]) === '聯邦吉鶴卡') {
+        await API.batchUpdateValues(sid, [{ range: `Ledger!L${i + 2}`, values: [['Line bank']] }]);
+        const tx = _data.ledger.find(t => t.id === ID);
+        if (tx) tx.accountIn = 'Line bank';
+      }
+      localStorage.setItem(flag, '1');
+    } catch (e) { /* 失敗不設 flag，下次 load() 重試 */ }
+  }
+
   async function load(force = false) {
     const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID);
     if (!sid) return;
@@ -417,6 +434,7 @@ window.Store = (() => {
       _data.accounts = parseAccountConfig(acctRows);
       await migrateClearCardBalances(sid, acctRows);
       await migrateGenericCreditCard(sid, ledgerRows);
+      await migrateLegacyRepayToLineBank(sid, ledgerRows);
       _data.members = (memberRows || [])
         .filter(r => r[0])
         .map(r => ({ name: String(r[0]), type: r[1] === '共享' ? 'shared' : 'personal' }));
