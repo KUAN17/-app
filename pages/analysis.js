@@ -30,13 +30,24 @@ Router.register('analysis', (() => {
   }
 
   // 排除信用卡費（還債非消費）與調帳（對帳校正非真實收支），與 Dashboard 統計口徑一致
-  function computeRoleData(ledger, role, monthSet) {
+  // withTransfers：單一角色卡片把角色之間的撥款算成「成員撥款」收入／「撥給X」支出；
+  // 全家庭加總時傳 false，撥款在家庭內部互相抵消
+  function computeRoleData(ledger, role, monthSet, withTransfers = true) {
     const incomeCat = {}, incomeItems = {};
     const expCat = {}, expItems = {};
     const projCat = {}, projItems = {};
+    const self = new Set([role]);
     ledger.forEach(tx => {
-      if (tx.roleOut !== role) return;
       if (!monthSet.has(tx.date.slice(0, 7))) return;
+      const side = withTransfers ? Utils.memberTransferSide(tx, self) : null;
+      if (side) {
+        const label = side === 'in' ? CFG.CAT_MEMBER_IN : Utils.memberTransferOutLabel(tx);
+        const cat = side === 'in' ? incomeCat : expCat, items = side === 'in' ? incomeItems : expItems;
+        cat[label] = (cat[label] || 0) + tx.amount;
+        (items[label] = items[label] || []).push(tx);
+        return;
+      }
+      if (tx.roleOut !== role) return;
       if (tx.category === CFG.CAT_CARD_BILL || tx.category === CFG.CAT_ADJUST) return;
       if (tx.type === '收入') {
         const label = tx.category || '未分類';
@@ -63,7 +74,7 @@ Router.register('analysis', (() => {
     let income = 0, expense = 0;
     const incomeCat = {}, expCat = {}, projCat = {};
     roles.forEach(role => {
-      const d = computeRoleData(ledger, role, monthSet);
+      const d = computeRoleData(ledger, role, monthSet, false);
       income += d.income; expense += d.expense;
       Object.entries(d.incomeCat).forEach(([k, v]) => incomeCat[k] = (incomeCat[k] || 0) + v);
       Object.entries(d.expCat).forEach(([k, v]) => expCat[k] = (expCat[k] || 0) + v);

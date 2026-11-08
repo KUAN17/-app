@@ -89,6 +89,10 @@ Router.register('dashboard', (() => {
     const set = new Set(scopeRoles());
     let income = 0, expense = 0;
     txs.forEach(tx => {
+      // 角色之間的撥款：只有跨出目前範圍時才算（單看家用＝收入，單看阿熊＝支出，看全部＝抵消）
+      const side = Utils.memberTransferSide(tx, set);
+      if (side === 'in')  { income  += tx.amount; return; }
+      if (side === 'out') { expense += tx.amount; return; }
       if (!set.has(tx.roleOut)) return;
       // 排除非真實收支：信用卡費是還債（刷卡當下已計入）、調帳是對帳校正非消費
       if (tx.category === CFG.CAT_CARD_BILL || tx.category === CFG.CAT_ADJUST) return;
@@ -101,11 +105,16 @@ Router.register('dashboard', (() => {
   function catData(txs, topN = 5) {
     const set = new Set(scopeRoles());
     const map = {};
-    txs.filter(t => t.type === '支出' && t.category !== CFG.CAT_CARD_BILL && t.category !== CFG.CAT_ADJUST && set.has(t.roleOut))
-       .forEach(t => {
-         const c = t.category || (t.projectTag ? `📁${t.projectTag}` : '未分類');
-         map[c] = (map[c] || 0) + t.amount;
-       });
+    txs.forEach(t => {
+      if (Utils.memberTransferSide(t, set) === 'out') {
+        const c = Utils.memberTransferOutLabel(t);
+        map[c] = (map[c] || 0) + t.amount;
+        return;
+      }
+      if (t.type !== '支出' || t.category === CFG.CAT_CARD_BILL || t.category === CFG.CAT_ADJUST || !set.has(t.roleOut)) return;
+      const c = t.category || (t.projectTag ? `📁${t.projectTag}` : '未分類');
+      map[c] = (map[c] || 0) + t.amount;
+    });
     const sorted = Object.entries(map).sort((a, b) => b[1] - a[1]);
     const total = sorted.reduce((s, [, v]) => s + v, 0);
     let entries = sorted;
@@ -219,6 +228,7 @@ Router.register('dashboard', (() => {
     const { ledger } = Store.get();
     const set = new Set(scopeRoles());
     const txs = periodTxs(ledger).filter(t => {
+      if (Utils.memberTransferSide(t, set) === 'out') return Utils.memberTransferOutLabel(t) === label;
       if (t.type !== '支出' || !set.has(t.roleOut)) return false;
       if (t.category === CFG.CAT_CARD_BILL || t.category === CFG.CAT_ADJUST) return false;
       // 與 catData 相同的標籤規則：分類 → 📁專案 → 未分類
@@ -271,6 +281,7 @@ Router.register('dashboard', (() => {
     const { ledger } = Store.get();
     const set = new Set(scopeRoles());
     const txs = periodTxs(ledger).filter(t => {
+      if (Utils.memberTransferSide(t, set) === 'in') return true;
       if (t.type !== '收入' || !set.has(t.roleOut)) return false;
       // 與 sumIO 相同的排除規則，明細合計才會跟上方結餘列一致
       return t.category !== CFG.CAT_CARD_BILL && t.category !== CFG.CAT_ADJUST;
@@ -281,7 +292,12 @@ Router.register('dashboard', (() => {
     const periodLabel = _period === 'month' ? `${y}年${m}月` : _period === 'range' ? rangeLabel() : `${_year}年`;
 
     const listHtml = txs.length ? txs.map(tx => {
-      const name = tx.memo || tx.category || '（未命名）';
+      const isMember = tx.type === '轉帳';
+      const cat = isMember ? CFG.CAT_MEMBER_IN : tx.category;
+      const name = tx.memo || cat || '（未命名）';
+      const where = isMember
+        ? `${Utils.esc(tx.roleOut)} → ${Utils.esc(tx.roleIn)}／${Utils.esc(tx.accountIn)}`
+        : `${Utils.esc(tx.roleOut)}／${Utils.esc(tx.accountOut)}`;
       return `<div class="proj-detail-item">
         <div class="proj-detail-item-main">
           <span class="proj-detail-item-name">${Utils.esc(name)}</span>
@@ -289,8 +305,8 @@ Router.register('dashboard', (() => {
         </div>
         <div class="proj-detail-item-sub">
           <span>${tx.date}</span>
-          <span>· ${Utils.esc(tx.roleOut)}／${Utils.esc(tx.accountOut)}</span>
-          ${tx.category ? `<span>· ${Utils.esc(tx.category)}</span>` : ''}
+          <span>· ${where}</span>
+          ${cat ? `<span>· ${Utils.esc(cat)}</span>` : ''}
         </div>
       </div>`;
     }).join('') : `<p class="empty-hint">本期無收入</p>`;

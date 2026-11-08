@@ -55,6 +55,9 @@ window.CFG = {
   CAT_INVEST_SELL: '投資賣出',
   // 一般消費刷卡時付款帳戶只記「信用卡」，不記卡別；只有代付（N 欄）與繳卡費才需要指定哪張卡
   CC_GENERIC: '信用卡',
+  // 角色之間的一般轉帳（非補款）：單看收款角色時算「成員撥款」收入、單看付款角色時算「撥給X」支出；
+  // 兩邊都在統計範圍內（全部／全家庭）時互相抵消不計
+  CAT_MEMBER_IN: '成員撥款',
 
   // 台股報價 Proxy（Cloudflare Worker）
   QUOTE_PROXY: 'https://twse-proxy.leo30331.workers.dev',

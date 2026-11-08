@@ -81,6 +81,18 @@ window.Utils = {
     return out;
   },
 
+  // 角色之間的一般轉帳（排除補款與同角色互轉）跨越統計範圍時：收款方在範圍內回傳 'in'，
+  // 付款方在範圍內回傳 'out'；兩邊都在或都不在範圍內回傳 null（範圍內部移動，不算收支）
+  memberTransferSide(tx, roleSet) {
+    if (tx.type !== '轉帳' || tx.category === CFG.CAT_REPAYMENT) return null;
+    if (!tx.roleIn || tx.roleIn === tx.roleOut) return null;
+    const outIn = roleSet.has(tx.roleOut), inIn = roleSet.has(tx.roleIn);
+    if (inIn && !outIn) return 'in';
+    if (outIn && !inIn) return 'out';
+    return null;
+  },
+  memberTransferOutLabel(tx) { return `撥給${tx.roleIn}`; },
+
   isThisMonth(dateStr) {
     if (!dateStr) return false;
     const d = new Date(dateStr.replace(/\//g, '-'));
