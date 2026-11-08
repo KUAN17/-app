@@ -1,6 +1,6 @@
 window.Store = (() => {
   // 本機快取資料結構版本：改動解析邏輯時 +1，自動讓舊快取失效並重抓
-  const SCHEMA_V = 9;
+  const SCHEMA_V = 10;
 
   // 統一日期格式為 YYYY/MM/DD，相容多種來源格式以避免字串比較失敗：
   //  - 試算表序列值（UNFORMATTED_VALUE 下日期欄可能回傳純數字，如 46000）
@@ -25,6 +25,7 @@ window.Store = (() => {
     ledger: [],
     projects: [],
     investments: [],
+    investTx: [],        // 投資交易紀錄（InvestTx 分頁），持股由此推算
     accounts: {},       // { '阿熊': [{name, balance, baseDate}], ... }
     members: [],        // [{ name, type: 'personal'|'shared' }]，空時退回 CFG.ROLES 預設
     reminders: [],       // 定期付款提醒
@@ -102,6 +103,64 @@ window.Store = (() => {
       shares, avgCost, price, totalCost, marketValue, unrealized,
       returnRate:  totalCost > 0 ? unrealized / totalCost : 0
     };
+  }
+
+  // ── InvestTx row → object（投資交易紀錄：每筆買進／賣出一列） ─────────────
+  // A ID｜B 日期｜C 類型（買進/賣出）｜D 角色｜E 證券帳戶｜F 代號｜G 名稱｜H 股數｜I 成交價｜J 手續費｜K 證交稅｜L 帳本ID
+  const INVEST_TX_HEADER = ['ID', '日期', '類型', '角色', '證券帳戶', '代號', '名稱', '股數', '成交價', '手續費', '證交稅', '帳本ID'];
+  function parseInvestTxRow(row) {
+    return {
+      id:       txt(row[0]),
+      date:     row[1] ? normDate(row[1]) : '',
+      type:     txt(row[2]) === '賣出' ? '賣出' : '買進',
+      role:     txt(row[3]),
+      account:  txt(row[4]),
+      ticker:   txt(row[5]),
+      name:     txt(row[6]),
+      shares:   Utils.parseAmount(row[7]),
+      price:    Utils.parseAmount(row[8]),
+      fee:      Utils.parseAmount(row[9]),
+      tax:      Utils.parseAmount(row[10]),
+      ledgerId: txt(row[11])
+    };
+  }
+  function investTxToRow(t) {
+    return [t.id, t.date || '', t.type, t.role, t.account, t.ticker, t.name, t.shares, t.price,
+            t.fee || 0, t.type === '賣出' ? (t.tax || 0) : 0, t.ledgerId || ''];
+  }
+
+  // 由交易紀錄推算持股：依日期（空白視為最早）再依列序，買進成一批、賣出照先買先賣扣批次。
+  // 每批成本含買進手續費。回傳剩餘批次、每筆賣出的成本與已實現損益、股數不足的賣出 ID
+  function deriveHoldings(txs) {
+    const order = txs.map((t, i) => ({ t, i }))
+      .sort((a, b) => (a.t.date || '').localeCompare(b.t.date || '') || a.i - b.i);
+    const pos = {}, sells = {}, errors = [];
+    order.forEach(({ t }) => {
+      const key = `${t.role}||${t.account}||${t.ticker}`;
+      const p = pos[key] || (pos[key] = { role: t.role, account: t.account, ticker: t.ticker, name: t.name, lots: [] });
+      if (t.name) p.name = t.name;
+      if (t.type === '買進') {
+        if (t.shares > 0) p.lots.push({ txId: t.id, shares: t.shares, cost: (Math.round(t.shares * t.price) + (t.fee || 0)) / t.shares });
+        return;
+      }
+      let rem = t.shares, cost = 0;
+      while (rem > 1e-9 && p.lots.length) {
+        const l = p.lots[0];
+        const take = Math.min(l.shares, rem);
+        cost += take * l.cost;
+        l.shares -= take; rem -= take;
+        if (l.shares <= 1e-9) p.lots.shift();
+      }
+      if (rem > 1e-9) errors.push(t.id);
+      const net = Math.round(t.shares * t.price) - (t.fee || 0) - (t.tax || 0);
+      sells[t.id] = { cost, realized: net - cost };
+    });
+    const holdings = [];
+    Object.values(pos).forEach(p => p.lots.forEach(l => holdings.push({
+      role: p.role, account: p.account, ticker: p.ticker, name: p.name,
+      shares: Math.round(l.shares * 1e6) / 1e6, avgCost: Math.round(l.cost * 1e4) / 1e4, txId: l.txId
+    })));
+    return { holdings, sells, errors };
   }
 
   // ── Account initial balances from Backend L:U ────────────────────────────
@@ -391,6 +450,67 @@ window.Store = (() => {
     } catch (e) { /* 失敗不設 flag，下次 load() 重試 */ }
   }
 
+  async function ensureInvestTxSheet(sid) {
+    if (!_sheetMeta.length) _sheetMeta = await API.getSheetMeta(sid);
+    if (_sheetMeta.find(m => m.name === 'InvestTx')) return;
+    await API.batchUpdate(sid, [{ addSheet: { properties: { title: 'InvestTx' } } }]);
+    await API.updateRange(sid, 'InvestTx!A1:L1', [INVEST_TX_HEADER]);
+    _sheetMeta = await API.getSheetMeta(sid);
+  }
+
+  // 一次性把既有持股批次轉成「買進」交易（日期留空、手續費 0，均價即成交價）；
+  // 帳本裡「投資儲蓄」且備註含「（代號）買入」、金額＝股數×均價的支出，連到對應那筆並帶入日期
+  async function migrateLotsToInvestTx(sid) {
+    const flag = 'ff_invest_tx_v1';
+    if (localStorage.getItem(flag)) return;
+    try {
+      await ensureInvestTxSheet(sid);
+      const existing = (await API.getRange(sid, 'InvestTx!A2:L')).filter(r => r[0]);
+      if (!existing.length && _data.investments.length) {
+        const txs = _data.investments.map(l => ({
+          id: Utils.uid(), date: '', type: '買進', role: l.role, account: l.account, ticker: l.ticker, name: l.name,
+          shares: l.shares, price: l.avgCost, fee: 0, tax: 0, ledgerId: ''
+        }));
+        _data.ledger.forEach(tx => {
+          if (tx.type !== '支出' || tx.category !== '投資儲蓄') return;
+          const m = (tx.memo || '').match(/（([^）]+)）買入/);
+          if (!m) return;
+          const hit = txs.find(t => !t.ledgerId && t.role === tx.roleOut &&
+            t.ticker.replace(/^TPE:/i, '') === m[1] && Math.round(t.shares * t.price) === Math.round(tx.amount));
+          if (hit) { hit.ledgerId = tx.id; hit.date = tx.date; }
+        });
+        await API.updateRange(sid, `InvestTx!A2:L${1 + txs.length}`, txs.map(investTxToRow));
+        _data.investTx = txs;
+      } else {
+        _data.investTx = existing.map(parseInvestTxRow);
+      }
+      localStorage.setItem(flag, '1');
+    } catch (e) { /* 失敗不設 flag，下次 load() 重試 */ }
+  }
+
+  // 全量覆寫交易紀錄（pad 空列蓋掉刪除的舊資料）
+  async function saveInvestTx(list) {
+    const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID) || CFG.SHEET_ID;
+    await ensureInvestTxSheet(sid);
+    const rows = list.map(investTxToRow);
+    const padded = [...rows];
+    while (padded.length < Math.max(500, rows.length + 50)) padded.push(Array(12).fill(''));
+    await API.updateRange(sid, `InvestTx!A2:L${1 + padded.length}`, padded);
+    _data.investTx = list.map(t => ({ ...t }));
+  }
+
+  // 持股快照寫回 Investments（A-F 批次、H 現價），讓總覽等既有頁面照常讀取
+  async function saveHoldingsSnapshot(holdings) {
+    const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID) || CFG.SHEET_ID;
+    const rows = holdings.map(h => [h.role, h.account, h.ticker, h.name, h.shares, h.avgCost]);
+    const prices = holdings.map(h => [h.price > 0 ? Number(h.price).toFixed(2) : '']);
+    while (rows.length < 200) { rows.push(['', '', '', '', '', '']); prices.push(['']); }
+    await API.batchUpdateValues(sid, [
+      { range: `Investments!A2:F${1 + rows.length}`, values: rows },
+      { range: `Investments!H2:H${1 + prices.length}`, values: prices }
+    ]);
+  }
+
   async function load(force = false) {
     const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID);
     if (!sid) return;
@@ -440,6 +560,18 @@ window.Store = (() => {
         .map(r => ({ name: String(r[0]), type: r[1] === '共享' ? 'shared' : 'personal' }));
       if (!_data.members.length) _data.members = defaultMembers();
       _data.activeProjects = _data.projects.filter(p => p.status === '進行中').map(p => p.name);
+
+      // 投資交易紀錄：獨立讀取；首次自動建立分頁並把既有持股轉成交易
+      try {
+        if (localStorage.getItem('ff_invest_tx_v1')) {
+          const txRows = await API.getRange(sid, 'InvestTx!A2:L');
+          _data.investTx = txRows.filter(r => r[0]).map(parseInvestTxRow);
+        } else {
+          await migrateLotsToInvestTx(sid);
+        }
+      } catch (e) {
+        _data.investTx = _data.investTx || [];
+      }
 
       // 定期提醒：獨立讀取（非主 batchGet），工作表不存在時自動建立，不中斷主要載入
       try {
@@ -802,5 +934,5 @@ window.Store = (() => {
 
   return { load, invalidate, calcBalance, calcAllBalances, accountsForRole, brokersForRole, defaultCCFor, defaultCashFor, allAccountsFlat, getSheetId, ensureSheetMeta, verifyLedgerRows, get, isDirty, loadIdentity, saveIdentity,
            members, roleNames, personalRoleNames, sharedRoleNames, isShared, saveMembers, saveReminders, markReminderPaid,
-           computePayables, repayTarget, hasPendingRepay };
+           computePayables, repayTarget, hasPendingRepay, deriveHoldings, saveInvestTx, saveHoldingsSnapshot };
 })();

@@ -134,6 +134,43 @@ Router.register('investments', (() => {
     return amount > 0 ? Math.floor(amount * sellTaxRate(ticker)) : 0;
   }
 
+  // ── 交易紀錄狀態 ─────────────────────────────────────────────────────
+  let _txs = [];          // InvestTx 交易紀錄；持股由此推算
+  let _sells = {};        // 賣出 ID → { cost, realized }
+  let _readonly = false;  // 交易紀錄尚未建立（遷移未完成）時只顯示快照、不可編輯
+
+  const sid = () => localStorage.getItem(CFG.LS_KEYS.SHEET_ID) || CFG.SHEET_ID;
+  const codeOf = t => String(t || '').replace(/^TPE:/i, '');
+  const isoDate = d => (d || '').replace(/\//g, '-');
+  const slashDate = d => (d || '').replace(/-/g, '/');
+
+  function ledgerAmount(t) {
+    const amt = Math.round(t.shares * t.price);
+    return t.type === '買進' ? amt + (t.fee || 0) : amt - (t.fee || 0) - (t.tax || 0);
+  }
+  function txMemo(t) {
+    const amt = Math.round(t.shares * t.price).toLocaleString();
+    return t.type === '買進'
+      ? `${t.name}（${codeOf(t.ticker)}）買入 ${t.shares}股@${t.price}，成交金額 ${amt}，手續費${t.fee || 0}`
+      : `${t.name}（${codeOf(t.ticker)}）賣出 ${t.shares}股@${t.price}，賣股收入 ${amt}，證交稅${t.tax || 0}，手續費${t.fee || 0}`;
+  }
+
+  // 扣款帳戶（買進）：個別信用卡合併成「信用卡」；入帳帳戶（賣出）：只限銀行／現金
+  const ACCT_ICON = { '現金': '💵', '銀行': '🏦', '信用卡': '💳' };
+  function payAcctList(role) {
+    const all = Store.allAccountsFlat().filter(a => a.role === role && a.type !== '證券帳戶');
+    const list = all.filter(a => a.type !== '信用卡');
+    if (all.some(a => a.type === '信用卡')) list.push({ name: CFG.CC_GENERIC, type: '信用卡' });
+    return list;
+  }
+  function inAcctList(role) {
+    return Store.allAccountsFlat().filter(a => a.role === role && (a.type === '銀行' || a.type === '現金'));
+  }
+  function acctOpts(list, selected) {
+    if (!list.length) return `<option value="">（無可用帳戶）</option>`;
+    return list.map(a => `<option value="${Utils.esc(a.name)}"${a.name === selected ? ' selected' : ''}>${ACCT_ICON[a.type] || '🏦'} ${Utils.esc(a.name)}</option>`).join('');
+  }
+
   // ── Lifecycle ─────────────────────────────────────────────────────────
   function render(el) {
     el.innerHTML = `<div class="page-inner"><div class="spinner"></div></div>`;
@@ -148,16 +185,40 @@ Router.register('investments', (() => {
   }
 
   function buildState() {
-    _lots = Store.get().investments.map(i => ({ ...i, _deleted: false }));
+    const { investments, investTx } = Store.get();
+    const priceMap = {};
+    investments.forEach(i => { if (i.price > 0) priceMap[i.ticker] = i.price; });
+    _readonly = !(investTx || []).length && investments.length > 0;
+    if (_readonly) { _txs = []; _sells = {}; _lots = investments.map(i => ({ ...i })); return; }
+    _txs = investTx.map(t => ({ ...t }));
+    const d = Store.deriveHoldings(_txs);
+    _sells = d.sells;
+    _lots = d.holdings.map(h => ({ ...h, price: priceMap[h.ticker] || 0 }));
+  }
+
+  // 寫回交易紀錄與持股快照（持股快照沿用目前已知的現價）
+  async function persistTxs(newTxs) {
+    const priceMap = {};
+    _lots.forEach(l => { if (l.price > 0) priceMap[l.ticker] = l.price; });
+    const d = Store.deriveHoldings(newTxs);
+    await Store.saveInvestTx(newTxs);
+    await Store.saveHoldingsSnapshot(d.holdings.map(h => ({ ...h, price: priceMap[h.ticker] || 0 })));
+  }
+
+  async function reloadPage() {
+    Store.invalidate();
+    await Store.load(true);
+    buildState();
+    renderPage();
   }
 
   // ── Merge lots into positions ──────────────────────────────────────────
   function getMergedPositions(role) {
     const map = {};
-    _lots.filter(l => !l._deleted && l.role === role).forEach(l => {
+    _lots.filter(l => l.role === role).forEach(l => {
       const key = `${l.account}||${l.ticker}`;
       if (!map[key]) map[key] = { role: l.role, account: l.account, ticker: l.ticker, name: l.name, lots: [], price: 0 };
-      map[key].lots.push({ ...l, _si: _lots.indexOf(l) });
+      map[key].lots.push(l);
       if (l.price > 0) map[key].price = l.price;
     });
     return Object.values(map).map(pos => {
@@ -171,12 +232,41 @@ Router.register('investments', (() => {
     }).sort((a, b) => b.marketValue - a.marketValue);
   }
 
+  // ── 交易明細列表（新到舊；未填日期的排最後） ───────────────────────────
+  function sortTxsDesc(list) {
+    return list.map(t => ({ t, i: _txs.indexOf(t) }))
+      .sort((a, b) => (b.t.date || '').localeCompare(a.t.date || '') || b.i - a.i)
+      .map(x => x.t);
+  }
+  function txRowHtml(t, showName = true) {
+    const s = _sells[t.id];
+    const pnl = s ? `<span class="${s.realized >= 0 ? 'amount-in' : 'amount-out'}">損益 ${s.realized >= 0 ? '+' : '-'}${Utils.formatMoney(Math.abs(Math.round(s.realized)))}</span>` : '';
+    return `<div class="inv-tx-row" data-tx="${Utils.esc(t.id)}">
+      <div class="inv-tx-main">
+        <span class="inv-tx-type ${t.type === '買進' ? 'buy' : 'sell'}">${t.type}</span>
+        <span class="inv-tx-name">${showName ? `${Utils.esc(t.name)}（${Utils.esc(codeOf(t.ticker))}）` : `${t.shares.toLocaleString()} 股 @ ${t.price}`}</span>
+        <span class="inv-tx-amt">${Utils.formatMoney(ledgerAmount(t))}</span>
+      </div>
+      <div class="inv-tx-sub">
+        <span>${t.date ? Utils.esc(t.date) : '日期未填'}</span>
+        ${showName ? `<span>${t.shares.toLocaleString()} 股 @ ${t.price}</span>` : ''}
+        ${t.ledgerId ? '<span class="inv-tx-linked">📒 已連帳本</span>' : ''}
+        ${pnl}
+      </div>
+    </div>`;
+  }
+  function wireTxRows(root, onOpen) {
+    root.querySelectorAll('.inv-tx-row').forEach(row => row.addEventListener('click', () => {
+      const t = _txs.find(x => x.id === row.dataset.tx);
+      if (t) { onOpen && onOpen(); showTxEditModal(t); }
+    }));
+  }
+
   // ── Main page ──────────────────────────────────────────────────────────
   function renderPage() {
     const el = Utils.el('page-content');
     const roles = PERSONAL_ROLES();
 
-    // Summary across all roles
     let totalMV = 0, totalCost = 0;
     roles.forEach(r => getMergedPositions(r).forEach(p => { totalMV += p.marketValue; totalCost += p.totalCost; }));
     const totalUnreal  = totalMV - totalCost;
@@ -190,6 +280,7 @@ Router.register('investments', (() => {
         ).join('')}</div>` : '';
 
     el.innerHTML = `<div class="page-inner">
+      ${_readonly ? '<div class="card inv-readonly-hint">交易紀錄還在建立中，目前只能檢視。請關掉 app 重新打開後再編輯。</div>' : ''}
       <div class="card invest-summary">
         <div class="invest-summary-label">投資組合總市值</div>
         <div class="invest-summary-value">${Utils.formatMoney(totalMV)}</div>
@@ -228,7 +319,6 @@ Router.register('investments', (() => {
     const positions  = getMergedPositions(role);
     const brokers    = Store.brokersForRole(role);
 
-    // Group by account
     const byAccount = {};
     positions.forEach(pos => {
       if (!byAccount[pos.account]) byAccount[pos.account] = [];
@@ -238,14 +328,13 @@ Router.register('investments', (() => {
     const accountSections = Object.keys(byAccount).map(acct => {
       const acctMV = byAccount[acct].reduce((s, p) => s + p.marketValue, 0);
       const rows = byAccount[acct].map(pos => {
-        const ticker    = pos.ticker.replace(/^TPE:/i, '');
         const pnlClass  = pos.unrealized >= 0 ? 'amount-in' : 'amount-out';
         const pnlArrow  = pos.unrealized >= 0 ? '▲' : '▼';
         const pnlAmt    = Utils.formatMoney(Math.abs(Math.round(pos.unrealized)));
         return `<div class="inv-pos-row" data-key="${Utils.esc(acct)}||${Utils.esc(pos.ticker)}" data-role="${Utils.esc(role)}">
           <div class="inv-pos-left">
             <span class="inv-pos-name">${Utils.esc(pos.name)}</span>
-            <span class="inv-pos-meta">${Utils.esc(ticker)} · ${pos.totalShares.toLocaleString()} 股</span>
+            <span class="inv-pos-meta">${Utils.esc(codeOf(pos.ticker))} · ${pos.totalShares.toLocaleString()} 股</span>
           </div>
           <div class="inv-pos-right">
             <span class="inv-pos-value">${Utils.formatMoney(pos.marketValue)}</span>
@@ -267,11 +356,20 @@ Router.register('investments', (() => {
       ? `<p class="empty-hint" style="padding:12px 16px">${brokers.length ? '尚無持倉' : '請先至設定新增「證券帳戶」類型的帳戶'}</p>`
       : '';
 
+    // 全部交易明細（含已賣光的標的），點一筆即可編輯／刪除
+    const roleTxs = sortTxsDesc(_txs.filter(t => t.role === role));
+    const txSection = roleTxs.length ? `
+      <details class="card inv-tx-card">
+        <summary class="inv-tx-summary">📜 交易明細<span class="inv-tx-count">${roleTxs.length}</span></summary>
+        <div class="inv-tx-list">${roleTxs.map(t => txRowHtml(t)).join('')}</div>
+      </details>` : '';
+
     container.innerHTML = `
       <div class="card" style="padding:0;overflow:hidden;margin-bottom:10px">
         ${emptyMsg}${accountSections}
       </div>
-      <button class="btn btn-outline btn-add-inv" data-role="${Utils.esc(role)}" style="width:100%">＋ 新增標的</button>
+      ${_readonly ? '' : `<button class="btn btn-outline btn-add-inv" data-role="${Utils.esc(role)}" style="width:100%;margin-bottom:10px">＋ 新增標的</button>`}
+      ${txSection}
     `;
 
     container.querySelectorAll('.inv-pos-row').forEach(row => {
@@ -281,7 +379,7 @@ Router.register('investments', (() => {
         if (pos) showDetailSheet(pos);
       });
     });
-
+    wireTxRows(container);
     container.querySelector('.btn-add-inv')?.addEventListener('click', e => showAddLotModal(e.target.dataset.role));
   }
 
@@ -292,7 +390,6 @@ Router.register('investments', (() => {
     const sheet = document.createElement('div');
     sheet.className = 'detail-sheet';
 
-    const ticker   = pos.ticker.replace(/^TPE:/i, '');
     const pnlClass = pos.unrealized >= 0 ? 'amount-in' : 'amount-out';
     const pnlArrow = pos.unrealized >= 0 ? '▲' : '▼';
     const pnlAmt   = Utils.formatMoney(Math.abs(Math.round(pos.unrealized)));
@@ -304,12 +401,14 @@ Router.register('investments', (() => {
         <span class="detail-lot-cost">${Utils.formatMoney(Math.round(l.shares * l.avgCost))}</span>
       </div>`).join('');
 
+    const posTxs = sortTxsDesc(_txs.filter(t => t.role === pos.role && t.account === pos.account && t.ticker === pos.ticker));
+
     sheet.innerHTML = `
       <div class="detail-sheet-handle"></div>
       <div class="detail-sheet-header">
         <div>
           <div class="detail-sheet-name">${Utils.esc(pos.name)}</div>
-          <div class="detail-sheet-sub">${Utils.esc(ticker)} · 📊 ${Utils.esc(pos.account)}</div>
+          <div class="detail-sheet-sub">${Utils.esc(codeOf(pos.ticker))} · 📊 ${Utils.esc(pos.account)}</div>
         </div>
         <button class="detail-sheet-close" id="btn-sheet-close">✕</button>
       </div>
@@ -325,11 +424,13 @@ Router.register('investments', (() => {
       </div>
       <div class="detail-lots-title">持倉明細（${pos.lots.length} 批）</div>
       <div class="detail-lots-list">${lotsHtml}</div>
-      <div class="detail-actions">
+      ${posTxs.length ? `<div class="detail-lots-title">交易明細（點一筆可編輯）</div>
+      <div class="inv-tx-list">${posTxs.map(t => txRowHtml(t, false)).join('')}</div>` : ''}
+      ${_readonly ? '' : `<div class="detail-actions">
         <button class="btn btn-outline" id="btn-add-lot">＋ 加倉</button>
         <button class="btn btn-outline" id="btn-reduce-lot">減倉</button>
-        <button class="btn btn-danger" id="btn-clear-lot">清倉</button>
-      </div>
+        <button class="btn btn-outline" id="btn-sell-all">全部賣出</button>
+      </div>`}
     `;
 
     document.body.appendChild(overlay);
@@ -343,46 +444,32 @@ Router.register('investments', (() => {
 
     overlay.addEventListener('click', close);
     sheet.querySelector('#btn-sheet-close').addEventListener('click', close);
-
-    sheet.querySelector('#btn-add-lot').addEventListener('click', () => {
+    wireTxRows(sheet, close);
+    sheet.querySelector('#btn-add-lot')?.addEventListener('click', () => {
       close();
       showAddLotModal(pos.role, { ticker: pos.ticker, name: pos.name, account: pos.account });
     });
-    sheet.querySelector('#btn-reduce-lot').addEventListener('click', () => { close(); showReduceModal(pos); });
-    sheet.querySelector('#btn-clear-lot').addEventListener('click', () => {
-      if (!confirm(`確定清倉「${pos.name}」所有批次？`)) return;
-      pos.lots.forEach(l => { _lots[l._si]._deleted = true; });
-      close();
-      saveLots();
-    });
+    sheet.querySelector('#btn-reduce-lot')?.addEventListener('click', () => { close(); showReduceModal(pos); });
+    sheet.querySelector('#btn-sell-all')?.addEventListener('click', () => { close(); showReduceModal(pos, pos.totalShares); });
   }
 
-  // ── Add lot modal ──────────────────────────────────────────────────────
+  // ── Add lot modal（買進：建立交易＋帳本「投資儲蓄」支出） ───────────────
   function showAddLotModal(defaultRole, prefill = {}) {
     const modal = document.createElement('div');
     modal.className = 'modal-overlay';
     const roles    = PERSONAL_ROLES();
     const roleOpts = roles.map(r => `<option value="${Utils.esc(r)}"${r === defaultRole ? ' selected' : ''}>${Utils.esc(r)}</option>`).join('');
+    const today = isoDate(Utils.todayStr());
 
     function brokerOpts(role) {
       const list = Store.brokersForRole(role);
       if (!list.length) return `<option value="">（請先至設定新增證券帳戶）</option>`;
       return list.map(b => `<option value="${Utils.esc(b)}"${prefill.account === b ? ' selected' : ''}>${Utils.esc(b)}</option>`).join('');
     }
-    // 扣款帳戶：買入金額同步記一筆支出，證券帳戶本身不能拿來扣款
-    const PAY_ICON = { '現金': '💵', '銀行': '🏦', '信用卡': '💳' };
-    function payAcctOpts(role) {
-      // 個別信用卡合併成「信用卡」（一般消費不記卡別）
-      const all = Store.allAccountsFlat().filter(a => a.role === role && a.type !== '證券帳戶');
-      const list = all.filter(a => a.type !== '信用卡');
-      if (all.some(a => a.type === '信用卡')) list.push({ name: CFG.CC_GENERIC, type: '信用卡' });
-      if (!list.length) return `<option value="">（無可扣款帳戶）</option>`;
-      return list.map(a => `<option value="${Utils.esc(a.name)}">${PAY_ICON[a.type] || '🏦'} ${Utils.esc(a.name)}</option>`).join('');
-    }
 
     const tickerSection = prefill.ticker
       ? `<div class="form-row"><label>標的</label>
-          <div style="padding:8px 0;font-weight:600">${Utils.esc(prefill.name)}（${Utils.esc(prefill.ticker.replace(/^TPE:/i,''))}）</div>
+          <div style="padding:8px 0;font-weight:600">${Utils.esc(prefill.name)}（${Utils.esc(codeOf(prefill.ticker))}）</div>
           <input type="hidden" id="inp-inv-ticker" value="${Utils.esc(prefill.ticker)}">
           <input type="hidden" id="inp-inv-name" value="${Utils.esc(prefill.name)}">
         </div>`
@@ -410,8 +497,11 @@ Router.register('investments', (() => {
         <select id="inp-inv-account" class="form-select">${brokerOpts(defaultRole)}</select>
       </div>
       ${tickerSection}
+      <div class="form-row"><label>買入日期</label>
+        <input type="date" id="inp-inv-date" class="form-input" value="${today}">
+      </div>
       <div class="form-row"><label>扣款帳戶</label>
-        <select id="inp-inv-pay-account" class="form-select">${payAcctOpts(defaultRole)}</select>
+        <select id="inp-inv-pay-account" class="form-select">${acctOpts(payAcctList(defaultRole))}</select>
       </div>
       <p class="input-hint">實際扣款（價金＋手續費）將同步記一筆「投資儲蓄」支出</p>
       <div class="form-row"><label>買入股數</label>
@@ -436,7 +526,7 @@ Router.register('investments', (() => {
     Utils.el('inp-inv-role').addEventListener('change', () => {
       const role = Utils.el('inp-inv-role').value;
       Utils.el('inp-inv-account').innerHTML = brokerOpts(role);
-      Utils.el('inp-inv-pay-account').innerHTML = payAcctOpts(role);
+      Utils.el('inp-inv-pay-account').innerHTML = acctOpts(payAcctList(role));
     });
 
     // 手續費自動試算；使用者手動改過就不再覆蓋
@@ -498,6 +588,7 @@ Router.register('investments', (() => {
       const account    = Utils.el('inp-inv-account').value;
       const ticker     = Utils.el('inp-inv-ticker').value.trim();
       const name       = Utils.el('inp-inv-name').value.trim();
+      const date       = slashDate(Utils.el('inp-inv-date').value);
       const shares     = parseFloat(Utils.el('inp-inv-shares').value) || 0;
       const price      = parseFloat(Utils.el('inp-inv-avgcost').value) || 0;
       const fee        = Math.max(0, Math.round(parseFloat(Utils.el('inp-inv-fee').value) || 0));
@@ -505,67 +596,59 @@ Router.register('investments', (() => {
       if (!account)    return Utils.toast('請先至設定新增證券帳戶', 'warn');
       if (!ticker)     return Utils.toast('請選擇標的或輸入代號', 'warn');
       if (!name)       return Utils.toast('請輸入標的名稱', 'warn');
+      if (!date)       return Utils.toast('請選擇買入日期', 'warn');
       if (!shares)     return Utils.toast('請輸入買入股數', 'warn');
       if (!price)      return Utils.toast('請輸入成交價', 'warn');
       if (!payAccount) return Utils.toast('請選擇扣款帳戶', 'warn');
 
-      // 持股成本含買進手續費（與券商庫存成本一致）
-      const amount  = Math.round(shares * price);
-      const total   = amount + fee;
-      const avgCost = Math.round(total / shares * 10000) / 10000;
-      _lots.push({ role, account, ticker, name, shares, avgCost,
-        totalCost: 0, price: 0, marketValue: 0, unrealized: 0, returnRate: 0, _deleted: false });
-      modal.remove();
-
-      // 實際扣款（價金＋手續費）同步記一筆「投資儲蓄」支出，從扣款帳戶扣款
-      const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID) || CFG.SHEET_ID;
-      const code = ticker.replace(/^TPE:/i, '');
-      const memo = Utils.sheetText(`${name}（${code}）買入 ${shares}股@${price}，成交金額 ${amount.toLocaleString()}，手續費${fee}`);
-      const row = [Utils.uid(), role, '日常', '', '支出', '投資儲蓄', memo, Utils.todayStr(), total,
+      const tx = { id: Utils.uid(), date, type: '買進', role, account, ticker, name, shares, price, fee, tax: 0, ledgerId: Utils.uid() };
+      const row = [tx.ledgerId, role, '日常', '', '支出', '投資儲蓄', Utils.sheetText(txMemo(tx)), date, ledgerAmount(tx),
                    payAccount, '', '', '', '', ''];
+      modal.remove();
       Utils.showLoading(true);
       try {
-        await API.append(sid, 'Ledger!A:O', row);
+        await API.append(sid(), 'Ledger!A:O', row);
+        await persistTxs([..._txs, tx]);
+        Utils.toast('已買進並記入帳本', 'success');
       } catch (e) {
-        Utils.toast('記錄支出失敗：' + e.message, 'error');
+        Utils.toast('儲存失敗：' + e.message, 'error');
       } finally {
         Utils.showLoading(false);
       }
-      saveLots();
+      await reloadPage();
     });
   }
 
-  // ── Reduce modal (FIFO) ────────────────────────────────────────────────
-  function showReduceModal(pos) {
+  // ── Reduce modal（賣出：建立交易＋帳本「投資賣出」收入，FIFO 扣批次） ────
+  function showReduceModal(pos, presetShares = 0) {
     const modal = document.createElement('div');
     modal.className = 'modal-overlay';
-    const PAY_ICON = { '現金': '💵', '銀行': '🏦' };
-    const inAccts = Store.allAccountsFlat().filter(a => a.role === pos.role && a.type !== '證券帳戶' && a.type !== '信用卡');
-    const inOpts = inAccts.length
-      ? inAccts.map(a => `<option value="${Utils.esc(a.name)}">${PAY_ICON[a.type] || '🏦'} ${Utils.esc(a.name)}</option>`).join('')
-      : `<option value="">（無可入帳帳戶）</option>`;
     const taxRate = sellTaxRate(pos.ticker);
     const taxHint = !isTWTicker(pos.ticker) ? '非台股不自動試算'
       : taxRate === 0 ? '債券 ETF 證交稅停徵' : `證交稅 ${(taxRate * 100).toFixed(1)}%`;
+    const today = isoDate(Utils.todayStr());
 
     modal.innerHTML = `<div class="modal-card">
-      <div class="modal-title">減倉 — ${Utils.esc(pos.name)}</div>
+      <div class="modal-title">${presetShares ? '全部賣出' : '減倉'} — ${Utils.esc(pos.name)}</div>
       <div class="form-row">
         <label>持倉概況</label>
         <div style="padding:6px 0;color:var(--text-muted);font-size:.9rem">
           ${pos.totalShares.toLocaleString()} 股，加權均價 $${pos.weightedAvg.toFixed(2)}，共 ${pos.lots.length} 批（FIFO 順序賣出）
         </div>
       </div>
+      <div class="form-row"><label>賣出日期</label>
+        <input type="date" id="inp-reduce-date" class="form-input" value="${today}">
+      </div>
       <div class="form-row">
         <label>賣出股數 *</label>
-        <input type="number" id="inp-reduce-shares" class="form-input" placeholder="0" min="1" max="${pos.totalShares}" step="1">
+        <input type="number" id="inp-reduce-shares" class="form-input" placeholder="0" min="1" max="${pos.totalShares}" step="1" value="${presetShares || ''}">
       </div>
       <div class="form-row">
         <label>成交價 *</label>
         <input type="number" id="inp-reduce-price" class="form-input" placeholder="${pos.price || pos.weightedAvg.toFixed(2)}" min="0" step="0.01">
       </div>
       <div class="form-row"><label>入帳帳戶 *</label>
-        <select id="inp-reduce-in-account" class="form-select">${inOpts}</select>
+        <select id="inp-reduce-in-account" class="form-select">${acctOpts(inAcctList(pos.role))}</select>
       </div>
       <div class="inv-fee-grid">
         <div class="form-row"><label>手續費</label>
@@ -578,7 +661,7 @@ Router.register('investments', (() => {
       <p class="input-hint">手續費 0.1425%、${taxHint}，自動試算可直接修改；淨入帳將記一筆「投資賣出」收入</p>
       <div id="reduce-pnl" class="inv-trade-summary" style="display:none"></div>
       <div class="modal-actions">
-        <button class="btn btn-primary" id="btn-reduce-confirm">確認減倉</button>
+        <button class="btn btn-primary" id="btn-reduce-confirm">確認賣出</button>
         <button class="btn btn-outline" id="btn-reduce-cancel">取消</button>
       </div>
     </div>`;
@@ -586,84 +669,192 @@ Router.register('investments', (() => {
     modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
     Utils.el('btn-reduce-cancel').addEventListener('click', () => modal.remove());
 
-    const sorted = [...pos.lots].sort((a, b) => a._si - b._si);
     let feeTouched = false, taxTouched = false;
-
-    function fifoCostOf(sellShares) {
-      let rem = sellShares, cost = 0;
-      for (const l of sorted) {
-        if (rem <= 0) break;
-        const take = Math.min(l.shares, rem);
-        cost += take * l.avgCost;
-        rem -= take;
-      }
-      return cost;
-    }
-
     function readTrade() {
       const shares = parseFloat(Utils.el('inp-reduce-shares').value) || 0;
       const price  = parseFloat(Utils.el('inp-reduce-price').value) || 0;
-      const amount = Math.round(shares * price);
       const fee = Math.max(0, Math.round(parseFloat(Utils.el('inp-reduce-fee').value) || 0));
       const tax = Math.max(0, Math.round(parseFloat(Utils.el('inp-reduce-tax').value) || 0));
-      return { shares, price, amount, fee, tax, net: amount - fee - tax };
+      const date = slashDate(Utils.el('inp-reduce-date').value);
+      return { id: '__preview', date, type: '賣出', role: pos.role, account: pos.account, ticker: pos.ticker, name: pos.name,
+               shares, price, fee, tax, ledgerId: '' };
     }
-
     function updatePnL() {
       const pre = readTrade();
-      if (!feeTouched) Utils.el('inp-reduce-fee').value = pre.amount > 0 ? calcFee(pre.amount, pos.ticker) : '';
-      if (!taxTouched) Utils.el('inp-reduce-tax').value = pre.amount > 0 ? calcSellTax(pre.amount, pos.ticker) : '';
+      const amount = Math.round(pre.shares * pre.price);
+      if (!feeTouched) Utils.el('inp-reduce-fee').value = amount > 0 ? calcFee(amount, pos.ticker) : '';
+      if (!taxTouched) Utils.el('inp-reduce-tax').value = amount > 0 ? calcSellTax(amount, pos.ticker) : '';
       const t = readTrade();
       const pnlEl = Utils.el('reduce-pnl');
       if (t.shares > 0 && t.price > 0) {
-        const fifoCost = fifoCostOf(Math.min(t.shares, pos.totalShares));
-        const realized = t.net - fifoCost;
+        const s = Store.deriveHoldings([..._txs, t]).sells[t.id];
         pnlEl.style.display = 'block';
-        pnlEl.innerHTML = `價金 ${Utils.formatMoney(t.amount)} − 手續費 ${Utils.formatMoney(t.fee)} − 證交稅 ${Utils.formatMoney(t.tax)}
-          ＝ 淨入帳 <b>${Utils.formatMoney(t.net)}</b><br>
-          <span class="${realized >= 0 ? 'amount-in' : 'amount-out'}">已實現損益：${realized >= 0 ? '+' : '-'}${Utils.formatMoney(Math.abs(Math.round(realized)))}</span>
-          <span class="inv-trade-sub">（FIFO 成本 ${Utils.formatMoney(Math.round(fifoCost))}）</span>`;
+        pnlEl.innerHTML = `價金 ${Utils.formatMoney(Math.round(t.shares * t.price))} − 手續費 ${Utils.formatMoney(t.fee)} − 證交稅 ${Utils.formatMoney(t.tax)}
+          ＝ 淨入帳 <b>${Utils.formatMoney(ledgerAmount(t))}</b><br>
+          <span class="${s.realized >= 0 ? 'amount-in' : 'amount-out'}">已實現損益：${s.realized >= 0 ? '+' : '-'}${Utils.formatMoney(Math.abs(Math.round(s.realized)))}</span>
+          <span class="inv-trade-sub">（FIFO 成本 ${Utils.formatMoney(Math.round(s.cost))}）</span>`;
       } else { pnlEl.style.display = 'none'; }
     }
     Utils.el('inp-reduce-shares').addEventListener('input', updatePnL);
     Utils.el('inp-reduce-price').addEventListener('input', updatePnL);
+    Utils.el('inp-reduce-date').addEventListener('change', updatePnL);
     Utils.el('inp-reduce-fee').addEventListener('input', () => { feeTouched = true; updatePnL(); });
     Utils.el('inp-reduce-tax').addEventListener('input', () => { taxTouched = true; updatePnL(); });
+    if (presetShares) updatePnL();
 
     Utils.el('btn-reduce-confirm').addEventListener('click', async () => {
       const t = readTrade();
       const inAccount = Utils.el('inp-reduce-in-account').value;
-      if (!t.shares || t.shares <= 0)  return Utils.toast('請輸入賣出股數', 'warn');
-      if (t.shares > pos.totalShares)  return Utils.toast(`最多可賣出 ${pos.totalShares} 股`, 'warn');
-      if (!t.price || t.price <= 0)    return Utils.toast('請輸入成交價', 'warn');
-      if (!inAccount)                  return Utils.toast('請選擇入帳帳戶', 'warn');
-      if (t.net < 0)                   return Utils.toast('手續費與證交稅超過價金，請確認金額', 'warn');
+      if (!t.date)                      return Utils.toast('請選擇賣出日期', 'warn');
+      if (!t.shares || t.shares <= 0)   return Utils.toast('請輸入賣出股數', 'warn');
+      if (!t.price || t.price <= 0)     return Utils.toast('請輸入成交價', 'warn');
+      if (!inAccount)                   return Utils.toast('請選擇入帳帳戶', 'warn');
+      if (ledgerAmount(t) < 0)          return Utils.toast('手續費與證交稅超過價金，請確認金額', 'warn');
+      t.id = Utils.uid();
+      t.ledgerId = Utils.uid();
+      const newTxs = [..._txs, t];
+      if (Store.deriveHoldings(newTxs).errors.includes(t.id)) return Utils.toast('賣出股數超過這個日期當時的持股', 'warn');
 
-      let rem = t.shares;
-      for (const l of sorted) {
-        if (rem <= 0) break;
-        const take = Math.min(l.shares, rem);
-        if (take >= _lots[l._si].shares) _lots[l._si]._deleted = true;
-        else _lots[l._si].shares -= take;
-        rem -= take;
-      }
-      modal.remove();
-
-      // 淨入帳（價金－手續費－證交稅）記一筆「投資賣出」收入
-      const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID) || CFG.SHEET_ID;
-      const code = pos.ticker.replace(/^TPE:/i, '');
-      const memo = Utils.sheetText(`${pos.name}（${code}）賣出 ${t.shares}股@${t.price}，賣股收入 ${t.amount.toLocaleString()}，證交稅${t.tax}，手續費${t.fee}`);
-      const row = [Utils.uid(), pos.role, '日常', '', '收入', CFG.CAT_INVEST_SELL, memo, Utils.todayStr(), t.net,
+      const row = [t.ledgerId, pos.role, '日常', '', '收入', CFG.CAT_INVEST_SELL, Utils.sheetText(txMemo(t)), t.date, ledgerAmount(t),
                    inAccount, '', '', '', '', ''];
+      modal.remove();
       Utils.showLoading(true);
       try {
-        await API.append(sid, 'Ledger!A:O', row);
+        await API.append(sid(), 'Ledger!A:O', row);
+        await persistTxs(newTxs);
+        Utils.toast('已賣出並記入帳本', 'success');
       } catch (e) {
-        Utils.toast('記錄收入失敗：' + e.message, 'error');
+        Utils.toast('儲存失敗：' + e.message, 'error');
       } finally {
         Utils.showLoading(false);
       }
-      saveLots();
+      await reloadPage();
+    });
+  }
+
+  // ── 編輯／刪除交易：有連帳本的同步更新或刪除帳本那一筆 ─────────────────
+  function showTxEditModal(t) {
+    if (_readonly) return;
+    const isBuy = t.type === '買進';
+    const lt = t.ledgerId ? Store.get().ledger.find(x => x.id === t.ledgerId) : null;
+    const acctList = isBuy ? payAcctList(t.role) : inAcctList(t.role);
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.innerHTML = `<div class="modal-card">
+      <div class="modal-title">編輯${t.type} — ${Utils.esc(t.name)}（${Utils.esc(codeOf(t.ticker))}）</div>
+      <p class="input-hint" style="margin-top:0">📊 ${Utils.esc(t.account)}${t.ledgerId
+        ? (lt ? ' · 📒 已連帳本，存檔會同步更新帳本那一筆' : ' · ⚠ 帳本找不到對應紀錄（可能已在帳本頁刪除）')
+        : ' · 沒有對應的帳本紀錄，只會修改投資資料'}</p>
+      <div class="form-row"><label>日期${lt ? ' *' : ''}</label>
+        <input type="date" id="inp-tx-date" class="form-input" value="${isoDate(t.date)}">
+      </div>
+      <div class="form-row"><label>股數 *</label>
+        <input type="number" id="inp-tx-shares" class="form-input" min="0" step="1" value="${t.shares}">
+      </div>
+      <div class="form-row"><label>成交價 *</label>
+        <input type="number" id="inp-tx-price" class="form-input" min="0" step="0.01" value="${t.price}">
+      </div>
+      <div class="inv-fee-grid">
+        <div class="form-row"><label>手續費</label>
+          <input type="number" id="inp-tx-fee" class="form-input" min="0" step="1" value="${t.fee || 0}">
+        </div>
+        ${isBuy ? '' : `<div class="form-row"><label>證交稅</label>
+          <input type="number" id="inp-tx-tax" class="form-input" min="0" step="1" value="${t.tax || 0}">
+        </div>`}
+      </div>
+      ${lt ? `<div class="form-row"><label>${isBuy ? '扣款帳戶' : '入帳帳戶'}</label>
+        <select id="inp-tx-acct" class="form-select">${acctOpts(acctList.some(a => a.name === lt.accountOut) ? acctList : [{ name: lt.accountOut, type: '' }, ...acctList], lt.accountOut)}</select>
+      </div>` : ''}
+      <div id="tx-edit-summary" class="inv-trade-summary"></div>
+      <div class="modal-actions">
+        <button class="btn btn-primary" id="btn-tx-save">儲存</button>
+        <button class="btn btn-danger" id="btn-tx-delete">刪除</button>
+        <button class="btn btn-outline" id="btn-tx-cancel">取消</button>
+      </div>
+    </div>`;
+    document.body.appendChild(modal);
+    modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+    Utils.el('btn-tx-cancel').addEventListener('click', () => modal.remove());
+
+    function readEdit() {
+      return { ...t,
+        date:   slashDate(Utils.el('inp-tx-date').value),
+        shares: parseFloat(Utils.el('inp-tx-shares').value) || 0,
+        price:  parseFloat(Utils.el('inp-tx-price').value) || 0,
+        fee:    Math.max(0, Math.round(parseFloat(Utils.el('inp-tx-fee').value) || 0)),
+        tax:    isBuy ? 0 : Math.max(0, Math.round(parseFloat(Utils.el('inp-tx-tax').value) || 0)) };
+    }
+    function updateSummary() {
+      const u = readEdit();
+      const amt = Math.round(u.shares * u.price);
+      Utils.el('tx-edit-summary').innerHTML = isBuy
+        ? `價金 ${Utils.formatMoney(amt)} ＋ 手續費 ${Utils.formatMoney(u.fee)} ＝ 實際扣款 <b>${Utils.formatMoney(ledgerAmount(u))}</b>`
+        : `價金 ${Utils.formatMoney(amt)} − 手續費 ${Utils.formatMoney(u.fee)} − 證交稅 ${Utils.formatMoney(u.tax)} ＝ 淨入帳 <b>${Utils.formatMoney(ledgerAmount(u))}</b>`;
+    }
+    modal.querySelectorAll('input').forEach(i => i.addEventListener('input', updateSummary));
+    updateSummary();
+
+    Utils.el('btn-tx-save').addEventListener('click', async () => {
+      const u = readEdit();
+      if (!u.shares || u.shares <= 0) return Utils.toast('請輸入股數', 'warn');
+      if (!u.price || u.price <= 0)   return Utils.toast('請輸入成交價', 'warn');
+      if (lt && !u.date)              return Utils.toast('有連帳本的交易需要日期', 'warn');
+      if (!isBuy && ledgerAmount(u) < 0) return Utils.toast('手續費與證交稅超過價金，請確認金額', 'warn');
+      const newTxs = _txs.map(x => x.id === t.id ? u : x);
+      if (Store.deriveHoldings(newTxs).errors.length) return Utils.toast('這樣改會讓某筆賣出的股數超過當時持股，請確認股數或日期', 'warn');
+      if (t.ledgerId && !lt) {
+        if (!confirm('帳本找不到這筆交易對應的紀錄，只更新投資資料（並取消連結）？')) return;
+        u.ledgerId = '';
+      }
+      modal.remove();
+      Utils.showLoading(true);
+      try {
+        if (lt) {
+          if (!await Store.verifyLedgerRows([{ row: lt._row, id: lt.id }])) {
+            Utils.toast('帳本資料已被其他裝置變動，已重新載入，請再操作一次', 'warn');
+            return;
+          }
+          const acct = Utils.el('inp-tx-acct')?.value || lt.accountOut;
+          await API.batchUpdateValues(sid(), [{ range: `Ledger!G${lt._row}:J${lt._row}`,
+            values: [[Utils.sheetText(txMemo(u)), u.date, ledgerAmount(u), acct]] }]);
+        }
+        await persistTxs(newTxs);
+        Utils.toast(lt ? '已更新交易與帳本' : '已更新交易', 'success');
+      } catch (e) {
+        Utils.toast('儲存失敗：' + e.message, 'error');
+      } finally {
+        Utils.showLoading(false);
+        await reloadPage();
+      }
+    });
+
+    Utils.el('btn-tx-delete').addEventListener('click', async () => {
+      const newTxs = _txs.filter(x => x.id !== t.id);
+      if (Store.deriveHoldings(newTxs).errors.length) return Utils.toast('刪掉這筆後，之後的賣出會超過持股，請先刪除相關的賣出', 'warn');
+      const msg = lt
+        ? `刪除這筆${t.type}，並一併刪除帳本 ${lt.date}「${lt.memo || lt.category}」${Utils.formatMoney(lt.amount)}？`
+        : `刪除這筆${t.type}（${t.shares} 股 @ ${t.price}）？`;
+      if (!confirm(msg)) return;
+      modal.remove();
+      Utils.showLoading(true);
+      try {
+        if (lt) {
+          if (!await Store.verifyLedgerRows([{ row: lt._row, id: lt.id }])) {
+            Utils.toast('帳本資料已被其他裝置變動，已重新載入，請再操作一次', 'warn');
+            return;
+          }
+          await Store.ensureSheetMeta();
+          const sheetId = Store.getSheetId('Ledger');
+          await API.batchUpdate(sid(), [{ deleteDimension: { range: { sheetId, dimension: 'ROWS', startIndex: lt._row - 1, endIndex: lt._row } } }]);
+        }
+        await persistTxs(newTxs);
+        Utils.toast(lt ? '已刪除交易與帳本紀錄' : '已刪除交易', 'success');
+      } catch (e) {
+        Utils.toast('刪除失敗：' + e.message, 'error');
+      } finally {
+        Utils.showLoading(false);
+        await reloadPage();
+      }
     });
   }
 
@@ -672,16 +863,14 @@ Router.register('investments', (() => {
     const btn = document.getElementById('btn-inv-refresh');
     if (btn) { btn.disabled = true; btn.textContent = '更新中…'; }
 
-    const activeLots = _lots.filter(l => !l._deleted);
-    const uniqueTickers = [...new Set(activeLots.map(l => l.ticker))];
+    const uniqueTickers = [...new Set(_lots.map(l => l.ticker))];
     if (!uniqueTickers.length) {
       if (btn) { btn.disabled = false; btn.textContent = '更新報價'; }
       return;
     }
 
-    // ticker 格式是 "TPE:2330"，Yahoo Finance 需要 "2330.TW"
-    // Worker 接受純代號（不含 .TW），內部自行加 .TW 查 Yahoo Finance
-    const yahooSymbols = uniqueTickers.map(t => t.replace(/^TPE:/i, '')).join(',');
+    // ticker 格式是 "TPE:2330"；Worker 接受純代號（不含 .TW），內部自行加 .TW 查 Yahoo Finance
+    const yahooSymbols = uniqueTickers.map(codeOf).join(',');
 
     const priceMap = {}; // { 'TPE:2330': 980 }
     try {
@@ -697,7 +886,6 @@ Router.register('investments', (() => {
       return;
     }
 
-    // 若取不到任何報價（非交易日或 API 無資料），保留現有報價並提示
     if (!Object.keys(priceMap).length) {
       const dow = new Date().getDay();
       const reason = (dow === 0 || dow === 6) ? '今日為假日' : 'API 無資料（可能為休市）';
@@ -706,55 +894,25 @@ Router.register('investments', (() => {
       return;
     }
 
-    // 更新記憶體
     _lots.forEach(l => { if (priceMap[l.ticker]) l.price = priceMap[l.ticker]; });
 
-    // 寫回 Investments!H 欄：依每筆持倉的股票代號回寫對應報價
     try {
-      const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID) || CFG.SHEET_ID;
-      const priceRows = _lots.map(l => {
-        const p = priceMap[l.ticker] || l.price || 0;
-        return [p ? parseFloat(p).toFixed(2) : ''];
-      });
-      const lastRow = 1 + priceRows.length;
-      await API.updateRange(sid, `Investments!H2:H${lastRow}`, priceRows);
-
-      Store.invalidate();
-      await Store.load(true);
-      buildState();
-      renderPage();
-
-      const got     = uniqueTickers.filter(t => priceMap[t]).length;
-      const missing = uniqueTickers.filter(t => !priceMap[t]).map(t => t.replace(/^TPE:/i, ''));
-      if (missing.length) {
-        Utils.toast(`已更新 ${got} 筆，${missing.join('、')} 無法取得`, 'warn');
+      if (_readonly) {
+        // 交易紀錄尚未建立：沿用原本依列序回寫 H 欄
+        const priceRows = _lots.map(l => [l.price ? parseFloat(l.price).toFixed(2) : '']);
+        await API.updateRange(sid(), `Investments!H2:H${1 + priceRows.length}`, priceRows);
       } else {
-        Utils.toast(`報價已更新（${got} 筆）`, 'success');
+        await Store.saveHoldingsSnapshot(_lots);
       }
+      await reloadPage();
+      const got     = uniqueTickers.filter(t => priceMap[t]).length;
+      const missing = uniqueTickers.filter(t => !priceMap[t]).map(codeOf);
+      if (missing.length) Utils.toast(`已更新 ${got} 筆，${missing.join('、')} 無法取得`, 'warn');
+      else Utils.toast(`報價已更新（${got} 筆）`, 'success');
     } catch (err) {
       Utils.toast('寫入失敗：' + err.message, 'error');
       if (btn) { btn.disabled = false; btn.textContent = '更新報價'; }
     }
-  }
-
-  // ── Save ───────────────────────────────────────────────────────────────
-  async function saveLots() {
-    const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID) || CFG.SHEET_ID;
-    const rows = _lots.filter(l => !l._deleted).map(l => [l.role, l.account, l.ticker, l.name, l.shares, l.avgCost]);
-    // pad 空列覆蓋殘留：否則清倉後（列數變少）下方舊資料仍在，重新載入時持倉會復活
-    const padded = [...rows];
-    while (padded.length < 200) padded.push(['', '', '', '', '', '']);
-    Utils.showLoading(true);
-    try {
-      await API.updateRange(sid, `Investments!A2:F${1 + padded.length}`, padded);
-      Store.invalidate();
-      await Store.load(true);
-      buildState();
-      renderPage();
-      Utils.toast('已儲存', 'success');
-    } catch (e) {
-      Utils.toast('儲存失敗：' + e.message, 'error');
-    } finally { Utils.showLoading(false); }
   }
 
   return { render, onMount };

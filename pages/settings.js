@@ -411,6 +411,13 @@ Router.register('settings', (() => {
                 .filter(i => i.role === role && i.account === oldName)
                 .map(i => ({ range: `Investments!B${i._row}`, values: [[newName]] }));
               if (invUpd.length) await API.batchUpdateValues(sid, invUpd);
+
+              // 投資交易紀錄的證券帳戶（E 欄；InvestTx 為連續寫入，列號＝索引＋2）
+              const txUpd = (Store.get().investTx || [])
+                .map((t, i) => ({ t, row: i + 2 }))
+                .filter(({ t }) => t.role === role && t.account === oldName)
+                .map(({ row }) => ({ range: `InvestTx!E${row}`, values: [[newName]] }));
+              if (txUpd.length) await API.batchUpdateValues(sid, txUpd);
             }
 
             if (roleChanged) {
