@@ -51,7 +51,7 @@ async function boot() {
 function bindAuthButtons() {
   document.getElementById('btn-signin').addEventListener('click', async () => {
     try {
-      await Auth.getToken();
+      await Auth.signIn();
       launchApp();
     } catch (e) {
       Utils.toast('登入失敗：' + e.message, 'error');

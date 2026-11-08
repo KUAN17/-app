@@ -3,8 +3,6 @@ Router.register('investments', (() => {
   let _activeRole = null;
   const PERSONAL_ROLES = () => Store.personalRoleNames();
 
-  const STOCK_LS = 'ff_stock_list', STOCK_TS = 'ff_stock_list_ts', STOCK_TTL = 86400000;
-
   const BUILTIN_STOCKS = [
     // ETF
     {code:'0050',name:'元大台灣50',market:'上市'},{code:'0051',name:'元大中型100',market:'上市'},
@@ -70,39 +68,9 @@ Router.register('investments', (() => {
     {code:'6488',name:'環球晶',market:'上櫃'},{code:'8299',name:'群聯',market:'上櫃'}
   ];
 
-  let _stockList = [...BUILTIN_STOCKS];
-
-  async function loadStockList() {
-    _stockList = [...BUILTIN_STOCKS];
-    const ts = parseInt(localStorage.getItem(STOCK_TS) || '0');
-    if (Date.now() - ts < STOCK_TTL) {
-      const cached = localStorage.getItem(STOCK_LS);
-      if (cached) { _stockList = JSON.parse(cached); return; }
-    }
-    const existing = new Set(BUILTIN_STOCKS.map(s => s.code));
-    const list = [...BUILTIN_STOCKS];
-    try {
-      const data = await fetch('https://openapi.twse.com.tw/v1/opendata/t187ap03_L').then(r => r.json());
-      data.forEach(s => {
-        const code = (s['公司代號'] || s['證券代號'] || '').trim();
-        const name = (s['公司簡稱'] || s['證券名稱'] || '').trim();
-        if (code && name && /^\d/.test(code) && !existing.has(code)) { list.push({ code, name, market: '上市' }); existing.add(code); }
-      });
-    } catch (_) {}
-    try {
-      const data = await fetch('https://www.tpex.org.tw/openapi/v1/tpex_mainboard_peratio_analysis').then(r => r.json());
-      data.forEach(s => {
-        const code = (s['SecuritiesCompanyCode'] || s['股票代號'] || s['Code'] || '').trim();
-        const name = (s['CompanyName'] || s['公司名稱'] || s['Name'] || '').trim();
-        if (code && name && !existing.has(code)) { list.push({ code, name, market: '上櫃' }); existing.add(code); }
-      });
-    } catch (_) {}
-    _stockList = list;
-    if (list.length > BUILTIN_STOCKS.length) {
-      localStorage.setItem(STOCK_LS, JSON.stringify(list));
-      localStorage.setItem(STOCK_TS, String(Date.now()));
-    }
-  }
+  // 搜尋只用內建清單：證交所／櫃買中心的開放資料不允許網頁直接跨站讀取（CORS），
+  // 從瀏覽器抓一定失敗；不在清單內的標的可直接輸入代號
+  const _stockList = BUILTIN_STOCKS;
 
   function searchStocks(q) {
     if (!q) return [];
@@ -181,7 +149,6 @@ Router.register('investments', (() => {
     buildState();
     if (!_activeRole || !PERSONAL_ROLES().includes(_activeRole)) _activeRole = PERSONAL_ROLES()[0];
     renderPage();
-    loadStockList();
   }
 
   function buildState() {

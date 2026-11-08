@@ -984,6 +984,7 @@ html, body {
   display: flex; align-items: center; justify-content: center; z-index: 150;
 }
 #loading-overlay.hidden { display: none; }
+.reauth-overlay { z-index: 180; align-items: center; }
 .spinner {
   width: 36px; height: 36px; margin: 32px auto;
   border: 3px solid var(--border); border-top-color: var(--primary);

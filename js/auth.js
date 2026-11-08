@@ -4,6 +4,7 @@ window.Auth = (() => {
   let _hint   = '';
   let _client = null;
   let _resolveToken = null;
+  let _reauth = null;      // 登入過期時共用的「重新登入」等待，避免同時多個請求各跳一次視窗
 
   const LS_TOKEN  = 'ff_access_token';
   const LS_EXPIRY = 'ff_token_expiry';
@@ -62,6 +63,10 @@ window.Auth = (() => {
           localStorage.setItem(CFG.LS_KEYS.AUTOLOGIN, '1');
           if (!_hint) _fetchHint();
           if (_resolveToken) { _resolveToken.resolve(_token); _resolveToken = null; }
+        },
+        // 登入視窗被瀏覽器擋下或被使用者關閉：讓等待中的請求失敗，而不是永遠卡住
+        error_callback: (err) => {
+          if (_resolveToken) { _resolveToken.reject(new Error(err?.type || 'popup_failed')); _resolveToken = null; }
         }
       });
       resolve();
@@ -89,9 +94,47 @@ window.Auth = (() => {
     });
   }
 
+  // 使用中憑證過期：不能直接開 Google 登入視窗（非點擊觸發會被瀏覽器擋下），
+  // 改跳一個小視窗，由使用者按下「重新登入」再開，所有等待中的請求共用同一次登入
+  function promptReauth() {
+    if (_reauth) return _reauth;
+    _reauth = new Promise((resolve, reject) => {
+      const modal = document.createElement('div');
+      modal.className = 'modal-overlay reauth-overlay';
+      modal.innerHTML = `<div class="modal-card">
+        <div class="modal-title">登入已過期</div>
+        <p style="margin:0 0 12px;color:var(--text-muted);font-size:14px">為了繼續讀寫試算表，請重新登入 Google。</p>
+        <div class="modal-actions">
+          <button class="btn btn-primary" id="btn-reauth">重新登入</button>
+          <button class="btn btn-outline" id="btn-reauth-cancel">取消</button>
+        </div>
+      </div>`;
+      document.body.appendChild(modal);
+      modal.querySelector('#btn-reauth').addEventListener('click', async () => {
+        try {
+          const t = await interactiveToken();
+          modal.remove();
+          resolve(t);
+        } catch (e) {
+          Utils.toast('登入沒有完成，請再按一次「重新登入」', 'warn');
+        }
+      });
+      modal.querySelector('#btn-reauth-cancel').addEventListener('click', () => {
+        modal.remove();
+        reject(new Error('登入已過期，已取消'));
+      });
+    }).finally(() => { _reauth = null; });
+    return _reauth;
+  }
+
   async function getToken() {
     if (isValid()) return _token;
-    return interactiveToken();
+    return promptReauth();
+  }
+
+  // 登入畫面的「登入」按鈕：本身就是點擊，直接開 Google 登入視窗
+  function signIn() {
+    return isValid() ? Promise.resolve(_token) : interactiveToken();
   }
 
   function signOut() {
@@ -121,5 +164,5 @@ window.Auth = (() => {
     return _hint || '';
   }
 
-  return { init, getToken, silentToken, signOut, hasToken, isValid, getEmail };
+  return { init, getToken, signIn, silentToken, signOut, hasToken, isValid, getEmail };
 })();

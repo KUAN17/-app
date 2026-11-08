@@ -450,12 +450,8 @@ window.Store = (() => {
     } catch (e) { /* 失敗不設 flag，下次 load() 重試 */ }
   }
 
-  async function ensureInvestTxSheet(sid) {
-    if (!_sheetMeta.length) _sheetMeta = await API.getSheetMeta(sid);
-    if (_sheetMeta.find(m => m.name === 'InvestTx')) return;
-    await API.batchUpdate(sid, [{ addSheet: { properties: { title: 'InvestTx' } } }]);
-    await API.updateRange(sid, 'InvestTx!A1:L1', [INVEST_TX_HEADER]);
-    _sheetMeta = await API.getSheetMeta(sid);
+  function ensureInvestTxSheet(sid) {
+    return ensureSheet(sid, 'InvestTx', 'InvestTx!A1:L1', INVEST_TX_HEADER);
   }
 
   // 一次性把既有持股批次轉成「買進」交易（日期留空、手續費 0，均價即成交價）；
@@ -778,13 +774,24 @@ window.Store = (() => {
   }
 
   // ── 定期付款提醒 ───────────────────────────────────────────────────────────
-  async function ensureRemindersSheet(sid) {
-    if (!_sheetMeta.length) _sheetMeta = await API.getSheetMeta(sid);
-    if (_sheetMeta.find(m => m.name === 'Reminders')) return;
-    await API.batchUpdate(sid, [{ addSheet: { properties: { title: 'Reminders' } } }]);
-    await API.updateRange(sid, 'Reminders!A1:L1',
-      [['ID', '名稱', '角色', '分類', '預設金額', '扣款帳戶', '提醒日', '最後完成月份', '啟用', '備忘', '信用卡', '結帳日']]);
+  // 確保分頁存在：記憶中的分頁清單可能是舊的（別台裝置剛建好），先重抓再決定要不要建；
+  // 兩台裝置同時建立時，後到的會收到「已存在」，視為成功
+  async function ensureSheet(sid, name, headerRange, header) {
+    if (_sheetMeta.find(m => m.name === name)) return;
     _sheetMeta = await API.getSheetMeta(sid);
+    if (_sheetMeta.find(m => m.name === name)) return;
+    try {
+      await API.batchUpdate(sid, [{ addSheet: { properties: { title: name } } }]);
+      await API.updateRange(sid, headerRange, [header]);
+    } catch (e) {
+      if (!/already exists|已存在/i.test(e.message || '')) throw e;
+    }
+    _sheetMeta = await API.getSheetMeta(sid);
+  }
+
+  function ensureRemindersSheet(sid) {
+    return ensureSheet(sid, 'Reminders', 'Reminders!A1:L1',
+      ['ID', '名稱', '角色', '分類', '預設金額', '扣款帳戶', '提醒日', '最後完成月份', '啟用', '備忘', '信用卡', '結帳日']);
   }
 
   // 全量覆寫（與 saveMembers/saveAccounts 同模式），pad 空列蓋掉刪除的舊資料
@@ -818,12 +825,8 @@ window.Store = (() => {
   function isDirty() { return _dirty; }
 
   // ── 使用者身份雲端同步（Settings 工作表：A=Email, B=身份） ────────────────
-  async function ensureSettingsSheet(sid) {
-    if (!_sheetMeta.length) _sheetMeta = await API.getSheetMeta(sid);
-    if (_sheetMeta.find(m => m.name === 'Settings')) return;
-    await API.batchUpdate(sid, [{ addSheet: { properties: { title: 'Settings' } } }]);
-    await API.updateRange(sid, 'Settings!A1:B1', [['Email', '身份']]);
-    _sheetMeta = await API.getSheetMeta(sid);
+  function ensureSettingsSheet(sid) {
+    return ensureSheet(sid, 'Settings', 'Settings!A1:B1', ['Email', '身份']);
   }
 
   // 以登入 Gmail 查雲端身份並同步到本機。回傳 { email, identity }；
