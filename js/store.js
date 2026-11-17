@@ -1,6 +1,6 @@
 window.Store = (() => {
   // 本機快取資料結構版本：改動解析邏輯時 +1，自動讓舊快取失效並重抓
-  const SCHEMA_V = 10;
+  const SCHEMA_V = 11;
 
   // 統一日期格式為 YYYY/MM/DD，相容多種來源格式以避免字串比較失敗：
   //  - 試算表序列值（UNFORMATTED_VALUE 下日期欄可能回傳純數字，如 46000）
@@ -507,6 +507,24 @@ window.Store = (() => {
     ]);
   }
 
+  // 一次性補記：10/31 上海觀夏收據（¥2,291，阿熊中信卡刷 11,226）。家用部分 ¥1,833 扣掉按比例分到的
+  // 退稅後為 8,198，由阿熊代付；朋友的車載香不算家庭支出。以固定 ID 確保只寫入一次
+  async function migrateAddGuanxiaReceipt(sid, ledgerRows) {
+    const flag = 'ff_add_guanxia_1031_v1';
+    if (localStorage.getItem(flag)) return;
+    try {
+      const ID = 'manual-guanxia-20261031';
+      if (!ledgerRows.some(r => txt(r[0]) === ID)) {
+        const row = [ID, '家用', '日常', '', '支出', '家用用品',
+          '觀夏 上海－香水、香氛 ¥1,833（已扣退稅，朋友車載香另計）', '2026/10/31', 8198,
+          '一銀活存', '', '', '阿熊', '中信LinePoint卡', ''];
+        await API.append(sid, 'Ledger!A:O', [row]);
+        _data.ledger.push(parseLedgerRow(row, ledgerRows.length));
+      }
+      localStorage.setItem(flag, '1');
+    } catch (e) { /* 失敗不設 flag，下次 load() 重試 */ }
+  }
+
   async function load(force = false) {
     const sid = localStorage.getItem(CFG.LS_KEYS.SHEET_ID);
     if (!sid) return;
@@ -551,6 +569,7 @@ window.Store = (() => {
       await migrateClearCardBalances(sid, acctRows);
       await migrateGenericCreditCard(sid, ledgerRows);
       await migrateLegacyRepayToLineBank(sid, ledgerRows);
+      await migrateAddGuanxiaReceipt(sid, ledgerRows);
       _data.members = (memberRows || [])
         .filter(r => r[0])
         .map(r => ({ name: String(r[0]), type: r[1] === '共享' ? 'shared' : 'personal' }));
